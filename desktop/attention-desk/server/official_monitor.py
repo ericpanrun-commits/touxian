@@ -1,4 +1,7 @@
-"""Read-only, serial monitoring of public Wenzhou University college notices.
+"""Legacy WZU example adapter, retained for old CLI/test compatibility only.
+
+The Desktop default uses official_service and configured ZQU sources. This legacy
+adapter is never instantiated by application startup and does not feed its UI.
 
 The source catalogue and HTML parsers come from the repository's scraper. The
 workbench stores only notice metadata, not article bodies or attachments.
@@ -105,7 +108,11 @@ def official_host(url: str) -> bool:
 
 
 def load_catalog(path: Path = CATALOG_PATH) -> list[dict[str, str]]:
+    if not path.exists():
+        return []
     payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict) or not isinstance(payload.get("学院", []), list):
+        raise ValueError("官网来源配置格式不正确")
     sources: list[dict[str, str]] = []
     seen: set[str] = set()
     for entry in payload.get("学院", []):
@@ -393,7 +400,12 @@ def merge_notices(previous: dict[str, Any], fetched: list[dict[str, Any]], check
 class OfficialMonitor:
     def __init__(self, store_path: Path = STORE_PATH, catalog_path: Path = CATALOG_PATH, start_scheduler: bool = True):
         self.store_path = store_path
-        self.catalog = load_catalog(catalog_path)
+        self.configuration_error = ""
+        try:
+            self.catalog = load_catalog(catalog_path)
+        except (OSError, ValueError, TypeError, AttributeError) as exc:
+            self.catalog = []
+            self.configuration_error = f"官网来源配置无法读取：{exc}"
         self.by_id = {source["id"]: source for source in self.catalog}
         self._state_lock = threading.Lock()
         self._run_lock = threading.Lock()
@@ -470,6 +482,10 @@ class OfficialMonitor:
             run = dict(self._run)
         return {
             "catalog_url": CATALOG_URL,
+            "configuration": {
+                "status": "error" if self.configuration_error else "configured" if self.catalog else "unconfigured",
+                "message": self.configuration_error or ("" if self.catalog else "官网来源未配置；仍可使用手动收集和本地消息功能。"),
+            },
             "sources": sources,
             "notices": notices[:2000],
             "summary": {

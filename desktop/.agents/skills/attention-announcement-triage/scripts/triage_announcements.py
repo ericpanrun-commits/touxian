@@ -863,6 +863,11 @@ def judge_candidate(candidate: dict[str, Any], as_of: date) -> dict[str, Any]:
         judgment.setdefault("question_id", question_id)
     return {
         "candidate_id": candidate["candidate_id"],
+        "local_priority_guard": {
+            "risk": risk["value"] or 0,
+            "required_action": bool(action["value"] and action.get("metadata", {}).get("kind") == "required"),
+            "is_announcement": record_kind == "announcement",
+        },
         "window": {
             "start": message_datetime(messages[0]["timestamp"]).isoformat(sep=" ", timespec="minutes"),
             "end": message_datetime(messages[-1]["timestamp"]).isoformat(sep=" ", timespec="minutes"),
@@ -905,10 +910,20 @@ def reduce_priority(item: dict[str, Any], as_of: date) -> dict[str, Any]:
     context = item.get("context", {})
     nearby_all_mention = bool(context.get("nearby_all_mention"))
     needs_review = False
-    if risk >= 70 and required_action and is_announcement:
+    guard = item.get("local_priority_guard")
+    if guard is None:
+        # Historical remote output has no trustworthy local action metadata.
+        # Current production paths always carry the guard from judge_candidate.
+        remote = bool(item.get("provider_trace") or any(judgment.get("baseline") for judgment in judgments.values()))
+        guard = {"risk": 0 if remote else risk, "required_action": required_action and not remote, "is_announcement": is_announcement and not remote}
+    local_required = bool(guard.get("required_action") and guard.get("is_announcement"))
+    p0_basis = None
+    if risk >= 70 and required_action and is_announcement and guard.get("risk", 0) >= 70 and local_required:
         priority = "P0"
-    elif status == "overdue" and not historical and deadline.get("kind") == "deadline" and required_action and is_announcement:
+        p0_basis = "本地原文命中高风险条件，且本地确认明确行动要求"
+    elif status == "overdue" and not historical and deadline.get("kind") == "deadline" and required_action and is_announcement and local_required:
         priority = "P0"
+        p0_basis = "本地日期解析确认截止已过，且本地确认明确行动要求"
     elif is_announcement and (urgency >= 80 or (importance >= 70 and required_action and judgments["audience"]["value"] == "all")):
         priority = "P1"
     elif is_announcement and (urgency >= 40 or importance >= 50):
@@ -929,6 +944,7 @@ def reduce_priority(item: dict[str, Any], as_of: date) -> dict[str, Any]:
         needs_review = True
     item["decision"] = {
         "priority": priority,
+        "p0_basis": p0_basis,
         "queue_state": queue_state,
         "archive_reason": "deadline_passed" if queue_state == "archived" else None,
         "importance": importance,

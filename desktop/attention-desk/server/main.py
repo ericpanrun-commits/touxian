@@ -6,6 +6,7 @@ import json
 import os
 import re
 import sys
+from contextlib import asynccontextmanager
 from collections import Counter
 from datetime import date, datetime
 from pathlib import Path
@@ -23,16 +24,33 @@ try:
     from .chat_archive import ChatArchiveError, parse_archive, safe_filename
     from .completion_store import apply_completions, load_completions, set_completion
     from .inbox import InboxStore
-    from .official_monitor import AuthRequired, OfficialMonitor
+    from .official_monitor import AuthRequired
+    from .official_service import OfficialSourceMonitor
     from .wechat_bridge import WeChatBridge
+    from .personal_api import router as personal_router
+    from .personal_store import PersonalStore, SCHEMA_VERSION, default_database_path
+    from .review_api import router as review_router
+    from .ai_settings import AISettings
+    from .extraction_service import ExtractionService
+    from .documents.service import DocumentService
+    from .documents.api import router as document_router, UploadBodyLimit
 except ImportError:  # pragma: no cover - direct module execution fallback
     import mail_digest
     import profile_store as PROFILE
     from chat_archive import ChatArchiveError, parse_archive, safe_filename
     from completion_store import apply_completions, load_completions, set_completion
     from inbox import InboxStore
-    from official_monitor import AuthRequired, OfficialMonitor
+    from official_monitor import AuthRequired
     from wechat_bridge import WeChatBridge
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from server.personal_api import router as personal_router
+    from server.personal_store import PersonalStore, SCHEMA_VERSION, default_database_path
+    from server.review_api import router as review_router
+    from server.ai_settings import AISettings
+    from server.extraction_service import ExtractionService
+    from server.official_service import OfficialSourceMonitor
+    from server.documents.service import DocumentService
+    from server.documents.api import router as document_router, UploadBodyLimit
 
 
 APP_ROOT = Path(__file__).resolve().parents[1]
@@ -64,11 +82,42 @@ def load_skill_module():
 
 TRIAGE = load_skill_module()
 WECHAT = WeChatBridge()
-OFFICIAL = OfficialMonitor()
-app = FastAPI(title="Attention Desk API", version="0.1.0")
+OFFICIAL = None
+
+
+@asynccontextmanager
+async def application_lifespan(application: FastAPI):
+    global OFFICIAL
+    personal_store = PersonalStore(default_database_path())
+    personal_store.initialize()
+    application.state.personal_store = personal_store
+    extraction = ExtractionService(personal_store, AISettings(personal_store.path.with_name("ai-settings.json")))
+    extraction.recover_interrupted()
+    application.state.extraction_service = extraction
+    documents = DocumentService(personal_store)
+    application.state.document_service = documents
+    official = OfficialSourceMonitor(personal_store)
+    OFFICIAL = official
+    application.state.official_monitor = official
+    start_inbox_watcher()
+    try:
+        yield
+    finally:
+        await extraction.close()
+        await run_in_threadpool(documents.close)
+        await run_in_threadpool(official.close)
+        INBOX.stop_watcher()
+
+
+app = FastAPI(title="Attention Desk API", version="0.1.0", lifespan=application_lifespan)
+app.include_router(personal_router)
+app.include_router(review_router)
+app.include_router(document_router)
+app.add_middleware(UploadBodyLimit)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://127.0.0.1:5173", "http://localhost:5173"],
+    allow_origins=[f"http://127.0.0.1:{os.environ.get('ATTENTION_WEB_PORT', '5173')}",
+                   f"http://localhost:{os.environ.get('ATTENTION_WEB_PORT', '5173')}"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -846,6 +895,15 @@ def apply_jev_answers(
 ) -> dict[str, Any]:
     answers = extract_answers(payload)
     judgments = base["judgments"]
+    if "local_priority_guard" not in base:
+        local_action = judgments["action_required"].get("baseline", judgments["action_required"])
+        local_announcement = judgments["is_announcement"].get("baseline", judgments["is_announcement"])
+        local_kind = judgments.get("record_kind", {}).get("baseline", judgments.get("record_kind", {}))
+        base["local_priority_guard"] = {
+            "risk": judgments["risk"].get("baseline", {}).get("value", judgments["risk"]["value"]) or 0,
+            "required_action": bool(local_action["value"] and local_action.get("metadata", {}).get("kind") == "required"),
+            "is_announcement": bool(local_announcement["value"] and local_kind.get("value", "announcement") == "announcement"),
+        }
     allowed_choices = {
         "record_kind": {"announcement", "resource", "conversation", "noise", "other"},
         "category": {"course", "assignment", "exam", "activity", "admin", "safety", "employment", "resource", "noise", "other"},
@@ -863,6 +921,7 @@ def apply_jev_answers(
             "value": judgment.get("value"),
             "confidence": judgment.get("confidence"),
             "reason": judgment.get("reason"),
+            "metadata": dict(judgment.get("metadata") or {}),
         })
 
     profile_active = PROFILE.is_active(profile)
@@ -1087,10 +1146,15 @@ async def jev_items(
 
 
 @app.get("/api/health")
-def health() -> dict[str, Any]:
+def health(check_integrations: bool = True) -> dict[str, Any]:
+    storage = {"initialized": hasattr(app.state, "personal_store"), "schema_version": SCHEMA_VERSION}
+    if not check_integrations:
+        # Launcher readiness must not wait for optional local exporters or mail CLIs.
+        return {"status": "ok", "personal_storage": storage}
     mail = mail_digest.mail_status()
     return {
         "status": "ok",
+        "personal_storage": storage,
         "sample_available": SAMPLE_PATH.exists(),
         "skill_available": SKILL_SCRIPT.exists(),
         "algorithm_version": getattr(TRIAGE, "ALGORITHM_VERSION", "unknown"),
@@ -1185,7 +1249,17 @@ def mail_send(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
 
 @app.get("/api/official/overview")
 def official_overview() -> dict[str, Any]:
+    if OFFICIAL is None:
+        raise HTTPException(status_code=503, detail='来源服务尚未就绪。')
     return OFFICIAL.overview()
+
+
+@app.post('/api/official/source')
+def official_source_settings(payload: dict[str, Any] = Body(...)):
+    try:
+        return OFFICIAL.set_enabled(payload.get('source_id'), payload.get('enabled'))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.post("/api/official/scan")
@@ -1542,7 +1616,6 @@ async def analyze_archive(
 # ------------------------------------------------------------- 转发收件箱
 
 
-@app.on_event("startup")
 def start_inbox_watcher() -> None:
     """启动 WorkBuddy 微信转发监视线程；poll_seconds=0 时自动关闭。"""
     INBOX.start_watcher()

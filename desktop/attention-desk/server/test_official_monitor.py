@@ -31,11 +31,37 @@ class OfficialMonitorTests(unittest.TestCase):
         return monitor_module.OfficialMonitor(root / "state.json", catalog, start_scheduler=False)
 
     def test_catalog_uses_22_official_college_hosts(self):
-        sources = monitor_module.load_catalog()
+        # Catalogue content is runtime configuration, not a clean-checkout prerequisite.
+        with TemporaryDirectory() as directory:
+            catalog = Path(directory) / "sites.json"
+            catalog.write_text(json.dumps({"学院": [
+                {"name": f"学院 {index}", "url": f"https://college{index}.wzu.edu.cn/"}
+                for index in range(22)
+            ]}), encoding="utf-8")
+            sources = monitor_module.load_catalog(catalog)
         self.assertEqual(len(sources), 22)
         self.assertTrue(all(monitor_module.official_host(source["home"]) for source in sources))
         self.assertFalse(monitor_module.official_host("https://ai.wzu.edu.cn.evil.example/"))
         self.assertFalse(monitor_module.official_host("http://ai.wzu.edu.cn/"))
+
+    def test_missing_catalog_does_not_block_local_workbench(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            monitor = monitor_module.OfficialMonitor(root / "state.json", root / "missing.json", start_scheduler=False)
+            overview = monitor.overview()
+            self.assertEqual(overview["sources"], [])
+            self.assertEqual(overview["configuration"]["status"], "unconfigured")
+            with self.assertRaises(ValueError):
+                monitor.start_scan()
+
+    def test_invalid_catalog_is_visible_and_not_overwritten(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            catalog = root / "sites.json"
+            catalog.write_text("broken configuration", encoding="utf-8")
+            monitor = monitor_module.OfficialMonitor(root / "state.json", catalog, start_scheduler=False)
+            self.assertEqual(monitor.overview()["configuration"]["status"], "error")
+            self.assertEqual(catalog.read_text(encoding="utf-8"), "broken configuration")
 
     def test_teammate_parser_reads_hidden_article_dates(self):
         html = '<span id="time12345">2026-09-23</span><a href="/info/1001/12345.htm">关于奖学金申请安排的通知</a>'

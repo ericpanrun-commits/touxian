@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "school": "肇庆学院",
+  "sources": [
+    {"id": "zqu-school", "name": "校级通知公告", "school": "肇庆学院", "department": "学校", "category": "综合通知", "list_url": "https://www.zqu.edu.cn/index/tzgg.htm", "allowed_hosts": ["www.zqu.edu.cn"], "parser_type": "vsb_school", "enabled": true, "polling_interval": 43200},
+    {"id": "zqu-jwc", "name": "教务部课程通知", "school": "肇庆学院", "department": "教务部", "category": "教务", "list_url": "https://jwc.zqu.edu.cn/jwgl2/kctz.htm", "allowed_hosts": ["jwc.zqu.edu.cn"], "parser_type": "vsb_div", "enabled": true, "polling_interval": 43200},
+    {"id": "zqu-jxqc", "name": "机械与汽车工程学院教学通知", "school": "肇庆学院", "department": "机械与汽车工程学院", "category": "学院教学", "list_url": "https://jxqc.zqu.edu.cn/index/jxgz.htm", "allowed_hosts": ["jxqc.zqu.edu.cn", "jwc.zqu.edu.cn"], "parser_type": "vsb_table", "enabled": true, "polling_interval": 43200},
+    {"id": "zqu-iec", "name": "创新创业学院通知公告", "school": "肇庆学院", "department": "创新创业学院", "category": "创新创业", "list_url": "https://iec.zqu.edu.cn/tzgg.htm", "allowed_hosts": ["iec.zqu.edu.cn"], "parser_type": "vsb_table", "enabled": true, "polling_interval": 43200},
+    {"id": "zqu-xsc", "name": "学生工作部学工通知", "school": "肇庆学院", "department": "学生工作部", "category": "学生事务", "list_url": "https://xsc.zqu.edu.cn/xwgg/xgtz.htm", "allowed_hosts": ["xsc.zqu.edu.cn"], "parser_type": "vsb_table", "enabled": true, "polling_interval": 43200}
+  ]
+}

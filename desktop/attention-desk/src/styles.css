@@ -1,4 +1,8 @@
 :root {
+  --scrollbar-thumb: #cfcec6;
+  --scrollbar-track: #f3f2ec;
+  --scrollbar-hover: #62625d;
+  --scrollbar-active: #111111;
   --ink: #111111;
   --paper: #f3f2ec;
   --panel: #ffffff;
@@ -27,7 +31,16 @@
 * {
   box-sizing: border-box;
   letter-spacing: 0;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+  scrollbar-width: thin;
 }
+
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-track { background: var(--scrollbar-track); }
+*::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border: 2px solid var(--scrollbar-track); }
+*::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-hover); }
+*::-webkit-scrollbar-thumb:active { background: var(--scrollbar-active); }
+@media (forced-colors: active) { * { scrollbar-color: auto; } }
 
 html { background: var(--paper); }
 

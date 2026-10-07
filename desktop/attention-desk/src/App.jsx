@@ -35,6 +35,7 @@ import {
   X,
 } from 'lucide-react';
 import OfficialMonitor from './OfficialMonitor';
+import PersonalWorkspace from './personal/PersonalWorkspace';
 
 const CATEGORY_LABELS = {
   course: '课程安排',
@@ -333,7 +334,14 @@ function RangeEmptyState({ dateRangeLabel, archiveCount, onReset, onOpenSettings
 }
 
 function App() {
-  const [screen, setScreen] = useState(() => window.localStorage.getItem('attention-screen') === 'official' ? 'official' : 'chat');
+  const [screen, setScreen] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('official_sources') === '1') return 'official';
+    if (params.has('review_source') || params.has('personal_event') || params.has('personal_raw') || params.get('personal_settings') === '1') return 'personal';
+    const saved = window.localStorage.getItem('attention-screen');
+    return ['personal', 'chat', 'official'].includes(saved) ? saved : 'personal';
+  });
+  const personalNavigationGuard = useRef(null);
   const [result, setResult] = useState(null);
   const [selectedId, setSelectedId] = useState(null);
   const [filter, setFilter] = useState('all');
@@ -924,16 +932,34 @@ function App() {
     }
   };
 
+  const changeScreen = (next) => {
+    if (next === screen) return;
+    const navigate = () => {
+      setSettingsOpen(false);
+      setProfileOpen(false);
+      setMailOpen(false);
+      const url = new URL(window.location.href);
+      if (next === 'official') url.searchParams.set('official_sources', '1');
+      else url.searchParams.delete('official_sources');
+      if (next !== 'personal') ['personal_event', 'personal_raw', 'personal_settings', 'review_source'].forEach(key => url.searchParams.delete(key));
+      window.history.replaceState({}, '', url);
+      setScreen(next);
+    };
+    if (screen === 'personal' && personalNavigationGuard.current) personalNavigationGuard.current(navigate);
+    else navigate();
+  };
+
   return (
-    <div className="app-shell">
+    <div className={'app-shell' + (screen !== 'chat' ? ' personal-shell' : '')}>
       <aside className="sidebar">
         <div className="brand-lockup" title="Attention Desk">
           <div className="brand-mark"><img src="/touxian-icon.png" alt="" /></div>
           <span>AD</span>
         </div>
         <nav className="side-nav" aria-label="主导航">
-          <button className={'nav-icon ' + (screen === 'chat' ? 'active' : '')} title="微信群通知" aria-label="微信群通知" onClick={() => setScreen('chat')}><Inbox size={19} /></button>
-          <button className={'nav-icon ' + (screen === 'official' ? 'active' : '')} title="学院官网监测" aria-label="学院官网监测" onClick={() => { setSettingsOpen(false); setScreen('official'); }}><Globe2 size={19} /></button>
+          <button className={'nav-icon ' + (screen === 'personal' ? 'active' : '')} title="收集与事项" aria-label="收集与事项" onClick={() => changeScreen('personal')}><FileText size={19} /></button>
+          <button className={'nav-icon ' + (screen === 'chat' ? 'active' : '')} title="微信群通知" aria-label="微信群通知" onClick={() => changeScreen('chat')}><Inbox size={19} /></button>
+          <button className={'nav-icon ' + (screen === 'official' ? 'active' : '')} title="官网来源" aria-label="官网来源" onClick={() => changeScreen('official')}><Globe2 size={19} /></button>
         </nav>
         <div className="side-bottom">
           <a className="nav-icon" title="项目说明" href="https://github.com/sssssjw11/wzu-notice-scraper#readme" target="_blank" rel="noopener noreferrer"><CircleHelp size={19} /></a>
@@ -948,7 +974,13 @@ function App() {
       </aside>
 
       <main className="main-canvas">
-        {screen === 'official' ? <OfficialMonitor /> : <>
+        {screen === 'personal' ? <PersonalWorkspace navigationGuardRef={personalNavigationGuard} /> : screen === 'official' ? <OfficialMonitor onOpenReviews={sourceId => {
+          const url = new URL(window.location.href);
+          ['official_sources', 'personal_event', 'personal_raw', 'personal_settings'].forEach(key => url.searchParams.delete(key));
+          if (sourceId) url.searchParams.set('review_source', sourceId); else url.searchParams.delete('review_source');
+          window.history.replaceState({}, '', url);
+          changeScreen('personal');
+        }} /> : <>
         <header className="topbar">
           <div className="group-context">
             <div className="context-icon"><MessageCircle size={17} /></div>

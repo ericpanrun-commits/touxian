@@ -508,3 +508,8 @@
   }
   .official-detail-drawer { width: min(530px, 66vw); }
 }
+.official-source-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 24px; margin: 16px 0; font-size: 14px; line-height: 1.7; }
+.official-source-facts dt { color: var(--muted); }
+.official-source-facts dd { margin: 2px 0 0; overflow-wrap: anywhere; }
+.official-source-url { overflow-wrap: anywhere; word-break: break-word; }
+@media (max-width: 700px) { .official-source-facts { grid-template-columns: minmax(0, 1fr); } }

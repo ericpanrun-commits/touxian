@@ -1,0 +1,125 @@
+/* New workflow uses the established palette and controls; no legacy redesign. */
+body:has(.personal-shell) { min-width: 360px; }
+.personal-shell .main-canvas { min-width: 0; }
+.personal-workspace { min-width: 0; }
+.personal-shell .personal-topbar { flex-wrap: wrap; gap: 12px; }
+.personal-content { max-width: 1240px; margin: 0 auto; padding: 14px 28px 40px; }
+.personal-feedback { min-height: 26px; margin-bottom: 8px; color: var(--green); font-size: 14px; line-height: 1.6; }
+.personal-error { margin-bottom: 16px; flex-wrap: wrap; justify-content: space-between; }
+.personal-loading { min-height: 200px; display: flex; align-items: center; justify-content: center; gap: 10px; color: var(--muted); }
+.personal-section { margin-bottom: 20px; border: 1px solid var(--line-soft); background: var(--panel); padding: 22px; min-width: 0; }
+.personal-section h1 { margin: 0 0 8px; font-size: 28px; line-height: 1.4; overflow-wrap: anywhere; }
+.personal-section h2 { margin: 0; font-size: 18px; line-height: 1.5; }
+.personal-section-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
+.personal-section-heading > div { min-width: 0; }
+.personal-intro { color: var(--muted); line-height: 1.7; margin: 0 0 24px; }
+.personal-meta { color: var(--muted); font-size: 13px; line-height: 1.7; overflow-wrap: anywhere; }
+.personal-summary { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.8; }
+.personal-text-button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 5px 2px; border: 0; background: transparent; color: var(--blue); font: inherit; font-size: 13px; cursor: pointer; text-align: left; }
+.personal-text-button:hover { text-decoration: underline; }
+.personal-text-button:active { color: var(--ink); }
+.personal-text-button:disabled { color: var(--muted); text-decoration: none; }
+.personal-workspace :is(button, input, select, textarea, summary):focus-visible { outline: 2px solid var(--blue); outline-offset: 3px; }
+.personal-workspace :is(button, input, select, textarea):disabled { cursor: not-allowed; }
+.personal-event-actions, .personal-form-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 18px; }
+.personal-form-actions .button-primary { min-width: 160px; }
+.personal-form-actions .button-primary svg { flex: 0 0 16px; }
+.personal-cancel { margin-left: auto; color: var(--muted); }
+.personal-cancel:hover { color: var(--red); }
+.personal-back { margin-bottom: 12px; }
+.personal-status { display: inline-flex; flex: 0 0 auto; border: 1px solid var(--line-soft); padding: 5px 9px; color: var(--muted); font-size: 13px; white-space: nowrap; }
+.personal-status.done { color: var(--green); background: var(--green-soft); }
+.personal-status.needs_action, .personal-status.in_progress { color: var(--blue); background: var(--blue-soft); }
+.personal-status.needs_review { background: var(--yellow-soft); color: var(--ink); }
+.personal-event-list, .personal-deadline-list, .personal-task-list { list-style: none; padding: 0; margin: 0; }
+.personal-event-list { margin-bottom: 16px; }
+.personal-event-row { width: 100%; display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; padding: 18px 12px; border: 0; border-bottom: 1px solid var(--line-soft); background: var(--panel); text-align: left; color: var(--ink); }
+.personal-event-row > span:first-child { min-width: 0; }
+.personal-event-row strong { display: block; font-size: 16px; line-height: 1.6; overflow-wrap: anywhere; }
+.personal-event-row small { display: block; margin-top: 5px; color: var(--muted); line-height: 1.6; }
+.personal-event-row:hover { background: var(--paper); }
+.personal-event-row:active { background: var(--soft); }
+.personal-empty { padding: 44px 0; text-align: center; line-height: 1.8; }
+.personal-empty p { color: var(--muted); }
+.personal-detail-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 20px; align-items: start; }
+.personal-deadline { padding: 14px 0; border-bottom: 1px solid var(--line-soft); }
+.personal-deadline:last-child { border-bottom: 0; }
+.personal-deadline .personal-section-heading { margin-bottom: 4px; }
+.personal-date-value { margin: 4px 0; font: 600 20px/1.6 var(--mono); }
+.personal-task { padding: 15px 0; border-bottom: 1px solid var(--line-soft); }
+.personal-task:last-child { border-bottom: 0; }
+.personal-task-title { display: flex; gap: 10px; align-items: flex-start; font-size: 16px; line-height: 1.7; cursor: pointer; }
+.personal-task-title input { width: 18px; height: 18px; margin: 5px 0 0; flex: 0 0 18px; accent-color: var(--green); }
+.personal-task-title span { overflow-wrap: anywhere; }
+.personal-task.done .personal-task-title span { color: var(--muted); text-decoration: line-through; }
+.personal-task-meta { margin: 5px 0 0 28px; }
+.personal-evidence-links { display: flex; flex-wrap: wrap; gap: 10px; }
+.personal-complete-note { background: var(--green-soft); color: var(--green); padding: 12px; line-height: 1.7; }
+.personal-form { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line-soft); }
+.personal-collection-form { border-top: 0; padding-top: 0; }
+.personal-form fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+.personal-field { margin-bottom: 18px; min-width: 0; }
+.personal-field label { display: block; font-weight: 600; margin-bottom: 7px; line-height: 1.6; }
+.personal-field :is(input, select, textarea) { width: 100%; border: 1px solid var(--line-soft); padding: 10px 11px; background: var(--panel); color: var(--ink); font: inherit; font-size: 14px; line-height: 1.6; border-radius: 0; }
+.personal-field select { appearance: auto; min-height: 45px; }
+.personal-field textarea { resize: none; min-height: 80px; max-height: 460px; overflow: auto; }
+.personal-field [aria-invalid='true'] { border-color: var(--red); }
+.personal-field-error, .personal-field-help { font-size: 13px; line-height: 1.6; margin: 6px 0 0; }
+.personal-field-error { color: var(--red); }
+.personal-field-help { color: var(--muted); }
+.personal-form-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; }
+.personal-checkbox-label { display: flex; gap: 9px; align-items: center; line-height: 1.6; cursor: pointer; }
+.personal-checkbox-label input { width: 17px; height: 17px; accent-color: var(--blue); }
+.personal-original, .personal-section h1 { scroll-margin-top: 110px; scroll-margin-bottom: 16px; }
+.personal-original:focus { outline: 2px solid var(--blue); outline-offset: 2px; }
+.personal-original-text { white-space: pre-wrap; overflow-wrap: anywhere; font-family: inherit; font-size: 15px; line-height: 1.9; margin: 16px 0 0; max-height: 440px; overflow: auto; }
+.personal-original-text mark { background: var(--yellow-soft); color: var(--ink); outline: 1px solid var(--yellow); }
+.personal-quote { margin: 16px 0; padding: 12px 16px; border-left: 3px solid var(--blue); background: var(--blue-soft); white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.8; }
+.personal-history summary { cursor: pointer; font-weight: 600; }
+.personal-history ol { list-style: none; padding: 0; }
+.personal-history li { display: flex; gap: 16px; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--line-soft); font-size: 13px; line-height: 1.6; }
+.personal-history li span { color: var(--muted); }
+.personal-confirm-dialog { width: min(480px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow: auto; border: 2px solid var(--ink); padding: 24px; color: var(--ink); background: var(--panel); }
+.personal-confirm-dialog::backdrop { background: rgb(0 0 0 / 45%); }
+.personal-confirm-dialog h2 { font-size: 20px; line-height: 1.5; margin: 0 0 12px; }
+.personal-confirm-dialog p { line-height: 1.8; }
+.personal-confirm-dialog button:focus-visible { outline: 2px solid var(--blue); outline-offset: 3px; }
+.personal-review-event { padding: 20px 0; border-bottom: 1px solid var(--line-soft); }
+.personal-review-event h3 { margin: 24px 0 12px; font-size: 17px; }
+.personal-review-child { padding: 16px; margin: 14px 0; border: 1px solid var(--line-soft); }
+.personal-review-child > .personal-checkbox-label, .personal-review-event > .personal-checkbox-label { margin-bottom: 16px; }
+.personal-review-evidence { padding-top: 8px; }
+.personal-review-quote { padding: 12px 0; border-bottom: 1px solid var(--line-soft); }
+.personal-review-warnings, .personal-review-warning-summary { color: var(--ink); background: var(--yellow-soft); padding: 12px 20px; line-height: 1.8; }
+.personal-review-warning-summary p { margin: 6px 0 0; }
+.personal-analysis-error { padding: 16px; border-left: 3px solid var(--red); margin: 16px 0; line-height: 1.8; }
+.personal-review-form .personal-checkbox-label { align-items: flex-start; margin-top: 12px; }
+.personal-review-form .personal-checkbox-label input { flex: 0 0 17px; margin-top: 4px; }
+.personal-event-context li { line-height: 1.8; margin: 8px 0; overflow-wrap: anywhere; }
+@media (max-width: 950px) {
+  .personal-detail-grid { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .personal-content { padding: 12px 16px 32px; }
+  .personal-shell .personal-topbar { padding: 16px; height: auto; }
+  .personal-shell .personal-topbar .group-context { min-width: 0; padding: 0; border-right: 0; }
+}
+@media (max-width: 600px) {
+  .personal-shell .sidebar { width: 52px; flex-basis: 52px; }
+  .personal-shell .brand-lockup { width: 52px; }
+  .personal-content { padding: 8px 10px 24px; }
+  .personal-section { padding: 16px; }
+  .personal-section h1 { font-size: 23px; }
+  .personal-form-grid { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .personal-section-heading { flex-wrap: wrap; gap: 8px; }
+  .personal-event-row { flex-wrap: wrap; }
+  .personal-history li { flex-direction: column; gap: 4px; }
+  .personal-cancel { margin-left: 0; }
+}
+/* File sources share the same original-notice and review surfaces. */
+.personal-file-drop { border: 1px dashed var(--line-soft); padding: 16px; margin-bottom: 20px; }
+.personal-file-drop ul, .personal-document-files ul { padding-left: 20px; overflow-wrap: anywhere; }
+.personal-document-files li { margin-bottom: 14px; }
+.personal-source-badge { background: var(--yellow-soft); padding: 8px 12px; overflow-wrap: anywhere; }
+.personal-source-image-wrap { max-width: 720px; margin: 16px 0; }
+.personal-source-image { position: relative; border: 1px solid var(--line-soft); }
+.personal-source-image img { display: block; width: 100%; height: auto; }
+.personal-source-image-mark { position: absolute; border: 2px solid var(--yellow); background: color-mix(in srgb, var(--yellow) 24%, transparent); pointer-events: none; }

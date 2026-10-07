@@ -1,0 +1,104 @@
+{
+  "captured_at": "2026-10-07T08:53:14.731216+00:00",
+  "note": "DOM excerpts from actual HTTP 200 captures. Header/body and relevant list rows are unchanged; site chrome and scripts outside excerpts omitted. Changes to simulate a new website version are performed only in tests. No attachments fetched.",
+  "pages": [
+    {
+      "file": "school_article.html",
+      "source_id": "zqu-school",
+      "url": "https://www.zqu.edu.cn/info/1361/144521.htm",
+      "original_sha256": "a241d1fd9d58f7b5a41f114b61f37817f66013ff8101911ef4f82d2392fd1074",
+      "fixture_sha256": "a9c9cccf5541eb38d461680fc3e0d95a73a601bad73bb35a597e20e9ee1440b8"
+    },
+    {
+      "file": "jwc_article.html",
+      "source_id": "zqu-jwc",
+      "url": "https://jwc.zqu.edu.cn/info/1162/9515.htm",
+      "original_sha256": "ca645e34ce23898241953cd68b6d44fbeb11717fdda407c9cfbf79cf65d75a03",
+      "fixture_sha256": "fd7bb814e59e1050eb93daa78c5297d0115554e21c4aaf5dce19622ad6948899"
+    },
+    {
+      "file": "jwc_course_article.html",
+      "source_id": "zqu-jwc",
+      "url": "https://jwc.zqu.edu.cn/info/2414/9705.htm",
+      "original_sha256": "d9338078518afb63f4d5bbeea9aa30f40c730405489c3326edce594a08c1562c",
+      "fixture_sha256": "15b1f9871584dbc0369cbc423416c23107f349582cec1f56dec151236a4465dc"
+    },
+    {
+      "file": "iec_article.html",
+      "source_id": "zqu-iec",
+      "url": "https://iec.zqu.edu.cn/info/1004/4495.htm",
+      "original_sha256": "30821552003d8acdacfb24cadde352192d1a4b24bf671f5da38d4b3280cd995b",
+      "fixture_sha256": "05cb8f772e87bbc4e3875271274c82acef77f28dab3ae0759dd96bbc8d69b3e4"
+    },
+    {
+      "file": "iec_no_deadline.html",
+      "source_id": "zqu-iec",
+      "url": "https://iec.zqu.edu.cn/info/1004/4625.htm",
+      "original_sha256": "8104a1cffacbaca0d1779fe9030e380623c0809b5b0c431bd0ba4243a12e106c",
+      "fixture_sha256": "411d603780b5d4dee0680e5dd625cd14564f686934ff87c92dc98583e4baa877"
+    },
+    {
+      "file": "jxqc_article.html",
+      "source_id": "zqu-jxqc",
+      "url": "https://jxqc.zqu.edu.cn/info/1066/5990.htm",
+      "original_sha256": "01fdc821382a8aa4a775ed67a37b3d13566706d336b137b6530b2784f06f7f8b",
+      "fixture_sha256": "e06a47956204db1316cfab733e24dac1a59b4863b8c1f78af4526e2c06036b32"
+    },
+    {
+      "file": "xsc_article.html",
+      "source_id": "zqu-xsc",
+      "url": "https://xsc.zqu.edu.cn/info/1088/6527.htm",
+      "original_sha256": "d254eee352aa0889b39515db8dc492ee2036303b19ae897795b40b8ca05d029a",
+      "fixture_sha256": "6cb491adb59d7a2dab161fe71a1cb2d9538d6a4abae97d4eb31f16ef1e42c445"
+    },
+    {
+      "file": "school.html",
+      "source_id": "zqu-school",
+      "url": "https://www.zqu.edu.cn/index/tzgg.htm",
+      "original_sha256": "fc3d95c0cb28dfe68cc45d9ee842e8fa41d57bdb4783fb7941577b2cd528857b",
+      "fixture_sha256": "2fd7c62a567a58c901544d10a8cff4bb0c310f3ee37ea86a08fb6f3cfc608b06"
+    },
+    {
+      "file": "jwc_course.html",
+      "source_id": "zqu-jwc",
+      "url": "https://jwc.zqu.edu.cn/jwgl2/kctz.htm",
+      "original_sha256": "9f806042763c33360a79c8001c645fcdd6c331617b9286febb5d41429f3a9874",
+      "fixture_sha256": "2c4718cbe353a83afc5d77ce96b5a3486a03b37263721a3e3a606965a048b803"
+    },
+    {
+      "file": "jxqc_list.html",
+      "source_id": "zqu-jxqc",
+      "url": "https://jxqc.zqu.edu.cn/index/jxgz.htm",
+      "original_sha256": "5e7153a7d1cedf1fbd16354796e21df9c9f9379093fca0d88c2f14c9c757eebc",
+      "fixture_sha256": "b0240dba312bb6b90d2355c73cd7c15e94ad0046b2a5bf44cfec01fd199e7536"
+    },
+    {
+      "file": "jxqc_home.html",
+      "source_id": "zqu-jxqc",
+      "url": "https://jxqc.zqu.edu.cn/",
+      "original_sha256": "fd8d14bb3786a5404fde7db88e522ab7a09505264ca50808676800f9bfeb0f7f",
+      "fixture_sha256": "e9e420f8dc3e401b876702afbcb2190895c47904c988daf1886a07e3e077a3df"
+    },
+    {
+      "file": "iec_list.html",
+      "source_id": "zqu-iec",
+      "url": "https://iec.zqu.edu.cn/tzgg.htm",
+      "original_sha256": "950b7c24c268510d90b7f47f77775028a7c659d39f25268a30af89837dbe5d81",
+      "fixture_sha256": "d6cf380aa0237563f2a605d4a027ab30f92320975f68bbe7a3efd12eaee00b08"
+    },
+    {
+      "file": "xsc_list.html",
+      "source_id": "zqu-xsc",
+      "url": "https://xsc.zqu.edu.cn/xwgg/xgtz.htm",
+      "original_sha256": "fe06118c66045c4a27b55c956f1c56412d01c2aa490ce47d4b200bda0f40db43",
+      "fixture_sha256": "cf59cfc55781069921fe8e6901567edff286f01bf000f19df20b74f3ff8da050"
+    },
+    {
+      "file": "school_document_only.html",
+      "source_id": "zqu-school",
+      "url": "https://www.zqu.edu.cn/info/1361/140441.htm",
+      "original_sha256": "f7cb2aab23dc140f3eeb26e748263df6239b9961cc0f8d6fcf5644792196e30b",
+      "fixture_sha256": "5fa2b9770fd2d4810827a5e7bc2fe9865d36598f33e8b29edeeb8d3cc9a947d5"
+    }
+  ]
+}

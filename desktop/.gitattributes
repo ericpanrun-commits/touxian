@@ -16,3 +16,6 @@
 *.png   binary
 *.jpg   binary
 *.gif   binary
+
+# Public-site captures are byte-exact test evidence; preserve their recorded hashes.
+attention-desk/server/fixtures/official/*.html -text whitespace=-blank-at-eol

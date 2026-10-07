@@ -2,9 +2,11 @@
 
 本地 Web 工作台，把微信群导出的 `messages.json` 变成按 P0–P3 排序的注意力队列。
 
-它也可以作为温州大学学院官网的公开通知阅读器使用：列表扫描保留轻量，正文、分类证据和活动截止日期按需读取。工作台面向桌面端，本地启动、本地保存，默认不需要云服务。
+个人版默认接入肇庆学院五个公开官网来源，通过 HTTP 保存通知原文和附件链接。工作台面向 Windows Desktop，本地启动、本地保存；官网检查不调用远程模型。
 
-运行要求：Python 3.10+、Node.js 18+ 和 npm 9+。
+「收集与事项」统一处理手动输入、官网通知、PDF、DOCX、TXT 和 PNG/JPG 截图：先保存不可变原文与文件，在本机解析/OCR，再按需使用 DeepSeek 生成候选或手动整理。核对文件页码、引用、日期及参与意愿后，才创建正式事项和任务。旧微信群消息队列保留。详见 [文件解析契约](DOCUMENTS.md)、[提取配置与确认边界](EXTRACTION.md) 和 [Phase 4 验收报告](PHASE-4-REPORT.md)。
+
+Windows 验证环境：PowerShell 7、Python 3.12.14、Node.js 24.17.0、npm 11.13.0。前端插件要求 Node.js 20.19+ 或 22.12+；后端锁定依赖要求 Python 3.10+。
 
 ## 目录
 
@@ -25,13 +27,13 @@
 在仓库根目录打开 PowerShell：
 
 ```powershell
-cd attention-desk
+cd desktop/attention-desk
 .\start.ps1 -Install
 ```
 
 打开脚本输出的地址，默认是 [http://127.0.0.1:5173](http://127.0.0.1:5173)。API 默认运行在 `http://127.0.0.1:8765`。
 
-`-Install` 会执行 `npm install`，创建仓库根目录的 `.venv`，并安装 `server/requirements.txt`。已经安装过依赖时直接运行：
+`-Install` 会执行 `npm ci`，创建 `desktop/.venv`，并安装 `server/requirements.lock.txt` 的锁定版本。首次启动需要网络下载依赖。Python 不在 PATH 时，可使用 `-PythonExecutable 'C:\完整路径\python.exe'`。已经安装过依赖时直接运行：
 
 ```powershell
 .\start.ps1
@@ -43,12 +45,16 @@ cd attention-desk
 .\start.ps1 -WebPort 5174 -ApiPort 8865
 ```
 
+脚本检查端口、等待后端就绪，并在退出时关闭本次创建的后端。日志在 `desktop/data/attention-desk/logs/`。无需 `desktop/data/sites.json`；肇庆学院来源配置随应用提供。缺少微信导出器或 DeepSeek Key 不会阻断工作台。
+
+DeepSeek Key 在页面「提取设置」填写；默认端口可[直接打开设置](http://127.0.0.1:5173/?personal_settings=1)，也可点左侧「收集与事项」后选择右上角「提取设置」。密钥由当前 Windows 用户 DPAPI 加密保存到本机后端。默认 `deepseek-flash`、thinking 关闭。没有 Key 时仍能保存原文和手动确认。原文只在主动分析时发送到配置的服务。模型输出先经过严格 Schema、日期和原文引用验证，分析失败不会丢原文；重分析需主动触发。
+
 ### Linux / macOS
 
 ```bash
-cd attention-desk
+cd desktop/attention-desk
 python3 -m venv ../.venv
-../.venv/bin/python -m pip install -r server/requirements.txt
+../.venv/bin/python -m pip install -r server/requirements.lock.txt
 npm ci
 ```
 
@@ -82,10 +88,35 @@ npm run build
 
 ## 你会看到什么
 
+- **收集与事项**：点「收集通知」粘贴原文、选择或拖入文件/截图；本地解析后分析或手动核对。点击「查看依据」定位正文、PDF 页、DOCX 段落/表格或截图区域。任务全部完成时只提示，整个事项由你确认完成。已完成或已取消的事项可以恢复修改。
 - **微信群通知**：导入或读取聊天记录，筛出需要行动的事项。
-- **公开来源：温州大学 · 学院官网**：扫描 22 个学院公开通知入口，跟踪发布日期、分类、未读和完成状态。
+- **官网来源：肇庆学院**：五个经过验证的来源支持启用、停用和手动检查；保存的原文进入统一待核对列表。
 - **设置**：选择数据入口、日期范围、判断提供方、Jev / DeepSeek 参数和提醒频率。
 - **邮件摘要**：预览当前待办，确认后调用本机邮件 CLI 发送。
+
+## 个人事项的数据与验证
+
+新数据保存到 `desktop/data/attention-desk/personal.sqlite3`，可用 `ATTENTION_PERSONAL_DB` 指向另一个文件。旧功能继续使用原有 JSON。数据库、日志、导出数据均被 Git 忽略；备份运行中的数据库时需使用 SQLite backup API，或关闭应用后复制数据库文件。
+
+Schema v1 在 `server/migrations/001_personal.sql`：`source` → `raw_item` → `raw_snapshot` → `event`；事项关联多个 `deadline`、`task`、`evidence` 和 `user_decision`。`schema_migrations` 记录已应用版本，事务执行迁移；不覆盖较新版本。原文的更新和删除被数据库触发器禁止，保留 SHA-256、来源时间和创建时间。Evidence 偏移按 Unicode 码点计算，结束位置不包含在引用内，服务器验证引用和快照一致。
+
+截止时间区分 `date` / `minute`；日期不会补成 23:59，明确时分使用北京时间。任务保留顺序、可选截止时间和 `explicit` / `suggested` / `manual` 来源。事项状态为 `needs_review` / `needs_action` / `in_progress` / `done` / `cancelled`。完成、取消、恢复以及手动修改留有决策记录；本轮没有归档或删除操作。
+
+新 API 位于 `/api/personal`：收集、文件解析、事项列表/详情/编辑、状态/恢复、截止时间、任务和依据。收集使用幂等请求标识防止重复提交；修改携带事项版本，冲突返回 409；存储失败返回 503，不清空已有数据。官网检查和本地解析不调用模型；DeepSeek 仅在主动分析时接收原文与提取文字。
+
+Windows 测试与构建：
+
+```powershell
+..\.venv\Scripts\python.exe -m pip install -r server\requirements-dev.txt
+$env:ATTENTION_INBOX_POLL = '0'
+$testTemp = Join-Path $env:TEMP ('touxian-tests-' + [Guid]::NewGuid().ToString('N'))
+..\.venv\Scripts\python.exe -m pytest -q -p no:cacheprovider --basetemp $testTemp
+npm run build
+```
+
+修改前基线（上游 `afbf348e499d9f931787589275a7d790a2499386`）：前端可以构建；后端因缺少 `sites.json` 无法启动，pytest 有 8 个收集错误。修复并增加关键路径测试后：276 项通过，包含原有 252 项、2 项官网配置测试、22 项个人事项测试。测试使用临时数据库和模拟服务，不调用远程模型。测试客户端有 1 条 Starlette/httpx 弃用提示，运行功能不受影响。
+
+视觉和交互约定见 [DESIGN.md](DESIGN.md) 与 [UX-CONTRACT.md](UX-CONTRACT.md)。当前已完成启动、统一事项、DeepSeek、肇庆学院官网与文件/OCR 流程；不包含新的手机端或 Calendar。
 
 ## 四条消息来源
 
@@ -169,39 +200,22 @@ cd attention-desk
 
 ## 学院官网监测
 
-左侧地球图标打开第二个消息来源。来源清单来自 `data/sites.json` 中的 22 个学院；
-检查时复用原始抓取器的串行请求、限速、隐藏日期节点解析和通知栏目发现逻辑。
-每个学院优先检查已知学生公告列表，同时检查首页及最多两个公开通知栏目。
-部分栏目失败会标成“部分可用”；需要认证的页面不会尝试绕过。
+左侧「官网来源」管理肇庆学院的校级通知、教务部课程通知、机械与汽车工程学院教学通知、创新创业学院通知和学生工作部学工通知。配置位于 `server/config/official_sources.json`，可用 `ATTENTION_OFFICIAL_SOURCES` 指定经过验证的本地配置；当前限一个学校、最多五个来源。
 
-点击“检查全部”进行第一次全量检查，之后可设为关闭或每 6、12、24 小时自动检查
-（默认每 12 小时，第一次全量检查完成后才开始计时）。也可只检查选中的学院。
-首次检查得到的历史公告默认为已读；后续发现的新链接进入未读。打开公告会自动标已读，
-也能单条撤销或批量标记已读。列表支持近 7 天、近 30 天、全部、标题搜索，以及
-“全部 / 未读 / 已读完”分区；已读完的公告可找回并撤销已读。
+启用的来源默认每 12 小时检查一次，也可以手动检查。每次最多读取三页、最近 20 条通知，串行限速，请求超时 12 秒、HTML 上限 2 MB，并验证域名、公开 DNS 和每次重定向。停用不删除历史原文。错误保留来源状态并延长下次检查时间。
 
-产品目标、功能补全与桌面体验重构顺序见 [PRODUCT_REQUIREMENTS.md](PRODUCT_REQUIREMENTS.md)。
+采集先保存 RawItem，再保存完整 HTML 可见正文到不可变 RawSnapshot；内容或附件元数据变化会创建新版本，旧事项与 Evidence 保留旧版本。图片或嵌入 PDF 没有可读正文时只保存页面标题与未解析元数据，界面明确提示。附件只保存文件名、URL、扩展名和 MIME，不下载、不解析。
 
-列表扫描只保存公开页面的标题、发布日期、栏目、链接、分类和已读/完成状态，不下载图片与附件。
-用户打开公告详情或主动读取时，后端才按需读取公开正文，提取正文摘要、分类证据和活动/报名截止日期；
-正文读取失败、认证墙或跳转到非温大域名时会明确报错，不会猜测截止日。本地状态在被 Git 忽略的
-`data/attention-desk/official_monitor.json`。完整图文与附件下载仍由仓库根目录的原始脚本单独执行。
-校外无法访问的学院站点会保留失败状态，不被当成“没有公告”。
+所有原文、来源状态、AI 预览和正式事项共用 `desktop/data/attention-desk/personal.sqlite3`。按 canonical URL 去重，跨栏目只增加来源关联；不同 URL 暂不做语义合并。无变化不新增原文版本，不触发 AI。用户进入统一工作台后显式选择 DeepSeek 或手动整理，核对并确认后才创建事项、日期和任务。`ATTENTION_OFFICIAL_POLL=0` 可关闭自动检查供测试使用。
 
-本地官网监测 API：
+本地官网 API：
 
-- `GET /api/official/overview`：22 个来源的检查状态、未读/已读/已完成计数、分类计数和公告元数据。
-- `POST /api/official/scan`：空 JSON 检查全部；`{"source_ids":["ai.wzu.edu.cn"]}` 只检查指定学院。
-- `POST /api/official/read`：传 `source_id`、可选 `url` 和布尔 `read`；省略来源与 URL 可批量更新全部。
-- `GET /api/official/notice?source_id=ai.wzu.edu.cn&url=https%3A%2F%2F...`：按需读取公开正文摘要、
-  分类证据和截止日期；截止日期无可靠证据时返回 `null`，不会把发布日期当成截止日。
-- `POST /api/official/action`：传 `source_id`、`url` 和布尔 `completed`，独立保存官网公告的完成状态。
-- `POST /api/official/settings`：传 `{"auto_interval_hours":12}`，可选 0、6、12、24。
+- `GET /api/official/overview`：来源配置、检查进度和持久状态。
+- `POST /api/official/scan`：空 JSON 检查已启用来源；`{"source_ids":["zqu-jxqc"]}` 检查指定来源。
+- `POST /api/official/source`：`{"source_id":"zqu-jxqc","enabled":false}` 保存启用状态。
+- `GET /api/personal/raw?source_id=zqu-jxqc`：同一条统一待核对队列。
 
-公告分类固定为 `competition_activity`（比赛 / 活动）、`publicity`（公示）、`other`（其他公告）
-和 `unknown`（待确认）。日期区间类表述（例如“9月7日至9月28日送交材料，逾期不再受理”）
-取区间结束日作为截止日期，并保留原文证据。自动检查默认每 12 小时；目前不自动发送邮件或外部通知，
-邮件摘要仍由用户手动触发。
+旧 `server/official_monitor.py` 保留为温大示例适配器，默认应用不实例化它。旧的独立已读/完成接口会提示使用统一工作台，原示例测试仍保留。
 
 ## API 模式
 
