@@ -61,9 +61,29 @@ def raw_detail(snapshot_id: str, store=Depends(store_for)):
 @router.post("/raw/{snapshot_id}/analyze", status_code=202)
 async def analyze(snapshot_id: str, payload: AnalyzeInput, request: Request, idempotency_key: str | None = Header(None)):
     try:
-        return await analysis_for(request).start(snapshot_id, payload.force, request_key(idempotency_key))
+        return await analysis_for(request).start(snapshot_id, payload.force, request_key(idempotency_key), confirm_budget=payload.confirm_budget, scope=payload.scope)
     except (PersonalError, sqlite3.DatabaseError) as exc:
         return perform(lambda: (_ for _ in ()).throw(exc))
+
+
+@router.post('/raw/{snapshot_id}/analysis-cancel')
+async def cancel_analysis(snapshot_id: str, request: Request):
+    try:
+        return await analysis_for(request).long.cancel(snapshot_id)
+    except (PersonalError, sqlite3.DatabaseError) as exc:
+        return perform(lambda: (_ for _ in ()).throw(exc))
+
+
+@router.get('/raw/{snapshot_id}/analysis-chunks/{chunk_record_id}')
+def chunk_record(snapshot_id: str, chunk_record_id: str, store=Depends(store_for)):
+    def read():
+        import json
+        with store.connection() as c:
+            row = c.execute('SELECT ch.* FROM ai_chunk_extraction ch JOIN ai_extraction a ON a.id=ch.extraction_id WHERE a.raw_snapshot_id=? AND ch.id=?',(snapshot_id,chunk_record_id)).fetchone()
+            if not row:
+                raise PersonalError('区域分析记录不存在。','not_found',404)
+            return {**dict(row),'parsed_output':json.loads(row['parsed_output'] or 'null')}
+    return perform(read)
 
 
 @router.put("/raw/{snapshot_id}/draft")

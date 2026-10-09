@@ -357,7 +357,7 @@ def test_provider_payload_thinking_timeout_truncated_and_missing_key():
 @pytest.mark.parametrize('raw', ['{"events":[', '{"events":[],"events":[],"evidence":[]}', '```json\n{}\n```', '{"events":[],"evidence":[],"risk":NaN}'])
 def test_strict_json_refuses_partial_duplicate_fenced_and_nonfinite(raw):
     with pytest.raises(ExtractionFailure) as failure: parse_output(raw)
-    assert failure.value.code == 'invalid_json'
+    assert failure.value.code == ('truncated' if raw == '{"events":[' else 'invalid_json')
 
 
 def test_date_only_never_synthesizes_time_and_minute_uses_china_timezone():
@@ -394,7 +394,7 @@ def test_remote_scores_and_action_cannot_create_p0_but_local_risk_still_can():
     assert base['decision']['priority'] == 'P0' and base['decision']['p0_basis']
 
 
-@pytest.mark.parametrize('mutate,error', [(lambda value: '{"events":[', 'invalid_json'),
+@pytest.mark.parametrize('mutate,error', [(lambda value: '{"events":[', 'truncated'),
                                         (lambda value: json.dumps({**value, 'risk': 100}), 'invalid_schema')])
 def test_invalid_output_versions_keep_raw_and_diagnostics(store, mutate, error):
     text = '2026年10月12日前提交申请。'

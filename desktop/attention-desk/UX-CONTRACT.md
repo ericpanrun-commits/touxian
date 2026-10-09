@@ -1,5 +1,13 @@
 # UX Contract
 
+## Long document reliability (Phase 5.5)
+
+ExtractionWorkspace owns the existing review route; AnalysisProgress and AnalysisHistory are named variants of its inline progress/history behavior, not a separate inbox. Short notices retain one extraction request. Long work shows actual processed/total regions and can be cancelled independently of cancelling the raw review. Cancellation preserves immutable sources, successful region results and cache; partial previews require the existing warning acknowledgement before formal confirmation.
+
+The existing ConfirmDialog owns paid retry and budget confirmation. The default long job permits 8 new regions / 12 HTTP attempts / 240,000 conservative tokens; explicit confirmation permits 32 new regions / 48 HTTP attempts / 1,000,000 conservative tokens per round. Success caches do not consume request budget. Remaining content stays available in the immutable original and can be explicitly analysed in another bounded round. No automatic sequence of paid rounds runs unattended.
+
+History loads 20 rows at a time; source labels retain PDF page, DOCX section or OCR region. Quote navigation uses OriginalNotice. Progress does not steal focus; stale polls cannot replace a newer completed/cancelled version. Existing tokens, controls, Chinese locale, keyboard/native dialog and confirmation boundaries remain canonical. Mobile Collector pairing and iPhone screens do not change.
+
 ## Product context and sources
 
 Scope: personal Windows notice workflow with public ZQU sources, local file/OCR intake, DeepSeek candidate extraction and explicit human confirmation, zh-CN, Asia/Shanghai minute precision, Gregorian dates. Accessibility target is WCAG 2.2 AA for new controls. Files and original images stay local; explicit analysis sends extracted text. A LAN-only mobile web collector submits to the same Windows workflow; no cloud account, native phone app, calendar or clipboard automation is introduced. A transient password field sends the provider key to the local backend for Windows DPAPI protection.

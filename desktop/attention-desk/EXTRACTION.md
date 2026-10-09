@@ -1,6 +1,6 @@
 # DeepSeek 候选提取与人工确认
 
-本阶段仅扩展个人工作台。输入为手动粘贴文字；不新增官网、OCR、手机端、Calendar、Windows 微信读取或其他 provider。
+个人工作台复用既有手动文字、官网、文件/OCR 和 Mobile Collector 输入。Phase 5.5 只完善长文档提取可靠性；不新增来源、provider 或 Calendar。详见 [Phase 5.5 验收报告](PHASE-5.5-REPORT.md)。
 
 ## 本地配置
 
@@ -14,9 +14,9 @@
 
 `ExtractionProvider` 定义 `extract(snapshot, config, SecretStr) -> ProviderResult`。DeepSeek HTTP 实现仅负责调用及返回文本、用量和响应模型；领域验证、缓存、日期、参与选择和数据库写入由独立模块控制。
 
-`ExtractionOutput` 是唯一权威 Schema（extra=forbid、严格类型）。`GET /api/personal/extraction-schema` 返回完整 JSON Schema 和版本，当前为 `2`。Prompt 版本为 `notice-extraction-4`，明确要求把可独立勾选的并列/顺序动作拆成各个步骤。历史提取记录保留自己的版本。
+`ExtractionOutput` 是单次模型输出的权威 Schema（extra=forbid、严格类型）。`GET /api/personal/extraction-schema` 返回它的完整 JSON Schema 和版本，当前为 `2`。短文 Prompt 为 `notice-extraction-4`；分块 Prompt 为 `notice-chunks-1`。确定性合并结果再通过 `ConsolidatedOutput`（`consolidated-1`）校验，预览最多 32 个事项、每事项每类 100 个候选、2000 条依据；超额候选仍保存在区域记录并明确提示。历史记录保留各自版本。
 
-文件解析后，同一 RawItem 的新快照保存正文和文件来源块。模型输入使用 `source_blocks`，每条 Evidence 引用 `block_id` 和块内偏移；文件 ID、页码、段落及 OCR 区域由代码从已保存块推导，模型不能指定。长文最多选择 80 块、24,000 字，优先日期、行动和资格线索；全文保存在本机，遗漏范围显示在预览。OCR、正文/附件日期冲突及未解析文件均提示人工核对。模型失败不影响本地文件、文字或手动整理。图片字节不会发送到 DeepSeek。详见 [文件解析契约](DOCUMENTS.md)。
+文件解析后，同一 RawItem 的新快照保存正文和文件来源块。模型输入使用 `source_blocks`，每条 Evidence 引用 `block_id` 和块内偏移；文件 ID、页码、段落及 OCR 区域由代码从已保存块推导。短文保持一次调用；超过 6000 字、超过 3 个 PDF 页或超过 80 个来源块进入分块路径。主块目标 1800 字，优先页/段落/表格行与语句边界，并保留有限邻近上下文。超过 24,000 字才按本地线索和相邻块筛选；没有线索则保留全部候选。未覆盖范围和完整原文仍在本机，可主动继续分析。OCR、正文/附件日期冲突及未解析文件均提示人工核对。图片字节不会发送到 DeepSeek。详见 [文件解析契约](DOCUMENTS.md)。
 
 顶层是 `events[]` 和 `evidence[]`。每个 event 包含 id、title、summary、category、audience、participation（required/optional/unclear）、notice_kind（new/update/cancellation/information）、eligibility、deadlines、actions、materials、locations、uncertainties。事实用 `{text,evidence_ids}`。日期保留 id、role、original_text、normalized_date/null、precision（date/minute/unknown）、related_action_ids、evidence_ids、uncertain、relation（current/previous/cancelled）。行动包含 id、title、kind（explicit/suggested）、evidence_ids。引用包含 id、quote、start、end；偏移按 Unicode 码点计，end 不包含。Schema 不接受 risk、importance、urgency 或 priority。
 
@@ -43,11 +43,15 @@
 
 ## 故障与付费缓存
 
-无密钥、401、403、402、429、网络错误、超时、服务错误、空结果、JSON/Schema 错误或截断均保留原文及分析失败记录，允许手动整理或主动重分析。429/502/503 最多自动重试一次；超时不自动重复付费。API 错误体和请求认证头不输出到日志或 UI。
+无密钥、401、403、402、429、网络错误、超时、服务错误、空结果、JSON/Schema 错误或截断均保留原文及失败记录。短文的网络重试策略不变；长文在总预算内有限恢复：截断/非法 JSON/Schema 优先缩小区域（最多两层），小区域最多三次提取尝试，必要时只提高该次输出上限至最多 8192；timeout/无效依据等最多两次。每次 HTTP 尝试计入预算，失败响应的已知 token 用量也计入总记录。API 错误体和认证头不输出到日志或 UI。
 
 持久缓存键包含 snapshot hash、source_time、provider、model、Prompt/Schema 版本、thinking、base URL 和输出上限。同内容并发请求合并；不同原文记录复用输出时重新绑定其自己的快照依据。失败也缓存，需主动新版本重试。force 操作有明确 UI 确认；分析请求的 UUID 幂等键避免连接中断后的同请求重复付费。
 
-AIExtraction 保存快照、provider/model、Prompt/Schema、创建/完成时间、原始/解析输出、验证状态和警告、错误码/信息、token usage、latency、thinking、实际请求配置/响应模型、缓存来源。正式事项可回溯对应记录。
+长文缓存进一步包含 snapshot hash、chunk hash、provider/model、Prompt/Schema、thinking、输出设置和解释上下文；未变化的页连同邻近输入一致时可跨快照复用，引用重新绑定并逐字验证。不同页变化最多影响该页及邻近上下文。相同服务内并发相同块共享请求。只有日期表述存在唯一空白差异时可恢复原文空白，依据 quote 仍须逐字一致；旧失败响应也可经完整校验后本地恢复，保留来源记录和警告。
+
+常规一轮最多 8 个新区域、12 次 HTTP 请求、24 万 token 的保守上界；用户明确确认后最多 32 个新主区域、48 次 HTTP、100 万 token。预算是输入 UTF-8 字节数加输出上限的保守预留，不是收费估算。达到上限停止并保留部分结果，不自动进入下一轮。可取消、重试失败部分或分析尚未覆盖区域；缓存成功结果不重新付费。应用重启恢复成功区域供核对，不自动重新请求。
+
+AIExtraction 保存快照、provider/model、Prompt/Schema、时间、原始/解析输出、验证与错误、用量、延迟、thinking 和配置。`analysis_state` 区分 running/validated/partial/truncated/failed/cancelled，与兼容现有 Collector 的 legacy status 分离。每个区域持久保存输入 hash、来源范围、父块、尝试次数、原因、设置、用量和输出；桌面预览可查看实际进度、区域候选与原文位置。正式事项仍只由明确确认创建。
 
 ## 验证
 

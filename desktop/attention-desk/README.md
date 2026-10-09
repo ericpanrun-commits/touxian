@@ -393,3 +393,7 @@ state。拿到结果后只做两件事，**都不会让条目升级**：
 
 
 Phase 5 最终验收记录：见 [完整验收报告](PHASE-5-ACCEPTANCE.md) 与 [配对修复报告](PHASE-5-REPORT.md)。真实 iPhone 14 项及最终 Python 540/前端 11/build 已通过。2026-10-09 稳定 checkpoint 的提交前审计、完整复跑结果与两项非阻塞问题见 [PHASE-5-CHECKPOINT.md](PHASE-5-CHECKPOINT.md)，对应本地标签 `phase5-mobile-collector-stable`。
+
+## Phase 5.5 长文档提取可靠性
+
+长 PDF、长文本与多来源块使用有预算的分块提取、确定性合并和逐字依据校验；成功区域缓存，支持部分预览、取消及恢复。短通知保留一次调用。真实 26 页 PDF 已完成全部区域分析和重启保留验证；相对时间仍需人工提供可靠参照并确认。详见 [提取合同](EXTRACTION.md)、[Phase 5.5 报告](PHASE-5.5-REPORT.md) 与 [本地 checkpoint 记录](PHASE-5.5-CHECKPOINT.md)。后续用户授权的稳定基线为 phase5.5-long-document-stable，不 push。

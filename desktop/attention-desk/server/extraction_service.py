@@ -21,10 +21,13 @@ class ExtractionService:
         self.reviews = ReviewStore(personal)
         self.tasks = {}
         self.semaphore = asyncio.Semaphore(2)
+        from .extraction_long import LongExtraction
+        self.long = LongExtraction(self)
 
     def recover_interrupted(self):
+        self.long.recover()
         with self.personal.connection(write=True) as connection:
-            connection.execute("UPDATE ai_extraction SET status='failed',completed_at=?,error_json=? WHERE status IN ('running','waiting')",
+            connection.execute("UPDATE ai_extraction SET status='failed',analysis_state='failed',completed_at=?,error_json=? WHERE status IN ('running','waiting')",
                                (now(), encode({"code": "interrupted", "message": "上次分析因应用退出而中断。原文保留，请主动重新分析或手动整理。"})))
 
     async def close(self):
@@ -34,11 +37,14 @@ class ExtractionService:
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
 
-    async def start(self, snapshot_id, force=False, request_id=None):
+    async def start(self, snapshot_id, force=False, request_id=None, *, confirm_budget=False, scope='auto'):
         config = self.settings._read()[1]
         snapshot = self.reviews.get(snapshot_id)["snapshot"]
         if snapshot.get('attachments') and not snapshot.get('blocks') and not snapshot.get('web'):
             raise PersonalError('请先完成本地文件解析，再分析提取内容。','files_pending',409)
+        from .extraction_chunks import is_long
+        if is_long(snapshot):
+            return await self.long.start(snapshot,config,force,request_id,confirm_budget,scope)
         cache_data = {"snapshot_hash": snapshot["hash"], "source_time": snapshot["source_time"], "provider": self.provider.name,
                       "source_context": model_source_context(snapshot),
                       "document_context": {k:snapshot.get(k) for k in ('document','input_budget')},
@@ -77,7 +83,7 @@ class ExtractionService:
             if request_id:
                 connection.execute("INSERT INTO extraction_request VALUES (?,?,?,?)", (request_id, snapshot_id, request_hash, extraction_id))
             if cached:
-                for column in ("completed_at", "raw_output", "parsed_output", "validation_json", "error_json", "token_usage_json", "latency_ms"):
+                for column in ("completed_at", "raw_output", "parsed_output", "validation_json", "error_json", "token_usage_json", "latency_ms", "analysis_state"):
                     connection.execute(f"UPDATE ai_extraction SET {column}=? WHERE id=?", (cached[column], extraction_id))
                 if cached["parsed_output"]:
                     parsed = parse_output(cached["raw_output"])
@@ -133,6 +139,8 @@ class ExtractionService:
             connection.execute("""UPDATE ai_extraction SET completed_at=?,status=?,raw_output=?,parsed_output=?,validation_json=?,error_json=?,token_usage_json=?,latency_ms=?,config_json=? WHERE id=?""",
                                (now(), status, raw, encode(parsed) if parsed is not None else None, encode(validation) if validation else None,
                                 encode(error) if error else None, encode(usage), latency, encode(provenance), extraction_id))
+            connection.execute('UPDATE ai_extraction SET analysis_state=? WHERE id=?',
+                               ('validated' if parsed is not None else 'truncated' if error and error['code']=='truncated' else 'failed',extraction_id))
             waiting = connection.execute("SELECT id,raw_snapshot_id FROM ai_extraction WHERE reused_from_id=? AND status='waiting'", (extraction_id,)).fetchall()
             for follower in waiting:
                 follower_validation = None

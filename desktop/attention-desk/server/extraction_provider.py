@@ -18,6 +18,8 @@ class ProviderResult:
     raw_output: str
     usage: dict
     response_model: str = ""
+    finish_reason: str = 'stop'
+    attempts: int = 1
 
 
 class ExtractionProvider(Protocol):
@@ -47,7 +49,8 @@ source_blocks 中没有的附件仍未解析，不能猜测其内容。没有 so
 同一要求的正文和附件日期不一致，必须明确在 uncertainties 中列出两处原句，并分别提供依据，不得静默选择一个日期。输入可能只是长文的一部分，不得宣称已阅读未提供的内容。
 没有可处理事项可返回 events=[]。不要虚构收件邮箱或资格条件。"""
     from .documents.blocks import select_model_blocks
-    budget = select_model_blocks(snapshot['blocks']) if snapshot.get('blocks') else None
+    budget = ({'blocks': [{k:b.get(k) for k in ('block_id','text','source_type','page','section','filename','needs_review')} for b in snapshot['blocks']],
+               'partial_document': True} if snapshot.get('_chunk') else select_model_blocks(snapshot['blocks'])) if snapshot.get('blocks') else None
     context = {"raw_snapshot_id": snapshot["id"], "source_time": snapshot.get("source_time"), "timezone": "Asia/Shanghai",
                "original_text": '' if budget else snapshot["original_text"], "web_context": model_source_context(snapshot)}
     if snapshot.get('attachments'):
@@ -55,6 +58,10 @@ source_blocks 中没有的附件仍未解析，不能猜测其内容。没有 so
     if budget:
         context['source_blocks']=budget['blocks']
         context['input_budget']={k:v for k,v in budget.items() if k!='blocks'}
+    if snapshot.get('_chunk'):
+        context['chunk_context'] = snapshot.get('_chunk_context')
+        context['title_hint'] = snapshot.get('title_hint', '')
+        system += '\n这是长文档的一个区域。只提取本区域明确要求读者处理的事项；一般定义、历史说明、目录不逐条制造行动。事项标题采用具体活动/程序名称，跨页同一程序保持一致。不要因缺少其他页而猜测截止或资格。跨来源的要求用多条独立依据，保留 previous/current。输出必须完整且简洁；重复引用只保留一条 id。'
     return [{"role": "system", "content": system}, {"role": "user", "content":
             "JSON schema：\n" + json.dumps(schema, ensure_ascii=False) + "\n最小形状示例（内容不是本次通知）：\n" + json.dumps(example, ensure_ascii=False)
             + "\n只分析以下 JSON 中的 original_text 或 source_blocks 数据：\n" + json.dumps(context, ensure_ascii=False)}]
@@ -84,35 +91,38 @@ class DeepSeekProvider:
                 "max_tokens": config.max_output_tokens, "thinking": {"type": "enabled" if config.thinking else "disabled"}, "stream": False}
         errors = {401: ("unauthorized", "DeepSeek 密钥无效，请检查提取设置。"), 403: ("forbidden", "DeepSeek 拒绝访问，请检查账户权限。"),
                   402: ("insufficient_balance", "DeepSeek 余额不足，原文仍然保留。"), 429: ("rate_limited", "DeepSeek 请求过于频繁，请稍后重新分析。")}
+        attempts = 0
         try:
             async with httpx.AsyncClient(timeout=config.timeout, transport=self.transport, follow_redirects=False) as client:
-                for attempt in range(2):
+                available = min(2, max(1, snapshot.get('_http_attempts_remaining', 2)))
+                for attempt in range(available):
+                    attempts += 1
                     response = await client.post(endpoint, json=body, headers={"Authorization": "Bearer " + key})
-                    if response.status_code in {429, 502, 503} and attempt == 0:
+                    if response.status_code in {429, 502, 503} and attempt + 1 < available:
                         await asyncio.sleep(0.5)
                         continue
                     if response.status_code >= 400 or response.is_redirect:
                         code, message = errors.get(response.status_code, ("provider_error", "DeepSeek 服务暂时无法完成分析，请稍后重试或手动整理。"))
-                        raise ExtractionFailure(code, message)  # Never expose remote error bodies or request headers.
+                        raise ExtractionFailure(code, message, attempts=attempts)  # Never expose remote error bodies or request headers.
                     if len(response.content) > 2_000_000:
-                        raise ExtractionFailure("response_too_large", "模型返回过大，请缩小通知后重试。")
+                        raise ExtractionFailure("response_too_large", "模型返回过大，请缩小通知后重试。", attempts=attempts)
                     try:
                         data = response.json()
                         choice = data["choices"][0]
                         content = choice["message"]["content"]
                         usage = safe_usage(data.get("usage"))
                     except (ValueError, KeyError, IndexError, TypeError):
-                        raise ExtractionFailure("invalid_response", "DeepSeek 响应结构不正确，原文已保留。")
+                        raise ExtractionFailure("invalid_response", "DeepSeek 响应结构不正确，原文已保留。", attempts=attempts)
                     raw = content.replace(key, "[redacted]") if isinstance(content, str) else ""
-                    if choice.get("finish_reason") == "length":
-                        raise ExtractionFailure("truncated", "模型输出被截断。可调高输出上限后主动重新分析，或继续手动整理。", raw_output=raw, usage=usage)
+                    if choice.get("finish_reason") == "length" or usage.get('completion_tokens', 0) >= config.max_output_tokens:
+                        raise ExtractionFailure("truncated", "模型输出达到上限，未使用不完整候选。长文将尝试缩小分析区域；仍可手动整理。", raw_output=raw, usage=usage, attempts=attempts, finish_reason=choice.get('finish_reason'))
                     if choice.get("finish_reason") != "stop":
-                        raise ExtractionFailure("incomplete_output", "模型未正常完成输出，原文仍然保留。", raw_output=raw, usage=usage)
+                        raise ExtractionFailure("incomplete_output", "模型未正常完成输出，原文仍然保留。", raw_output=raw, usage=usage, attempts=attempts, finish_reason=choice.get('finish_reason'))
                     if not raw.strip():
-                        raise ExtractionFailure("empty_output", "DeepSeek 返回空结果，请重新分析或手动整理。", raw_output=raw, usage=usage)
+                        raise ExtractionFailure("empty_output", "DeepSeek 返回空结果，请重新分析或手动整理。", raw_output=raw, usage=usage, attempts=attempts)
                     model = data.get("model", "")
-                    return ProviderResult(raw, usage, model[:100].replace(key, "[redacted]") if isinstance(model, str) else "")
+                    return ProviderResult(raw, usage, model[:100].replace(key, "[redacted]") if isinstance(model, str) else "", choice.get('finish_reason'), attempts)
         except httpx.TimeoutException:
-            raise ExtractionFailure("timeout", "DeepSeek 分析超时，未自动再次付费调用。原文已保存，可重试或手动整理。")
+            raise ExtractionFailure("timeout", "DeepSeek 分析超时。原文已保存，可重试或手动整理。", attempts=attempts)
         except httpx.HTTPError:
-            raise ExtractionFailure("connection_error", "无法连接 DeepSeek。原文已保存，请检查网络或继续手动整理。")
+            raise ExtractionFailure("connection_error", "无法连接 DeepSeek。原文已保存，请检查网络或继续手动整理。", attempts=attempts)

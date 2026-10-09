@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
+import { AnalysisProgress, AnalysisHistory } from './AnalysisProgress';
+import { analysisRequestBody } from './analysisState';
 import { LoaderCircle } from 'lucide-react';
 import { personalRequest } from './api';
 import { ConfirmDialog, OriginalNotice } from './Evidence';
@@ -101,7 +103,7 @@ export default function ExtractionWorkspace({ mode, snapshotId, intent, onNaviga
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
       personalRequest(`/raw/${encodeURIComponent(snapshotId)}`, { signal: controller.signal }).then(value => {
-        if (!controller.signal.aborted) { setBundle(value); setError(''); }
+        if (!controller.signal.aborted) { setBundle(current => !current || value.version >= current.version ? value : current); setError(''); }
       }).catch(value => { if (!controller.signal.aborted) { setError(value.message); setRetry(current => current + 1); } });
     }, 1200);
     return () => { window.clearTimeout(timer); controller.abort(); };
@@ -113,13 +115,29 @@ export default function ExtractionWorkspace({ mode, snapshotId, intent, onNaviga
     catch (value) { setError(value.message); }
     finally { inFlight.current = false; setBusy(false); onBusyChange(false); }
   };
-  const analyze = (force = false) => run(async () => {
-    if (!analysisRequest.current || analysisRequest.current.force !== force) analysisRequest.current = { force, key: crypto.randomUUID() };
-    const value = await personalRequest(`/raw/${snapshotId}/analyze`, { method: 'POST', body: { force }, headers: { 'Idempotency-Key': analysisRequest.current.key } });
+  const analyze = (force = false, confirmBudget = false, scope = 'auto') => run(async () => {
+    const body = analysisRequestBody(force, confirmBudget, scope);
+    const fingerprint = JSON.stringify(body);
+    if (!analysisRequest.current || analysisRequest.current.fingerprint !== fingerprint) analysisRequest.current = { fingerprint, key: crypto.randomUUID() };
+    let value;
+    try { value = await personalRequest(`/raw/${snapshotId}/analyze`, { method: 'POST', body, headers: { 'Idempotency-Key': analysisRequest.current.key } }); }
+    catch (failure) {
+      if (failure.code === 'budget_confirmation_required') {
+        setDialog({ title: '分析更多文档区域？', message: failure.message, confirmLabel: '确认预算并继续', action: () => analyze(force, true, scope) });
+        return;
+      }
+      throw failure;
+    }
     analysisRequest.current = null; setBundle(value); setManual(false); reportDirty(false); setEditorVersion(current => current + 1);
     setNotice(pending(value) ? '原文已保存，正在分析。可以离开，回来继续核对。' : '已读取保存的分析结果，本次没有重复调用。');
   });
-  const forceAnalysis = () => setDialog({ title: '重新付费分析这条原文？', message: '会生成一个新的分析版本，当前预览修改将被替换。原文和以往分析记录保留。', confirmLabel: '重新分析', action: () => analyze(true) });
+  const forceAnalysis = (scope = bundle?.extraction?.plan?.scope || 'auto') => setDialog({ title: bundle?.extraction?.plan ? '继续分析未完成的区域？' : '重新付费分析这条原文？',
+    message: bundle?.extraction?.plan ? '成功区域复用缓存。本轮最多分析 32 个新区域、48 次 HTTP 请求、100 万 token 的保守预算；可随时取消。将生成新分析版本并替换预览草稿，原文和已有分析保留。' : '会生成一个新的分析版本，当前预览修改将被替换。原文和以往分析记录保留。',
+    confirmLabel: '继续分析', action: () => analyze(true, Boolean(bundle?.extraction?.plan), scope) });
+  const cancelAnalysis = () => run(async () => {
+    setBundle(await personalRequest(`/raw/${snapshotId}/analysis-cancel`, { method: 'POST', body: {} }));
+    setNotice('分析已取消，原文和已经成功的区域保留。');
+  });
   const documentsPending = documentJob && ['waiting', 'running'].includes(documentJob.status);
   const filesUnparsed = bundle?.snapshot.attachments?.length && !bundle.snapshot.blocks?.length && !bundle.snapshot.web;
   const parseAttachment = (attachment, confirmed = false) => {
@@ -168,8 +186,10 @@ export default function ExtractionWorkspace({ mode, snapshotId, intent, onNaviga
         {bundle.snapshot.latest_document_snapshot_id ? <p className="personal-meta">这条通知已有解析后的新原文版本。<button type="button" className="personal-text-button" disabled={busy} onClick={() => onNavigate('review', bundle.snapshot.latest_document_snapshot_id, 'manual')}>打开已解析原文</button></p> : null}
         {bundle.status === 'confirmed' ? <><p>这条原文已经确认。</p>{bundle.confirmed_event_ids?.map(id => <button key={id} type="button" className="button button-quiet" onClick={() => onNavigate('detail', id)}>查看正式事项</button>)}</> : bundle.status === 'cancelled' ? <><p>整理已取消，原文和分析记录保留。</p><button type="button" className="button button-primary" disabled={busy} onClick={() => run(async () => { setBundle(await personalRequest(`/raw/${snapshotId}/resume`, { method: 'POST', body: { expected_version: bundle.version } })); setManual(true); })}>继续整理</button></> : <>
           {pending(bundle) ? <p className="personal-loading" role="status"><LoaderCircle size={19} className="spin" />DeepSeek 正在分析，候选结果尚未就绪…</p> : null}
+          <AnalysisProgress extraction={bundle.extraction} busy={busy} onCancel={cancelAnalysis} />
           {documentsPending ? <p className="personal-loading" role="status"><LoaderCircle size={19} className="spin" />{documentJob.phase || '本地解析中'}… 可以离开，解析进度会保留。</p> : null}
-          {bundle.snapshot.input_budget ? <p className="personal-meta">分析范围：{bundle.snapshot.input_budget.selected_count}/{bundle.snapshot.input_budget.total_count} 个来源块，共 {bundle.snapshot.input_budget.characters} 字。全文保存在本机。</p> : null}
+          {bundle.snapshot.input_budget && !bundle.extraction?.plan ? <p className="personal-meta">分析范围：{bundle.snapshot.input_budget.selected_count}/{bundle.snapshot.input_budget.total_count} 个来源块，共 {bundle.snapshot.input_budget.characters} 字。全文保存在本机。</p> : null}
+          {!pending(bundle) && bundle.extraction?.plan?.omitted?.length ? <button type="button" className="button button-quiet" disabled={busy} onClick={() => forceAnalysis('remaining')}>分析尚未覆盖区域</button> : null}
           {bundle.extraction?.error ? <div role="alert" className="personal-analysis-error"><strong>分析未完成 · 原文已保留</strong><p>{bundle.extraction.error.message}</p></div> : null}
           {!pending(bundle) ? <div className="personal-form-actions"><button type="button" className="button button-primary" disabled={busy || documentsPending || Boolean(filesUnparsed)} onClick={() => bundle.extraction ? forceAnalysis() : analyze() }>{bundle.extraction ? '重新分析' : '使用 DeepSeek 分析'}</button><button type="button" className="button button-quiet" disabled={busy || documentsPending || Boolean(filesUnparsed)} onClick={() => { setManual(true); setNotice('可以手动填写并确认；原分析记录保留。'); }}>继续手动整理</button>{bundle.snapshot.web && !showEditor ? <button type="button" className="button button-quiet" disabled={busy} onClick={cancel}>忽略这条通知</button> : null}<button type="button" className="personal-text-button" disabled={busy} onClick={() => onNavigate('settings', snapshotId)}>提取设置</button></div> : null}
           {showEditor ? <ReviewEditor key={`${bundle.extraction_id || 'manual'}-${editorVersion}`} bundle={bundle} busy={busy} onDirtyChange={reportDirty} onView={setSelectedEvidence} onCancel={cancel}
@@ -179,6 +199,7 @@ export default function ExtractionWorkspace({ mode, snapshotId, intent, onNaviga
       </section>
       <OriginalNotice snapshot={bundle.snapshot} selectedEvidence={selectedEvidence} onClear={() => setSelectedEvidence(null)} busy={busy || documentsPending || pending(bundle)} onParse={parseAttachment} />
       {bundle.extraction ? <details className="personal-section personal-history"><summary>分析记录</summary><p className="personal-meta">{bundle.extraction.provider} / {bundle.extraction.model} · thinking {bundle.extraction.thinking ? '开' : '关'} · {bundle.extraction.prompt_version} · schema {bundle.extraction.schema_version}</p><p className="personal-meta">状态：{bundle.extraction.status} · 耗时：{bundle.extraction.latency_ms ?? '—'} ms · tokens：{bundle.extraction.token_usage?.total_tokens ?? '未返回'}{bundle.extraction.reused_from_id ? ' · 复用缓存' : ''}</p></details> : null}
+      {bundle.extraction?.plan ? <AnalysisHistory key={bundle.extraction.id} extraction={bundle.extraction} snapshot={bundle.snapshot} busy={busy} onView={setSelectedEvidence} /> : null}
     </> : null}
     {dialog ? <ConfirmDialog title={dialog.title} message={dialog.message} confirmLabel={dialog.confirmLabel} onCancel={() => setDialog(null)} onConfirm={() => {
       const action = dialog.action; setDialog(null); action();

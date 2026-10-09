@@ -89,11 +89,40 @@ class RawInput(StrictModel):
 
 class AnalyzeInput(StrictModel):
     force: bool = False
+    confirm_budget: bool = False
+    scope: Literal['auto', 'remaining', 'all'] = 'auto'
+
+
+class ConsolidatedFact(FactCandidate):
+    evidence_ids: list[str] = Field(max_length=100)
+
+
+class ConsolidatedDeadline(DeadlineCandidate):
+    evidence_ids: list[str] = Field(max_length=100)
+    related_action_ids: list[str] = Field(max_length=100)
+
+
+class ConsolidatedAction(ActionCandidate):
+    evidence_ids: list[str] = Field(max_length=100)
+
+
+class ConsolidatedEvent(EventCandidate):
+    audience: ConsolidatedFact | None
+    eligibility: list[ConsolidatedFact] = Field(max_length=100)
+    materials: list[ConsolidatedFact] = Field(max_length=100)
+    locations: list[ConsolidatedFact] = Field(max_length=100)
+    deadlines: list[ConsolidatedDeadline] = Field(max_length=100)
+    actions: list[ConsolidatedAction] = Field(max_length=100)
+
+
+class ConsolidatedOutput(StrictModel):
+    events: list[ConsolidatedEvent] = Field(max_length=32)
+    evidence: list[QuoteCandidate] = Field(max_length=2000)
 
 
 class ReviewFact(StrictModel):
     text: str = Field(max_length=1500)
-    evidence: list[EvidenceInput] = Field(default_factory=list, max_length=20)
+    evidence: list[EvidenceInput] = Field(default_factory=list, max_length=100)
 
 
 class ReviewDeadline(StrictModel):
@@ -103,7 +132,7 @@ class ReviewDeadline(StrictModel):
     value: str = Field(max_length=40)
     precision: Literal["date", "minute"]
     original_text: str = Field(default="", max_length=1000)
-    evidence: list[EvidenceInput] = Field(default_factory=list, max_length=20)
+    evidence: list[EvidenceInput] = Field(default_factory=list, max_length=100)
     confirmed_by_user: bool = False
     relation: Literal["current", "previous", "cancelled"] = "current"
 
@@ -122,7 +151,7 @@ class ReviewAction(StrictModel):
     title: str = Field(min_length=1, max_length=300)
     kind: Literal["explicit", "suggested", "manual"]
     deadline_id: str | None = Field(default=None, max_length=64)
-    evidence: list[EvidenceInput] = Field(default_factory=list, max_length=20)
+    evidence: list[EvidenceInput] = Field(default_factory=list, max_length=100)
 
 
 class ReviewEvent(StrictModel):
@@ -135,11 +164,11 @@ class ReviewEvent(StrictModel):
     participation: Literal["yes", "no", "later"] = "later"
     notice_kind: Literal["new", "update", "cancellation", "information"] = "new"
     audience: ReviewFact | None = None
-    eligibility: list[ReviewFact] = Field(default_factory=list, max_length=30)
-    deadlines: list[ReviewDeadline] = Field(default_factory=list, max_length=40)
-    actions: list[ReviewAction] = Field(default_factory=list, max_length=40)
-    materials: list[ReviewFact] = Field(default_factory=list, max_length=30)
-    locations: list[ReviewFact] = Field(default_factory=list, max_length=30)
+    eligibility: list[ReviewFact] = Field(default_factory=list, max_length=100)
+    deadlines: list[ReviewDeadline] = Field(default_factory=list, max_length=100)
+    actions: list[ReviewAction] = Field(default_factory=list, max_length=100)
+    materials: list[ReviewFact] = Field(default_factory=list, max_length=100)
+    locations: list[ReviewFact] = Field(default_factory=list, max_length=100)
     uncertainties: list[str] = Field(default_factory=list, max_length=30)
 
     @field_validator("title", "category")
@@ -154,7 +183,7 @@ class ConfirmationInput(StrictModel):
     expected_version: StrictInt = Field(ge=1)
     extraction_id: str | None = Field(default=None, max_length=36)
     acknowledged_warnings: bool = False
-    events: list[ReviewEvent] = Field(min_length=1, max_length=8)
+    events: list[ReviewEvent] = Field(min_length=1, max_length=32)
 
 
 class DraftInput(StrictModel):

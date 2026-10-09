@@ -11,7 +11,7 @@ from docx.oxml.ns import qn
 import pypdfium2 as pdfium
 from .policy import DocumentError, MAX_PAGES, MAX_TEXT, MAX_PIXELS, validate_file
 
-VERSION = 'documents-1'
+VERSION = 'documents-2'
 CHUNK = 2500
 
 
@@ -23,8 +23,9 @@ def block(text, source_type, *, page=None, section=None, bbox=None, words=None, 
 def split_text(text, kind, *, page=None, section=None):
     # Each stored chunk is immutable and independently quoteable, including page.
     values = []
-    for offset in range(0, len(text), CHUNK):
-        part = text[offset:offset + CHUNK]
+    from .text_boundaries import semantic_ranges
+    for start, end in semantic_ranges(text, CHUNK):
+        part = text[start:end]
         if part.strip():
             values.append(block(part, kind, page=page, section=section + f' · 文本块 {len(values) + 1}' if len(text) > CHUNK and section else section))
     return values

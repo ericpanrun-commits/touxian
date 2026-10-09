@@ -5,7 +5,7 @@ import json
 import re
 from datetime import date, datetime, timedelta, timezone
 from pydantic import ValidationError
-from .extraction_models import ExtractionOutput
+from .extraction_models import ExtractionOutput, ConsolidatedOutput
 from .extraction_errors import ExtractionFailure
 from .personal_models import normalize_time
 
@@ -23,7 +23,7 @@ def deadline_state(value: str, precision: str, *, at=None) -> dict:
             "status": "overdue" if overdue else "today" if days == 0 else "upcoming", "precision": precision}
 
 
-def parse_output(raw: str) -> dict:
+def parse_output(raw: str, *, consolidated=False) -> dict:
     try:
         def unique_pairs(pairs):
             result = {}
@@ -33,10 +33,14 @@ def parse_output(raw: str) -> dict:
                 result[key] = value
             return result
         parsed = json.loads(raw, object_pairs_hook=unique_pairs, parse_constant=lambda _: (_ for _ in ()).throw(ValueError("Invalid JSON constant")))
+    except json.JSONDecodeError as exc:
+        if exc.pos >= len(raw.rstrip()) - 1 or exc.msg.startswith('Unterminated string'):
+            raise ExtractionFailure('truncated', 'JSON 在结束前中断，未使用不完整候选。', raw_output=raw)
+        raise ExtractionFailure("invalid_json", "模型输出不是完整、严格的 JSON，原文已保留。", raw_output=raw)
     except ValueError:
         raise ExtractionFailure("invalid_json", "模型输出不是完整、严格的 JSON，原文已保留。", raw_output=raw)
     try:
-        return ExtractionOutput.model_validate(parsed).model_dump()
+        return (ConsolidatedOutput if consolidated else ExtractionOutput).model_validate(parsed).model_dump()
     except ValidationError:
         raise ExtractionFailure("invalid_schema", "模型结果不符合提取 Schema，不能正式创建事项。可重新分析或手动整理。", raw_output=raw)
 

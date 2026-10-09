@@ -44,10 +44,18 @@ class ReviewStore:
             return None
         result = dict(row)
         for stored, public in (("parsed_output", "parsed_output"), ("validation_json", "validation"), ("error_json", "error"),
-                               ("token_usage_json", "token_usage"), ("config_json", "configuration")):
+                               ("token_usage_json", "token_usage"), ("config_json", "configuration"), ("progress_json", "progress"), ("plan_json", "plan")):
             value = result.pop(stored)
             result[public] = json.loads(value) if value else None
         result["thinking"] = bool(result["thinking"])
+        result['chunks'] = []
+        for chunk in connection.execute('SELECT * FROM ai_chunk_extraction WHERE extraction_id=? ORDER BY created_at,id',(extraction_id,)):
+            value = dict(chunk)
+            for stored, public in [('scope_json','sources'),('config_json','configuration'),('error_json','error'),('token_usage_json','token_usage'),('validation_json','validation')]:
+                value[public] = json.loads(value.pop(stored) or 'null')
+            value.pop('raw_output',None)
+            value.pop('parsed_output',None)
+            result['chunks'].append(value)
         return result
 
     def get(self, snapshot_id):
