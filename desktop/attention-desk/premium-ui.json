@@ -1,10 +1,31 @@
 {
   "profile": "product-admin",
-  "sourceRoots": ["src/personal"],
+  "sourceRoots": [
+    "src/personal",
+    "src/mobile"
+  ],
   "canonicalMap": "UX-CONTRACT.md",
-  "requiredCapabilities": ["Select/Listbox", "Date", "Form", "Scrollbar", "CRUD"],
-  "ownership": {"Select/Listbox": "native", "Date": "typed"},
-  "requiredCommands": ["test", "build"],
-  "commands": {"test": "../.venv/Scripts/python.exe -m pytest -q", "build": "npm run build"},
-  "evidence": {"crudFullFlow": "server/test_extraction_review.py", "failurePaths": "server/test_extraction_review.py"}
+  "requiredCapabilities": [
+    "Select/Listbox",
+    "Date",
+    "Form",
+    "Scrollbar",
+    "CRUD"
+  ],
+  "ownership": {
+    "Select/Listbox": "native",
+    "Date": "typed"
+  },
+  "requiredCommands": [
+    "test",
+    "build"
+  ],
+  "commands": {
+    "test": "../.venv/Scripts/python.exe -m pytest -q",
+    "build": "npm run build"
+  },
+  "evidence": {
+    "crudFullFlow": "server/test_extraction_review.py",
+    "failurePaths": "server/test_collector.py"
+  }
 }

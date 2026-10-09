@@ -57,6 +57,8 @@ class ReviewStore:
     def list(self, limit=50, offset=0, source_id=None):
         with self.personal.connection() as connection:
             where = "r.status != 'confirmed'" + (' AND (i.source_id=? OR EXISTS (SELECT 1 FROM official_item_source os WHERE os.raw_item_id=i.id AND os.source_id=?))' if source_id else '')
+            # A phone intake may gain a parsed snapshot; queue only its newest version.
+            where += " AND (i.source_id!='mobile' OR NOT EXISTS (SELECT 1 FROM raw_snapshot newer WHERE newer.raw_item_id=s.raw_item_id AND (newer.created_at>s.created_at OR (newer.created_at=s.created_at AND newer.id>s.id))))"
             parameters = [source_id, source_id] if source_id else []
             total = connection.execute('SELECT COUNT(*) FROM raw_review r JOIN raw_snapshot s ON s.id=r.raw_snapshot_id JOIN raw_item i ON i.id=s.raw_item_id WHERE ' + where, parameters).fetchone()[0]
             rows = connection.execute("""SELECT r.raw_snapshot_id, r.title_hint, r.status, r.updated_at, r.version,
@@ -81,7 +83,7 @@ class ReviewStore:
         connection.execute("INSERT INTO raw_review (raw_snapshot_id,title_hint,created_at,updated_at) VALUES (?,?,?,?)", (snapshot_id, title_hint, stamp, stamp))
         return snapshot_id
 
-    def collect(self, payload: RawInput, submission_id=None):
+    def collect(self, payload: RawInput, submission_id=None, *, source_id='manual_text', source_kind='manual_text', source_name='手动粘贴', raw_kind=None):
         fingerprint = hashlib.sha256(encode(payload.model_dump()).encode("utf-8")).hexdigest()
         with self.personal.connection(write=True) as connection:
             if submission_id:
@@ -92,8 +94,8 @@ class ReviewStore:
                     snapshot = connection.execute("SELECT id FROM raw_snapshot WHERE raw_item_id=?", (existing["id"],)).fetchone()
                     return self._bundle(connection, snapshot["id"])
             stamp, raw_id = now(), identifier()
-            connection.execute("INSERT OR IGNORE INTO source VALUES ('manual_text', 'manual_text', '手动粘贴', ?)", (stamp,))
-            connection.execute("INSERT INTO raw_item (id,source_id,kind,submission_id,submission_hash,created_at) VALUES (?, 'manual_text', 'manual_text', ?, ?, ?)", (raw_id, submission_id, fingerprint, stamp))
+            connection.execute("INSERT OR IGNORE INTO source VALUES (?, ?, ?, ?)", (source_id, source_kind, source_name, stamp))
+            connection.execute("INSERT INTO raw_item (id,source_id,kind,submission_id,submission_hash,created_at) VALUES (?, ?, ?, ?, ?, ?)", (raw_id, source_id, raw_kind or source_kind, submission_id, fingerprint, stamp))
             snapshot_id = self._new_snapshot(connection, raw_id, payload.original_text, stamp, payload.source_time, payload.title_hint)
             return self._bundle(connection, snapshot_id)
 

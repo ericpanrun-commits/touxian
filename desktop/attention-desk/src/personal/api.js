@@ -17,6 +17,7 @@ export async function personalRequest(path, options = {}) {
   try {
     const response = await fetch('/api/personal' + path, {
       ...rest,
+      cache: 'no-store',
       signal: controller.signal,
       headers: { ...(body !== undefined && !multipart ? { 'Content-Type': 'application/json' } : {}), ...headers },
       ...(body !== undefined ? { body: multipart ? body : JSON.stringify(body) } : {}),

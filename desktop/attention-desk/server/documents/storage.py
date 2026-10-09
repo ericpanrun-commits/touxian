@@ -89,7 +89,7 @@ class AttachmentStore:
             c.execute("UPDATE attachment SET local_path=?,sha256=?,size=?,mime_type=?,extension=?,downloaded_at=?,parse_status='downloaded',parse_error='',version=? WHERE id=?",(path,digest,size,mime,ext,now(),version,att_id))
             return dict(c.execute('SELECT * FROM attachment WHERE id=?',(att_id,)).fetchone())
 
-    def collect(self, files, body, title, source_time=None, submission_id=None):
+    def collect(self, files, body, title, source_time=None, submission_id=None, *, source_id='manual_file', source_kind='manual_file', source_name='文件与截图', raw_kind=None):
         if len(files)>10: raise PersonalError('每次最多收集 10 个文件。')
         saved = [(filename(name),mime,*self.preserve(path,extension(filename(name)))) for name,mime,path in files]
         fingerprint = hashlib.sha256(encode({'files':[(r[0],r[3]) for r in saved],'body':body,'title':title,'source_time':source_time}).encode()).hexdigest()
@@ -101,8 +101,8 @@ class AttachmentStore:
                     snap = c.execute('SELECT id FROM raw_snapshot WHERE raw_item_id=? ORDER BY created_at DESC LIMIT 1',(old['id'],)).fetchone()[0]
                     return ReviewStore._bundle(c,snap)
             raw,stamp = identifier(),now()
-            c.execute("INSERT OR IGNORE INTO source VALUES ('manual_file','manual_file','文件与截图',?)",(stamp,))
-            c.execute("INSERT INTO raw_item (id,source_id,kind,submission_id,submission_hash,created_at) VALUES (?,'manual_file','manual_file',?,?,?)",(raw,submission_id,fingerprint,stamp))
+            c.execute("INSERT OR IGNORE INTO source VALUES (?,?,?,?)",(source_id,source_kind,source_name,stamp))
+            c.execute("INSERT INTO raw_item (id,source_id,kind,submission_id,submission_hash,created_at) VALUES (?,?,?,?,?,?)",(raw,source_id,raw_kind or source_kind,submission_id,fingerprint,stamp))
             snap = ReviewStore._new_snapshot(c,raw,body or '\n'.join(r[0] for r in saved),stamp,source_time,title)
             # Placeholder is explicitly marked: filenames cannot serve as extracted file evidence.
             c.execute('INSERT INTO snapshot_document VALUES (?,?,?,?,?,?,?,?)',(snap,snap,body,1,fingerprint,encode([]),encode([{'field_path':'sources','code':'files_pending','message':'文件已保存，等待本地解析。'}]),stamp))

@@ -42,12 +42,14 @@ try {
 
   $env:ATTENTION_API_PORT = "$ApiPort"
   $env:ATTENTION_WEB_PORT = "$WebPort"
+  & $npm run build
+  if ($LASTEXITCODE -ne 0) { throw "手机页面构建失败，请检查上方错误。" }
   $logDirectory = Join-Path $root "..\data\attention-desk\logs"
   New-Item -ItemType Directory -Path $logDirectory -Force | Out-Null
   $logStamp = Get-Date -Format 'yyyyMMdd-HHmmss-fff'
   $stdoutLog = Join-Path $logDirectory "backend-$logStamp.out.log"
   $stderrLog = Join-Path $logDirectory "backend-$logStamp.err.log"
-  $apiProcess = Start-Process -FilePath $venvPython -ArgumentList @("-m", "uvicorn", "server.main:app", "--host", "127.0.0.1", "--port", "$ApiPort") -WorkingDirectory $root -WindowStyle Hidden -PassThru -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog
+  $apiProcess = Start-Process -FilePath $venvPython -ArgumentList @("-m", "uvicorn", "server.main:app", "--host", "127.0.0.1", "--port", "$ApiPort", "--workers", "1") -WorkingDirectory $root -WindowStyle Hidden -PassThru -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog
 
   $ready = $false
   $startupDeadline = [DateTime]::UtcNow.AddSeconds(30)

@@ -42,7 +42,7 @@ export function RawInbox({ reloadVersion, onOpen }) {
     } catch (value) { if (!controller.signal.aborted) setError(value.message); }
     finally { if (!controller.signal.aborted) setBusy(false); }
   };
-  return <section className="personal-section"><div className="personal-section-heading"><h2>原文与待确认预览</h2><span className="personal-meta">{data ? `${data.total} 条` : '正在读取…'}</span></div>
+  return <section className="personal-section"><div className="personal-section-heading"><h2>原文与待确认预览</h2><div className="personal-evidence-links"><span className="personal-meta">{data ? `${data.total} 条` : '正在读取…'}</span><button type="button" className="personal-text-button" disabled={busy || !data} onClick={() => setRetry(value => value + 1)}>刷新原文列表</button></div></div>
     <p className="personal-meta">已保存原文；只有确认后才创建正式事项。</p>
     <Field name="review_source" label="原文来源"><select value={sourceId} disabled={busy || !data} onChange={event => filterSource(event.target.value)}><option value="">全部来源</option>{data?.sources.map(source => <option key={source.id} value={source.id}>{source.name}</option>)}</select></Field>
     {error ? <div role="alert"><p className="personal-field-error">{error}</p><button type="button" className="button button-quiet" disabled={busy} onClick={() => setRetry(value => value + 1)}>重新读取原文列表</button></div> : null}

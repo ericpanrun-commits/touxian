@@ -5,6 +5,7 @@ import { DeadlineForm, EventEditForm, TaskForm } from './Forms';
 import { ConfirmDialog, EvidenceLinks, OriginalNotice } from './Evidence';
 import ExtractionWorkspace, { RawInbox } from './ExtractionWorkspace';
 import EventContext from './EventContext';
+import MobileCollectorSettings from './MobileCollectorSettings';
 import './personal.css';
 
 const STATUS = { needs_review: '待确认', needs_action: '待行动', in_progress: '进行中', done: '已完成', cancelled: '已取消' };
@@ -13,7 +14,7 @@ const DECISIONS = { event_created: '创建事项', event_edited: '修改事项�
 const dateFormatter = new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', dateStyle: 'medium', timeStyle: 'short' });
 const displayTimestamp = (value) => dateFormatter.format(new Date(value));
 
-function setEventUrl(eventId, rawId = null, settingsOpen = false) {
+function setEventUrl(eventId, rawId = null, settingsOpen = false, collectorOpen = false) {
   const url = new URL(window.location.href);
   if (eventId) url.searchParams.set('personal_event', eventId);
   else url.searchParams.delete('personal_event');
@@ -21,6 +22,8 @@ function setEventUrl(eventId, rawId = null, settingsOpen = false) {
   else url.searchParams.delete('personal_raw');
   if (settingsOpen) url.searchParams.set('personal_settings', '1');
   else url.searchParams.delete('personal_settings');
+  if (collectorOpen) url.searchParams.set('personal_collector', '1');
+  else url.searchParams.delete('personal_collector');
   window.history.replaceState({}, '', url);
 }
 
@@ -32,7 +35,8 @@ export default function PersonalWorkspace({ navigationGuardRef }) {
   const initialId = new URLSearchParams(window.location.search).get('personal_event');
   const initialRaw = new URLSearchParams(window.location.search).get('personal_raw');
   const initialSettings = new URLSearchParams(window.location.search).get('personal_settings') === '1';
-  const [mode, setMode] = useState(initialSettings ? 'settings' : initialId ? 'detail' : initialRaw ? 'review' : 'list');
+  const initialCollector = new URLSearchParams(window.location.search).get('personal_collector') === '1';
+  const [mode, setMode] = useState(initialCollector ? 'collector' : initialSettings ? 'settings' : initialId ? 'detail' : initialRaw ? 'review' : 'list');
   const [selectedId, setSelectedId] = useState(initialId || initialRaw);
   const [intent, setIntent] = useState(null);
   const [event, setEvent] = useState(null);
@@ -80,11 +84,11 @@ export default function PersonalWorkspace({ navigationGuardRef }) {
   }, [dirty]);
 
   useEffect(() => {
-    document.title = mode === 'collect' ? '收集通知 · Attention Desk' : mode === 'review' ? '提取预览 · Attention Desk' : mode === 'settings' ? '提取设置 · Attention Desk' : mode === 'detail' && event ? `${event.title} · Attention Desk` : '个人事项 · Attention Desk';
+    document.title = mode === 'collector' ? '手机收集 · Attention Desk' : mode === 'collect' ? '收集通知 · Attention Desk' : mode === 'review' ? '提取预览 · Attention Desk' : mode === 'settings' ? '提取设置 · Attention Desk' : mode === 'detail' && event ? `${event.title} · Attention Desk` : '个人事项 · Attention Desk';
   }, [mode, event?.title]);
 
   useEffect(() => {
-    if (['collect', 'review', 'settings'].includes(mode) || (mode === 'detail' && event?.id === selectedId)) { setLoading(false); return undefined; }
+    if (['collect', 'review', 'settings', 'collector'].includes(mode) || (mode === 'detail' && event?.id === selectedId)) { setLoading(false); return undefined; }
     const controller = new AbortController();
     setLoading(true);
     setError(null);
@@ -104,7 +108,7 @@ export default function PersonalWorkspace({ navigationGuardRef }) {
     focusAfterLoad.current = true;
     setEditor(null); setEditorDirty(false); setCollectionDirty(false); setSelectedEvidence(null); setError(null); setNotice('');
     setEvent(null); setSelectedId(id); setMode(nextMode); setIntent(nextIntent); setReloadVersion(current => current + 1);
-    setEventUrl(nextMode === 'detail' ? id : null, ['review', 'settings'].includes(nextMode) ? id : null, nextMode === 'settings');
+    setEventUrl(nextMode === 'detail' ? id : null, ['review', 'settings'].includes(nextMode) ? id : null, nextMode === 'settings', nextMode === 'collector');
     };
     if (nextIntent) performNavigation(); else requestLeave(performNavigation);
   };
@@ -153,7 +157,7 @@ export default function PersonalWorkspace({ navigationGuardRef }) {
 
   return <div className="personal-workspace">
     <header className="topbar personal-topbar"><div className="group-context"><ClipboardPlus size={19} /><div><span className="context-label">个人工作台</span><strong>收集与事项</strong></div></div>
-      <div className="topbar-actions"><button type="button" className="button button-quiet" disabled={busy} onClick={() => navigate('list')}>我的事项</button><button type="button" className="button button-quiet" disabled={busy} onClick={() => navigate('settings', mode === 'review' ? selectedId : null)}>提取设置</button><button type="button" className="button button-primary" disabled={busy} onClick={() => navigate('collect')}><Plus size={16} />收集通知</button></div>
+      <div className="topbar-actions"><button type="button" className="button button-quiet" disabled={busy} onClick={() => navigate('list')}>我的事项</button><button type="button" className="button button-quiet" disabled={busy} onClick={() => navigate('settings', mode === 'review' ? selectedId : null)}>提取设置</button><button type="button" className="button button-quiet" disabled={busy} onClick={() => navigate('collector')}>手机收集</button><button type="button" className="button button-primary" disabled={busy} onClick={() => navigate('collect')}><Plus size={16} />收集通知</button></div>
     </header>
     <div className="personal-content">
       <div className="personal-feedback" aria-live="polite" role="status">{notice}</div>
@@ -162,6 +166,7 @@ export default function PersonalWorkspace({ navigationGuardRef }) {
 
       {['collect', 'review', 'settings'].includes(mode) ? <ExtractionWorkspace key={`${mode}-${selectedId}-${reloadVersion}`} mode={mode} snapshotId={selectedId} intent={intent} onNavigate={navigate}
         onDirtyChange={setCollectionDirty} onBusyChange={value => { mutationPending.current = value; setBusy(value); }} onCreated={events => { applyEvent(events[0]); setNotice(`已确认并保存 ${events.length} 个事项，任务按你的参与决定创建。`); }} /> : null}
+      {mode === 'collector' ? <MobileCollectorSettings onDirtyChange={setCollectionDirty} onBusyChange={value => { mutationPending.current = value; setBusy(value); }} onBack={() => navigate('list')} /> : null}
 
       {mode === 'list' && !loading && (!error || items.length > 0) ? <section className="personal-section"><div className="personal-section-heading"><h1 ref={headingRef} tabIndex={-1}>我的事项</h1><span className="personal-meta">共 {total} 件</span></div>
         {!items.length ? <div className="personal-empty"><h2>还没有收集事项</h2><p>粘贴一条通知，把截止时间和要做的事情保留下来。</p><button type="button" className="button button-primary" onClick={() => navigate('collect')}><Plus size={16} />粘贴第一条通知</button></div> : <ul className="personal-event-list">{items.map((item) => <li key={item.id}><button type="button" className="personal-event-row" onClick={() => navigate('detail', item.id)}>

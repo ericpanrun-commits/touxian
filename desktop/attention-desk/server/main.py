@@ -34,6 +34,8 @@ try:
     from .extraction_service import ExtractionService
     from .documents.service import DocumentService
     from .documents.api import router as document_router, UploadBodyLimit
+    from .collector.controller import CollectorController
+    from .collector.control_api import router as collector_control_router
 except ImportError:  # pragma: no cover - direct module execution fallback
     import mail_digest
     import profile_store as PROFILE
@@ -51,6 +53,8 @@ except ImportError:  # pragma: no cover - direct module execution fallback
     from server.official_service import OfficialSourceMonitor
     from server.documents.service import DocumentService
     from server.documents.api import router as document_router, UploadBodyLimit
+    from server.collector.controller import CollectorController
+    from server.collector.control_api import router as collector_control_router
 
 
 APP_ROOT = Path(__file__).resolve().parents[1]
@@ -96,6 +100,8 @@ async def application_lifespan(application: FastAPI):
     application.state.extraction_service = extraction
     documents = DocumentService(personal_store)
     application.state.document_service = documents
+    collector = CollectorController(personal_store, documents, extraction, APP_ROOT)
+    application.state.collector = collector
     official = OfficialSourceMonitor(personal_store)
     OFFICIAL = official
     application.state.official_monitor = official
@@ -103,6 +109,7 @@ async def application_lifespan(application: FastAPI):
     try:
         yield
     finally:
+        await collector.close()
         await extraction.close()
         await run_in_threadpool(documents.close)
         await run_in_threadpool(official.close)
@@ -113,6 +120,7 @@ app = FastAPI(title="Attention Desk API", version="0.1.0", lifespan=application_
 app.include_router(personal_router)
 app.include_router(review_router)
 app.include_router(document_router)
+app.include_router(collector_control_router)
 app.add_middleware(UploadBodyLimit)
 app.add_middleware(
     CORSMiddleware,

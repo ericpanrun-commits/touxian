@@ -123,3 +123,11 @@ body:has(.personal-shell) { min-width: 360px; }
 .personal-source-image { position: relative; border: 1px solid var(--line-soft); }
 .personal-source-image img { display: block; width: 100%; height: auto; }
 .personal-source-image-mark { position: absolute; border: 2px solid var(--yellow); background: color-mix(in srgb, var(--yellow) 24%, transparent); pointer-events: none; }
+.collector-layout { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(280px, 1fr); gap: 32px; }
+.collector-status { display: flex; align-items: center; gap: 10px; margin: 14px 0; }
+.collector-qr { width: 280px; height: 280px; max-width: 100%; border: 1px solid var(--line-soft); background: var(--panel); display: flex; align-items: center; justify-content: center; margin: 18px 0; }
+.collector-qr p { max-width: 210px; color: var(--muted); line-height: 1.8; text-align: center; }
+.collector-qr img { max-width: 100%; height: auto; }
+.collector-network-note { border-top: 1px solid var(--line-soft); margin-top: 24px; padding-top: 14px; }
+.collector-settings .personal-meta { overflow-wrap: anywhere; }
+@media (max-width: 950px) { .collector-layout { grid-template-columns: 1fr; } }

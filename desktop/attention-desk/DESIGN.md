@@ -70,7 +70,7 @@ components:
 
 The existing paper and ink workbench is the visual reference: off-white canvas, white working surfaces, black navigation, square edges and restrained red actions. The personal workflow now preserves raw text first, offers DeepSeek candidates, and creates formal records only after explicit review. The original chat and official-source screens retain their design.
 
-The audience is one Chinese-speaking student working on Windows. The authoritative brief is the accepted Phase 0/1 workflow and the subsequent DeepSeek extraction and human-confirmation request. There is no public market launch or Japan-facing requirement. Chinese labels and familiar verbs explain actions; dates remain unambiguous ISO values and stored minute values use Asia/Shanghai.
+The audience is one Chinese-speaking student working on Windows with an iPhone for notice intake. The authoritative brief is the accepted Phase 0/1 workflow and the subsequent DeepSeek extraction and human-confirmation request. There is no public market launch or Japan-facing requirement. Chinese labels and familiar verbs explain actions; dates remain unambiguous ISO values and stored minute values use Asia/Shanghai.
 
 Runtime CSS is canonical. This document mirrors `src/styles.css` variables and `src/personal/personal.css`; it does not generate tokens. Changes should reconcile those files and this frontmatter. New styles reuse existing palette variables rather than introducing a new theme.
 
@@ -108,7 +108,15 @@ Candidates use simple bordered subsections within the established form. Explicit
 
 Lucide remains the icon family, generally 14–19px stroke icons. Every new action has a text label or an accessible task-specific label. Existing loading animation communicates pending work; no new decorative motion. The established reduced-motion stylesheet continues to apply.
 
+## Mobile collector variant
+
+Phase 5 adds a separate Safari intake surface for one paired phone. It shares the same paper palette, local font stack, Field/SubmitButton, typed-date validation and ConfirmDialog owners. The collector alone removes the legacy minimum body width, uses 16px editable text, 48px action targets, safe-area padding and a 560px maximum reading width. Four native pressed buttons choose text/link/screenshot/file; this is a button group, not ARIA tabs. No desktop sidebar, remote font, service worker or second event editor loads on the phone. Input filenames form a local selection list, with no original-file links or analysis controls; the desktop DocumentSources owner retains those capabilities.
+
+The desktop collector extends the existing personal route without changing sibling pages. It reserves a 280px QR region, uses the canonical native select for physical interfaces and a typed numeric port. Inline status and errors persist. Regeneration uses the shared confirmation dialog and preserves approved devices; a separate confirmed action revokes devices. Stopping reduces capability immediately. Address and pairing status are read anew; credentials never appear in text fields or script-accessible browser storage. The mobile pairing landing page reuses the yellow review emphasis and SubmitButton, advises opening Safari first, and waits for explicit confirmation. It retains the short-lived invitation URL until approval so Code Scanner can hand it to Safari; only an HttpOnly device cookie persists after approval. Upload percentage is measured by XHR; later phases reflect actual Windows job state. Failed work keeps originals and points to desktop review. Real iPhone acceptance resumed on the intended Wi-Fi, with Safari handoff now requiring a retest.
+
 ## Do's and Don'ts
+
+Pairing approval is followed by an authenticated session read before mobile intake appears. A browser that does not return the HttpOnly cookie sees a persistent inline recovery error, rather than a false paired state. The invitation query is removed after successful approval even if cookie verification fails. Pairing guidance specifies ordinary Safari tabs; private tabs and Code Scanner use independent cookie containers. Session diagnostics retain bounded short device IDs, lifecycle reasons and fixed-endpoint cookie-presence results without credentials or raw request headers.
 
 Phase 3's source management uses the same natural-height sections, ink buttons, paper palette, native checkboxes and status labels as the shared workbench. Five source sections display last check/success, new and changed counts, failures and entry links to the existing RawInbox. The shared notice region displays immutable web versions and links to unparsed attachments. This adds source provenance without changing tokens, typography or the established event/AI workflow.
 

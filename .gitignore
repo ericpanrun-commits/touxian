@@ -61,6 +61,10 @@ secrets.*
 credentials.*
 ai-settings.json
 ai-settings.json.*.tmp
+collector-pairing-state.json
+collector-pairing-state.json.*.tmp
+collector-settings.json
+premium-audit.json
 *.db
 *.db-*
 *.sqlite

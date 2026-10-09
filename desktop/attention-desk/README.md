@@ -384,3 +384,12 @@ state。拿到结果后只做两件事，**都不会让条目升级**：
 队列行上受影响的事项会带一个「画像」标记（防翻案保底的显示为绿色）。选中后右侧
 「决策轨迹」会出现**画像影响**区块，展示 `relevance`、`importance` 的前后对比与权重，
 以及命中的本地关键词。
+
+## Phase 5 手机收集
+
+在个人工作台打开「手机收集」，可从同一可信 Private Wi-Fi 上的 iPhone Safari 提交文字、公开链接、截图和 PDF/DOCX/TXT，复用本地解析、DeepSeek 提取和明确确认流程。独立 LAN listener 默认关闭；二维码可撤销；接口和 IP 动态检测；网络与防火墙只读检查。启动脚本现在构建手机页面，依赖安装仍使用 `./start.ps1 -Install`。
+
+详见 [COLLECTOR.md](COLLECTOR.md) 与 [Phase 5 实现及自动化报告](PHASE-5-REPORT.md)。真实 iPhone 局域网验收已完成，包括普通 Safari 持久会话、Code Scanner 转 Safari、提交与人工确认、异常处理和重启保留。
+
+
+Phase 5 最终验收记录：见 [完整验收报告](PHASE-5-ACCEPTANCE.md) 与 [配对修复报告](PHASE-5-REPORT.md)。真实 iPhone 14 项及最终 Python 540/前端 11/build 已通过。2026-10-09 稳定 checkpoint 的提交前审计、完整复跑结果与两项非阻塞问题见 [PHASE-5-CHECKPOINT.md](PHASE-5-CHECKPOINT.md)，对应本地标签 `phase5-mobile-collector-stable`。
