@@ -142,10 +142,12 @@ def test_case_7_simulated_body_change_from_real_notice_keeps_old_event_evidence_
     latest = ReviewStore(store).get(new['raw_snapshot_id'])
     assert latest['snapshot']['web']['version'] == 2 and latest['extraction'] is None
     assert counts(store)['raw_item'] == counts(store)['event'] == 1
-    assert store.get_event(event['id']) == event
+    updated_detail = store.get_event(event['id'])
+    assert updated_detail['source_update']['id'] == new['raw_snapshot_id']
+    assert {key:value for key,value in updated_detail.items() if key!='source_update'} == {key:value for key,value in event.items() if key!='source_update'}
     assert save(store, 'jxqc_article', changed)['kind'] == 'unchanged'
     restarted = PersonalStore(store.path); restarted.initialize()
-    assert restarted.get_event(event['id']) == event
+    assert restarted.get_event(event['id']) == updated_detail
     with restarted.connection(write=True) as c:
         with pytest.raises(sqlite3.IntegrityError):
             c.execute("UPDATE raw_snapshot_web SET published_at='2099-01-01' WHERE raw_snapshot_id=?", (raw['snapshot']['id'],))

@@ -17,7 +17,7 @@ from uuid import uuid4
 from .personal_models import CollectionInput, DeadlineInput, EvidenceInput, TaskInput
 
 MIGRATIONS = Path(__file__).with_name("migrations")
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 TERMINAL = {"done", "cancelled"}
 
 
@@ -52,14 +52,21 @@ class PersonalStore:
         self.path = Path(path)
 
     @contextmanager
-    def connection(self, *, write: bool = False):
+    def connection(self, *, write: bool = False, migration: bool = False):
         connection = sqlite3.connect(self.path, timeout=5, isolation_level=None)
         connection.row_factory = sqlite3.Row
         try:
-            connection.execute("PRAGMA foreign_keys = ON")
+            if migration and not write:
+                raise ValueError("Migration requires a write transaction")
+            # SQLite cannot rebuild a referenced parent with FK enforcement on.
+            # This exception is private to initialization, before BEGIN, with a
+            # complete FK check in the same transaction before anything commits.
+            connection.execute("PRAGMA foreign_keys = OFF" if migration else "PRAGMA foreign_keys = ON")
             connection.execute("PRAGMA synchronous = FULL")
             connection.execute("BEGIN IMMEDIATE" if write else "BEGIN")
             yield connection
+            if migration and connection.execute("PRAGMA foreign_key_check").fetchone():
+                raise sqlite3.IntegrityError("Migration foreign key validation failed")
             connection.commit()
         except BaseException:
             connection.rollback()
@@ -75,7 +82,7 @@ class PersonalStore:
             connection.execute("PRAGMA journal_mode = WAL")
         finally:
             connection.close()
-        with self.connection(write=True) as connection:
+        with self.connection(write=True, migration=True) as connection:
             connection.execute("CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)")
             current = connection.execute("SELECT COALESCE(MAX(version), 0) FROM schema_migrations").fetchone()[0]
             if current > SCHEMA_VERSION:
@@ -123,23 +130,27 @@ class PersonalStore:
     def _touch(connection, event_id: str):
         connection.execute("UPDATE event SET version = version + 1, updated_at = ? WHERE id = ?", (now(), event_id))
 
-    def _evidence(self, connection, event, field_path: str, evidence: EvidenceInput):
+    def _evidence(self, connection, event, field_path: str, evidence: EvidenceInput, source_snapshot_id: str | None = None):
         from .source_metadata import snapshot_with_metadata
         from .documents.blocks import span_source
-        snapshot = snapshot_with_metadata(connection, connection.execute("SELECT * FROM raw_snapshot WHERE id=?", (event['raw_snapshot_id'],)).fetchone())
+        snapshot_id = source_snapshot_id or event['raw_snapshot_id']
+        row = connection.execute("SELECT * FROM raw_snapshot WHERE id=? AND raw_item_id=?", (snapshot_id, event['raw_item_id'])).fetchone()
+        if row is None:
+            raise PersonalError("证据来源不属于当前事项。", "invalid_reference", 400)
+        snapshot = snapshot_with_metadata(connection, row)
         resolved = span_source(snapshot, evidence.model_dump())
         evidence_id = identifier()
         connection.execute("""INSERT OR IGNORE INTO evidence
-            (id,event_id,raw_snapshot_id,field_path,quote,start_offset,end_offset,created_at,source_type,block_id,attachment_id,page,section,bounding_box_json)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-            (evidence_id,event['id'],event['raw_snapshot_id'],field_path,evidence.quote,resolved['start_offset'],resolved['end_offset'],now(),
+            (id,event_id,raw_snapshot_id,field_path,quote,start_offset,end_offset,created_at,source_type,block_id,attachment_id,page,section,bounding_box_json,raw_item_id)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (evidence_id,event['id'],snapshot_id,field_path,evidence.quote,resolved['start_offset'],resolved['end_offset'],now(),
              resolved['source_type'],resolved.get('block_id'),resolved.get('attachment_id'),resolved.get('page'),resolved.get('section'),
-             encode(resolved['bounding_box']) if resolved.get('bounding_box') else None))
+             encode(resolved['bounding_box']) if resolved.get('bounding_box') else None,event['raw_item_id']))
 
     @staticmethod
-    def _original_phrase(connection, event, phrase: str):
+    def _original_phrase(connection, event, phrase: str, source_snapshot_id: str | None = None):
         if phrase:
-            original = connection.execute("SELECT original_text FROM raw_snapshot WHERE id = ?", (event["raw_snapshot_id"],)).fetchone()[0]
+            original = connection.execute("SELECT original_text FROM raw_snapshot WHERE id = ?", (source_snapshot_id or event["raw_snapshot_id"],)).fetchone()[0]
             if phrase not in original:
                 raise PersonalError("原文日期表述必须是原始通知中的准确片段，也可以留空。", "invalid_original_phrase", 400)
 
@@ -158,6 +169,12 @@ class PersonalStore:
         event["evidence"] = [dict(row) for row in connection.execute("SELECT * FROM evidence WHERE event_id = ? ORDER BY created_at, id", (event_id,))]
         for evidence in event['evidence']:
             evidence['bounding_box'] = json.loads(evidence.pop('bounding_box_json') or 'null')
+        event['evidence_snapshots'] = {}
+        for snapshot_id in {item['raw_snapshot_id'] for item in event['evidence']} - {event['raw_snapshot_id']}:
+            event['evidence_snapshots'][snapshot_id] = snapshot_with_metadata(connection, connection.execute("SELECT * FROM raw_snapshot WHERE id=?", (snapshot_id,)).fetchone())
+        latest = connection.execute("SELECT id,created_at FROM raw_snapshot WHERE raw_item_id=? ORDER BY created_at DESC,id DESC LIMIT 1", (event['raw_item_id'],)).fetchone()
+        confirmed_sources = {item['source_snapshot_id'] or event['raw_snapshot_id'] for item in event['deadlines']}
+        event['source_update'] = dict(latest) if latest and latest['id'] != event['raw_snapshot_id'] and (not confirmed_sources or any(value != latest['id'] for value in confirmed_sources)) else None
         decisions = connection.execute("SELECT * FROM user_decision WHERE event_id = ? ORDER BY created_at DESC, id LIMIT 50", (event_id,))
         event["decisions"] = [{"id": row["id"], "action": row["action"], "entity_id": row["entity_id"],
                                "before": json.loads(row["before_json"]) if row["before_json"] else None,
@@ -180,14 +197,17 @@ class PersonalStore:
         with self.connection() as connection:
             return self._detail(connection, event_id)
 
-    def list_events(self, *, limit: int = 50, offset: int = 0) -> dict:
+    def list_events(self, *, limit: int = 50, offset: int = 0, status: str | None = None) -> dict:
+        if status not in {None,'all','active','done','cancelled'}:
+            raise PersonalError('事项状态筛选无效。')
+        where,args = ('',[]) if status in {None,'all'} else (" WHERE e.status NOT IN ('done','cancelled')",[]) if status=='active' else (' WHERE e.status=?',[status])
         with self.connection() as connection:
-            total = connection.execute("SELECT COUNT(*) FROM event").fetchone()[0]
+            total = connection.execute("SELECT COUNT(*) FROM event e"+where,args).fetchone()[0]
             rows = connection.execute("""SELECT e.*,
                 (SELECT COUNT(*) FROM task WHERE event_id = e.id) AS task_count,
                 (SELECT COUNT(*) FROM task WHERE event_id = e.id AND status = 'done') AS completed_task_count,
                 (SELECT COUNT(*) FROM deadline WHERE event_id = e.id) AS deadline_count
-                FROM event e ORDER BY e.updated_at DESC, e.id LIMIT ? OFFSET ?""", (limit, offset))
+                FROM event e"""+where+" ORDER BY e.updated_at DESC,e.id LIMIT ? OFFSET ?", (*args,limit,offset))
             return {"items": [dict(row) for row in rows], "total": total, "limit": limit, "offset": offset}
 
     def create_collection(self, payload: CollectionInput, submission_id: str | None = None) -> dict:
@@ -253,13 +273,16 @@ class PersonalStore:
     def add_deadline(self, event_id: str, payload: DeadlineInput) -> dict:
         with self.connection(write=True) as connection:
             event = self._event(connection, event_id, payload.expected_version, editable=True)
-            self._original_phrase(connection, event, payload.original_text)
+            source_id = self._deadline_source(connection, event, payload)
+            self._original_phrase(connection, event, payload.original_text, source_id)
             deadline_id, stamp = identifier(), now()
             fields = payload.model_dump(exclude={"expected_version", "evidence"})
-            connection.execute("INSERT INTO deadline (id, event_id, label, value, precision, original_text, confirmed_by_user, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                               (deadline_id, event_id, payload.label, payload.value, payload.precision, payload.original_text, int(payload.confirmed_by_user), stamp, stamp))
+            connection.execute("""INSERT INTO deadline (id,event_id,label,value,precision,original_text,confirmed_by_user,created_at,updated_at,
+                end_value,range_precision,timezone,fold,uncertain,source_snapshot_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (deadline_id,event_id,payload.label,payload.value,payload.precision,payload.original_text,int(payload.confirmed_by_user),stamp,stamp,
+                 payload.end_value,payload.range_precision,payload.timezone,payload.fold,int(payload.uncertain),source_id))
             if payload.evidence:
-                self._evidence(connection, event, f"deadlines.{deadline_id}.value", payload.evidence)
+                self._evidence(connection, event, f"deadlines.{deadline_id}.value", payload.evidence, source_id)
             self._audit(connection, event_id, "deadline_added", deadline_id, None, fields)
             self._touch(connection, event_id)
             return self._detail(connection, event_id)
@@ -268,18 +291,39 @@ class PersonalStore:
         with self.connection(write=True) as connection:
             event = self._event(connection, event_id, payload.expected_version, editable=True)
             deadline = self._child(connection, "deadline", deadline_id, event_id)
-            self._original_phrase(connection, event, payload.original_text)
-            connection.execute("UPDATE deadline SET label = ?, value = ?, precision = ?, original_text = ?, confirmed_by_user = ?, updated_at = ? WHERE id = ?",
-                               (payload.label, payload.value, payload.precision, payload.original_text, int(payload.confirmed_by_user), now(), deadline_id))
+            source_id = self._deadline_source(connection, event, payload, deadline)
+            source_changed = source_id != (deadline['source_snapshot_id'] or event['raw_snapshot_id'])
+            self._original_phrase(connection, event, payload.original_text, source_id)
+            timezone_value = payload.timezone if 'timezone' in payload.model_fields_set else deadline['timezone']
+            from .planning.time import resolve
+            if payload.precision != 'unknown' and resolve({**payload.model_dump(), 'timezone': timezone_value}, require_confirmed=False) is None:
+                raise PersonalError("该时区下的日期或时间无效，请核对。")
+            connection.execute("""UPDATE deadline SET label=?,value=?,precision=?,original_text=?,confirmed_by_user=?,updated_at=?,
+                end_value=?,range_precision=?,timezone=?,fold=?,uncertain=?,source_snapshot_id=? WHERE id=?""",
+                (payload.label,payload.value,payload.precision,payload.original_text,int(payload.confirmed_by_user),now(),
+                 payload.end_value,payload.range_precision,timezone_value,payload.fold,int(payload.uncertain),source_id,deadline_id))
             field_path = f"deadlines.{deadline_id}.value"
             before_evidence = [dict(row) for row in connection.execute("SELECT * FROM evidence WHERE event_id = ? AND field_path = ?", (event_id, field_path))]
             if "evidence" in payload.model_fields_set:
-                connection.execute("DELETE FROM evidence WHERE event_id = ? AND field_path = ?", (event_id, field_path))
+                # Source updates preserve old quoted evidence as provenance.
+                if not source_changed:
+                    connection.execute("DELETE FROM evidence WHERE event_id = ? AND field_path = ? AND raw_snapshot_id=?", (event_id, field_path, source_id))
                 if payload.evidence:
-                    self._evidence(connection, event, field_path, payload.evidence)
-            self._audit(connection, event_id, "deadline_edited", deadline_id, {**dict(deadline), "evidence": before_evidence}, payload.model_dump(exclude={"expected_version"}))
+                    self._evidence(connection, event, field_path, payload.evidence, source_id)
+            self._audit(connection, event_id, "deadline_source_updated" if source_changed else "deadline_edited", deadline_id, {**dict(deadline), "evidence": before_evidence}, payload.model_dump(exclude={"expected_version"}))
             self._touch(connection, event_id)
             return self._detail(connection, event_id)
+
+    @staticmethod
+    def _deadline_source(connection, event, payload, deadline=None):
+        current = (deadline['source_snapshot_id'] if deadline else None) or event['raw_snapshot_id']
+        target = payload.source_snapshot_id or current
+        row = connection.execute("SELECT id FROM raw_snapshot WHERE id=? AND raw_item_id=?", (target,event['raw_item_id'])).fetchone()
+        if row is None:
+            raise PersonalError("新来源不属于当前事项。", "invalid_reference", 400)
+        if target != current and (not payload.acknowledged_source_change or not payload.evidence or not payload.confirmed_by_user):
+            raise PersonalError("请核对新来源证据并明确确认日期变更。", "source_confirmation_required", 409)
+        return target
 
     @staticmethod
     def _require_participation(connection, event_id):

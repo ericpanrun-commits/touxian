@@ -36,6 +36,9 @@ try:
     from .documents.api import router as document_router, UploadBodyLimit
     from .collector.controller import CollectorController
     from .collector.control_api import router as collector_control_router
+    from .planning.api import router as planning_router
+    from .reminders.api import router as reminder_router
+    from .reminders.service import ReminderService
 except ImportError:  # pragma: no cover - direct module execution fallback
     import mail_digest
     import profile_store as PROFILE
@@ -55,6 +58,9 @@ except ImportError:  # pragma: no cover - direct module execution fallback
     from server.documents.api import router as document_router, UploadBodyLimit
     from server.collector.controller import CollectorController
     from server.collector.control_api import router as collector_control_router
+    from server.planning.api import router as planning_router
+    from server.reminders.api import router as reminder_router
+    from server.reminders.service import ReminderService
 
 
 APP_ROOT = Path(__file__).resolve().parents[1]
@@ -105,10 +111,14 @@ async def application_lifespan(application: FastAPI):
     official = OfficialSourceMonitor(personal_store)
     OFFICIAL = official
     application.state.official_monitor = official
+    reminders = ReminderService(personal_store)
+    application.state.reminder_service = reminders
+    await reminders.start()
     start_inbox_watcher()
     try:
         yield
     finally:
+        await reminders.close()
         await collector.close()
         await extraction.close()
         await run_in_threadpool(documents.close)
@@ -121,6 +131,8 @@ app.include_router(personal_router)
 app.include_router(review_router)
 app.include_router(document_router)
 app.include_router(collector_control_router)
+app.include_router(planning_router)
+app.include_router(reminder_router)
 app.add_middleware(UploadBodyLimit)
 app.add_middleware(
     CORSMiddleware,

@@ -35,6 +35,8 @@ class ReviewStore:
             if name.endswith("_json"):
                 del review[name]
         review["extraction"] = ReviewStore._extraction(connection, review["extraction_id"]) if review["extraction_id"] else None
+        from .planning.source_update import comparison
+        review['source_update'] = comparison(connection,review['snapshot']['raw_item_id'],snapshot_id,review['extraction'])
         return review
 
     @staticmethod

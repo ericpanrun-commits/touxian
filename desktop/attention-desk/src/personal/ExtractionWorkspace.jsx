@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import SourceUpdate from './SourceUpdate';
 import { AnalysisProgress, AnalysisHistory } from './AnalysisProgress';
 import { analysisRequestBody } from './analysisState';
 import { LoaderCircle } from 'lucide-react';
@@ -68,6 +69,7 @@ export default function ExtractionWorkspace({ mode, snapshotId, intent, onNaviga
   const [manual, setManual] = useState(intent === 'manual');
   const [editorVersion, setEditorVersion] = useState(0);
   const [documentJob, setDocumentJob] = useState(null);
+  const [sourceUpdateTarget, setSourceUpdateTarget] = useState(null);
   const inFlight = useRef(false);
   const analysisRequest = useRef(null);
   const started = useRef(false);
@@ -189,10 +191,16 @@ export default function ExtractionWorkspace({ mode, snapshotId, intent, onNaviga
           <AnalysisProgress extraction={bundle.extraction} busy={busy} onCancel={cancelAnalysis} />
           {documentsPending ? <p className="personal-loading" role="status"><LoaderCircle size={19} className="spin" />{documentJob.phase || '本地解析中'}… 可以离开，解析进度会保留。</p> : null}
           {bundle.snapshot.input_budget && !bundle.extraction?.plan ? <p className="personal-meta">分析范围：{bundle.snapshot.input_budget.selected_count}/{bundle.snapshot.input_budget.total_count} 个来源块，共 {bundle.snapshot.input_budget.characters} 字。全文保存在本机。</p> : null}
-          {!pending(bundle) && bundle.extraction?.plan?.omitted?.length ? <button type="button" className="button button-quiet" disabled={busy} onClick={() => forceAnalysis('remaining')}>分析尚未覆盖区域</button> : null}
+          {!pending(bundle) && bundle.extraction?.plan?.omitted?.length ? <button type="button" className="button button-quiet" disabled={busy || Boolean(sourceUpdateTarget)} onClick={() => forceAnalysis('remaining')}>分析尚未覆盖区域</button> : null}
           {bundle.extraction?.error ? <div role="alert" className="personal-analysis-error"><strong>分析未完成 · 原文已保留</strong><p>{bundle.extraction.error.message}</p></div> : null}
-          {!pending(bundle) ? <div className="personal-form-actions"><button type="button" className="button button-primary" disabled={busy || documentsPending || Boolean(filesUnparsed)} onClick={() => bundle.extraction ? forceAnalysis() : analyze() }>{bundle.extraction ? '重新分析' : '使用 DeepSeek 分析'}</button><button type="button" className="button button-quiet" disabled={busy || documentsPending || Boolean(filesUnparsed)} onClick={() => { setManual(true); setNotice('可以手动填写并确认；原分析记录保留。'); }}>继续手动整理</button>{bundle.snapshot.web && !showEditor ? <button type="button" className="button button-quiet" disabled={busy} onClick={cancel}>忽略这条通知</button> : null}<button type="button" className="personal-text-button" disabled={busy} onClick={() => onNavigate('settings', snapshotId)}>提取设置</button></div> : null}
-          {showEditor ? <ReviewEditor key={`${bundle.extraction_id || 'manual'}-${editorVersion}`} bundle={bundle} busy={busy} onDirtyChange={reportDirty} onView={setSelectedEvidence} onCancel={cancel}
+          {!pending(bundle) ? <div className="personal-form-actions"><button type="button" className="button button-primary" disabled={busy || documentsPending || Boolean(filesUnparsed) || Boolean(sourceUpdateTarget)} onClick={() => bundle.extraction ? forceAnalysis() : analyze() }>{bundle.extraction ? '重新分析' : '使用 DeepSeek 分析'}</button><button type="button" className="button button-quiet" disabled={busy || documentsPending || Boolean(filesUnparsed) || Boolean(sourceUpdateTarget)} onClick={() => { setManual(true); setNotice('可以手动填写并确认；原分析记录保留。'); }}>继续手动整理</button>{bundle.snapshot.web && !showEditor ? <button type="button" className="button button-quiet" disabled={busy || Boolean(sourceUpdateTarget)} onClick={cancel}>忽略这条通知</button> : null}<button type="button" className="personal-text-button" disabled={busy} onClick={() => onNavigate('settings', snapshotId)}>提取设置</button></div> : null}
+          <SourceUpdate bundle={bundle} target={sourceUpdateTarget} busy={busy || documentsPending || pending(bundle)} onDirtyChange={reportDirty}
+            onStart={target => { const action = () => { reportDirty(false); setSourceUpdateTarget(target); }; if (dirty.current) setDialog({ title: '放弃未保存的预览修改？', message: '接下来核对已有时间节点，当前未保存的预览修改会被放弃。原文和正式事项保留。', confirmLabel: '核对已有时间节点', action }); else action(); }}
+            onCancel={() => { const action = () => { reportDirty(false); setSourceUpdateTarget(null); }; if (dirty.current) setDialog({ title: '放弃日期变更草稿？', message: '已有日期尚未改变，当前核对输入将被放弃。', confirmLabel: '放弃变更草稿', action }); else action(); }}
+            onSave={fields => setDialog({ title: '应用来源日期变更？', message: `${sourceUpdateTarget.event.title} / ${sourceUpdateTarget.deadline.label}：${sourceUpdateTarget.deadline.value.replace('T', ' ')} → ${fields.value.replace('T', ' ')}${fields.end_value ? ` — ${fields.end_value}` : ''}。将更新同一时间节点，重算未来提醒并更新日历；历史和旧来源保留。`, confirmLabel: '确认更新日期', action: () => run(async () => {
+              const saved = await personalRequest(`/events/${sourceUpdateTarget.event.id}/deadlines/${sourceUpdateTarget.deadline.id}/source-update`, { method: 'POST', body: { ...fields, expected_version: sourceUpdateTarget.event.version, source_snapshot_id: bundle.snapshot.id, acknowledged_source_change: true } }); reportDirty(false); onCreated([saved], { sourceUpdated: true });
+            }) })} />
+          {showEditor && !sourceUpdateTarget ? <ReviewEditor key={`${bundle.extraction_id || 'manual'}-${editorVersion}`} bundle={bundle} busy={busy} onDirtyChange={reportDirty} onView={setSelectedEvidence} onCancel={cancel}
             onSaveDraft={draft => run(async () => { setBundle(await personalRequest(`/raw/${snapshotId}/draft`, { method: 'PUT', body: { expected_version: bundle.version, draft } })); reportDirty(false); setNotice('预览草稿已保存，尚未创建正式事项。'); })}
             onConfirm={payload => run(async () => { const saved = await personalRequest(`/raw/${snapshotId}/confirm`, { method: 'POST', body: payload }); reportDirty(false); onCreated(saved.events); })} /> : null}
         </>}

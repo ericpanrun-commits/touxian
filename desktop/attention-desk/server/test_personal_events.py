@@ -101,7 +101,7 @@ def test_snapshot_is_immutable_and_initialization_is_repeatable(client, store):
     store.initialize()
     assert store.get_event(event["id"])["snapshot"]["original_text"] == ORIGINAL
     with store.connection() as connection:
-        assert [row[0] for row in connection.execute("SELECT version FROM schema_migrations ORDER BY version")] == [1, 2, 3, 4, 5]
+        assert [row[0] for row in connection.execute("SELECT version FROM schema_migrations ORDER BY version")] == [1, 2, 3, 4, 5, 6]
 
 
 def test_invalid_evidence_rolls_back_child_and_version(client, store):
@@ -180,7 +180,7 @@ def test_date_precision_never_adds_2359_and_minute_is_explicit(client):
     assert response.status_code == 201
     minute = next(value for value in response.json()["deadlines"] if value["precision"] == "minute")
     assert minute["value"] == "2026-10-12T16:30"
-    assert minute["timezone"] == "Asia/Shanghai"
+    assert minute["timezone"] is None  # Empty timezone explicitly follows system IANA zone.
 
 
 def test_all_tasks_complete_does_not_complete_event(client):

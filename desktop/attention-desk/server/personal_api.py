@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import sqlite3
-from typing import Callable
+from typing import Callable, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
@@ -32,8 +32,8 @@ def perform(action: Callable):
 
 
 @router.get("/events")
-def list_events(limit: int = Query(default=50, ge=1, le=100), offset: int = Query(default=0, ge=0), store: PersonalStore = Depends(store_for)):
-    return perform(lambda: store.list_events(limit=limit, offset=offset))
+def list_events(limit: int = Query(default=50, ge=1, le=100), offset: int = Query(default=0, ge=0), status:Literal['active','done','cancelled','all']|None=None, store: PersonalStore = Depends(store_for)):
+    return perform(lambda: store.list_events(limit=limit, offset=offset,status=status))
 
 
 @router.post("/collect", status_code=201)

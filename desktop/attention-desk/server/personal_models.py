@@ -92,8 +92,15 @@ class StatusInput(MutationInput):
 
 class DeadlineInput(MutationInput):
     label: str = Field(min_length=1, max_length=180)
-    value: str = Field(min_length=1, max_length=40)
-    precision: Literal["date", "minute"] = "date"
+    value: str = Field(default="", max_length=40)
+    precision: Literal["date", "minute", "range", "unknown"] = "date"
+    end_value: str | None = Field(default=None, max_length=40)
+    range_precision: Literal["date", "minute"] | None = None
+    timezone: str | None = Field(default=None, max_length=100)
+    fold: Literal[0, 1] | None = None
+    uncertain: bool = False
+    source_snapshot_id: str | None = Field(default=None, max_length=36)
+    acknowledged_source_change: bool = False
     original_text: str = Field(default="", max_length=1000)
     confirmed_by_user: bool = True
     evidence: EvidenceInput | None = None
@@ -105,7 +112,27 @@ class DeadlineInput(MutationInput):
 
     @model_validator(mode="after")
     def validate_value(self):
-        self.value = normalize_time(self.value, self.precision)
+        from .planning.time import resolve, zone
+        if self.precision == "unknown":
+            if self.value or self.end_value or self.confirmed_by_user:
+                raise ValueError("未知日期不能填写日期或标记为已确认")
+            self.uncertain = True
+            return self
+        unit = self.range_precision if self.precision == "range" else self.precision
+        if unit not in {"date", "minute"}:
+            raise ValueError("请选择范围的日期或时间精度")
+        self.value = normalize_time(self.value, unit)
+        if self.precision == "range":
+            if not self.end_value:
+                raise ValueError("范围需要明确的结束日期或时间")
+            self.end_value = normalize_time(self.end_value, unit)
+        elif self.end_value or self.range_precision:
+            raise ValueError("仅范围日期可以填写结束值")
+        zone(self.timezone)
+        if resolve(self.model_dump(), require_confirmed=False) is None:
+            raise ValueError("日期范围、时区或夏令时时刻无效，请核对")
+        if self.uncertain and self.confirmed_by_user:
+            raise ValueError("请先解决日期不确定性，再标记为已确认")
         return self
 
 

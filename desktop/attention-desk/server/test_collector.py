@@ -209,7 +209,9 @@ def test_request_boundaries(tmp_path,headers,status):
             assert result.status_code==status and count(r.store,'raw_item')==0
     asyncio.run(run())
 
-@pytest.mark.parametrize('path',['/api/personal/ai-settings','/api/personal/events','/api/personal/collector/qr','/api/personal/collector/revoke-devices','/api/attachments','/docs','/openapi.json','/assets/desktop.js','/personal.sqlite3','/server/main.py','/assets/../../server/main.py'])
+@pytest.mark.parametrize('path',['/api/personal/ai-settings','/api/personal/events','/api/personal/collector/qr','/api/personal/collector/revoke-devices','/api/attachments','/docs','/openapi.json','/assets/desktop.js','/personal.sqlite3','/server/main.py','/assets/../../server/main.py',
+    '/api/personal/planning/today','/api/personal/planning/upcoming','/api/personal/planning/calendar',
+    '/api/personal/planning/export.ics','/api/personal/reminders','/api/personal/reminders/settings','/api/personal/reminders/test'])
 def test_desktop_api_and_arbitrary_files_never_exposed(tmp_path,path):
     async def run():
         async with rig(tmp_path) as r:
@@ -217,6 +219,19 @@ def test_desktop_api_and_arbitrary_files_never_exposed(tmp_path,path):
             assert result.status_code==404
             assert not any(value in result.text for value in ['traceback','test-key-for','sqlite3','C:\\Users','desktop secret'])
             assert result.headers['cache-control']=='no-store'
+    asyncio.run(run())
+
+
+def test_mobile_session_cannot_change_reminders_notify_or_apply_source_update(tmp_path):
+    async def run():
+        async with rig(tmp_path) as r:
+            for method,path in [('PUT','/api/personal/reminders/settings'),('POST','/api/personal/reminders/test'),
+                ('POST',f'/api/personal/reminders/{uuid4()}/action'),
+                ('POST',f'/api/personal/events/{uuid4()}/deadlines/{uuid4()}/source-update')]:
+                result = await r.client.request(method,path,json={})
+                assert result.status_code in {404,405}
+            assert not any(route.path.startswith('/api/personal/') for route in r.app.routes)
+            assert count(r.store,'event')==count(r.store,'deadline')==0
     asyncio.run(run())
 
 def test_static_whitelist_and_cookie_security(tmp_path):

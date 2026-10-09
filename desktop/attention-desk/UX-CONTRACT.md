@@ -1,5 +1,19 @@
 # UX Contract
 
+## Phase 6 planning and reminders
+
+The default personal workbench opens Today. Today, Upcoming (7/14/30 days) and all-items filters read the same confirmed structured facts. Today orders overdue before today's dates, then items with planned/fired reminders today, and explains inclusion with text. Terminal events are excluded by default and require an explicit filter. Overdue never changes Event or Task status. Calendar has month/day views and shares DeadlineProjection with workbench views; date-only values are all-day, exact times convert to system display time, and ranges include both civil dates. It never reads original files or invokes AI/OCR.
+
+Canonical owners remain Forms.Field/SubmitButton + useDraft, typed ISO dates, native select/checkboxes, ConfirmDialog and OriginalNotice. DeadlineForm is extended for range/unknown/IANA/DST fold rather than duplicated. IcsExport owns all export controls; native download files use stable Deadline UIDs. usePersonalResource owns abortable, stale-safe planning reads and persistent retry errors. Calendar day selection uses native buttons inside a table, with no authored date input popup or ARIA grid. Workbench view selectors are route-backed native button groups, not ARIA tabs. Existing URL identity and document scrolling are retained; route changes return to the top and focus a meaningful heading. No source data is persisted in browser storage.
+
+ReminderCenter is a projection with durable scheduled/fired/snoozed/dismissed/cancelled/failed records. Snooze offers 10 minutes, 1 hour and tomorrow's policy time. Dismiss closes only the current reminder. All writes wait for server confirmation and prevent duplicate submissions; errors retain input. Policy edits cancel/recompute future occurrences, preserve fired history and stable logical dedupe. The scheduler runs only with the backend, uses 6-hour default grace and limited retries, coalesces missed occurrences per Deadline and caps each delivery batch. Failed or ambiguous deliveries remain visible; ambiguous process-exit deliveries are not blindly repeated.
+
+Settings has reminder/calendar and AI extraction categories. Reminder defaults are 3/1/0 days at 09:00 or 24/2 elapsed hours, plus privacy and grace. Windows test notifications require an explicit JSON POST; simple cross-origin forms cannot trigger them. System-disabled notifications are reported, not re-enabled. The optional Startup control is visibly unavailable in this local-web version with an explanation; no shortcut or Task Scheduler entry is created. System toast acceptance does not claim visual delivery.
+
+A new source version is read-only until explicit review. The preview compares proposals with existing confirmed deadlines; changing an existing node requires its current version, a same-RawItem immutable source, exact new evidence and the shared confirmation dialog. It keeps the Deadline ID, old evidence/history, and old Event source for other facts. Source evidence navigation selects the correct immutable snapshot. Future reminders and Calendar then project the approved date; AI never silently overwrites a manual fact.
+
+Verification owners: server/test_planning_time.py (precision/DST/migration), server/test_reminders.py (lifecycle), server/test_planning.py (Calendar/ICS/source updates/API), tests/planning.test.mjs (civil UI arithmetic), and repository-external browser acceptance evidence recorded in PHASE-6-REPORT.md. Full regression/build, strict project audit and rendered failure/keyboard/narrow checks remain required.
+
 ## Long document reliability (Phase 5.5)
 
 ExtractionWorkspace owns the existing review route; AnalysisProgress and AnalysisHistory are named variants of its inline progress/history behavior, not a separate inbox. Short notices retain one extraction request. Long work shows actual processed/total regions and can be cancelled independently of cancelling the raw review. Cancellation preserves immutable sources, successful region results and cache; partial previews require the existing warning acknowledgement before formal confirmation.
@@ -10,7 +24,7 @@ History loads 20 rows at a time; source labels retain PDF page, DOCX section or 
 
 ## Product context and sources
 
-Scope: personal Windows notice workflow with public ZQU sources, local file/OCR intake, DeepSeek candidate extraction and explicit human confirmation, zh-CN, Asia/Shanghai minute precision, Gregorian dates. Accessibility target is WCAG 2.2 AA for new controls. Files and original images stay local; explicit analysis sends extracted text. A LAN-only mobile web collector submits to the same Windows workflow; no cloud account, native phone app, calendar or clipboard automation is introduced. A transient password field sends the provider key to the local backend for Windows DPAPI protection.
+Scope: personal Windows notice workflow with public ZQU sources, local file/OCR intake, DeepSeek candidate extraction and explicit human confirmation, zh-CN, Gregorian dates and explicit IANA/system-local time rules. Accessibility target is WCAG 2.2 AA for new controls. Files and original images stay local; explicit analysis sends extracted text. A LAN-only mobile web collector submits to the same Windows workflow. Phase 6 adds local reminders, Calendar projections and manual ICS export; no cloud account, native phone app, OAuth or clipboard automation is introduced. A transient password field sends the provider key to the local backend for Windows DPAPI protection.
 
 | Domain / scope | Authoritative source | Source type | Reviewed date |
 |---|---|---|---|
@@ -100,3 +114,5 @@ The unattended Phase 5 correction keeps enable separate from QR generation. The 
 
 
 2026-10-08 Safari persistence follow-up: user confirmed the failed reopen used private browsing. Treat normal Safari persistence as pending. Pairing now requires a subsequent authenticated cookie read before intake appears; successful confirmation removes the consumed invitation query even if the cookie is unavailable. Inline recovery explains independent ordinary/private/Code Scanner containers. Bounded device lifecycle and GET /api/session diagnostics record only short hash IDs, dates, cookie presence and fixed results; no secrets or raw headers.
+
+2026-10-09 checkpoint status supersedes the earlier pending hardware notes: normal Safari persistence, handoff, upload/security, formal confirmation and restart gates are complete, recorded in PHASE-5-ACCEPTANCE.md / PHASE-5-CHECKPOINT.md and tagged phase5-mobile-collector-stable. Phase 5.5 long-PDF persistence is also checkpointed. Phase 6 retains those boundaries; its real native-notification path currently reports Windows DISABLED_FOR_USER and uses visible, bounded-retry Reminder Center fallback. PHASE-6-REPORT.md records the remaining OS visual check without changing permissions.

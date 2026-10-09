@@ -337,7 +337,7 @@ function App() {
   const [screen, setScreen] = useState(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get('official_sources') === '1') return 'official';
-    if (params.has('review_source') || params.has('personal_event') || params.has('personal_raw') || params.get('personal_settings') === '1' || params.get('personal_collector') === '1') return 'personal';
+    if (params.has('review_source') || params.has('personal_event') || params.has('personal_raw') || params.has('personal_view') || params.get('personal_settings') === '1' || params.get('personal_collector') === '1') return 'personal';
     const saved = window.localStorage.getItem('attention-screen');
     return ['personal', 'chat', 'official'].includes(saved) ? saved : 'personal';
   });
@@ -941,7 +941,7 @@ function App() {
       const url = new URL(window.location.href);
       if (next === 'official') url.searchParams.set('official_sources', '1');
       else url.searchParams.delete('official_sources');
-      if (next !== 'personal') ['personal_event', 'personal_raw', 'personal_settings', 'personal_collector', 'review_source'].forEach(key => url.searchParams.delete(key));
+      if (next !== 'personal') ['personal_event', 'personal_raw', 'personal_settings', 'personal_collector', 'personal_view', 'upcoming_days', 'calendar_month', 'review_source'].forEach(key => url.searchParams.delete(key));
       window.history.replaceState({}, '', url);
       setScreen(next);
     };
@@ -976,7 +976,7 @@ function App() {
       <main className="main-canvas">
         {screen === 'personal' ? <PersonalWorkspace navigationGuardRef={personalNavigationGuard} /> : screen === 'official' ? <OfficialMonitor onOpenReviews={sourceId => {
           const url = new URL(window.location.href);
-          ['official_sources', 'personal_event', 'personal_raw', 'personal_settings', 'personal_collector'].forEach(key => url.searchParams.delete(key));
+          ['official_sources', 'personal_event', 'personal_raw', 'personal_settings', 'personal_collector', 'personal_view', 'upcoming_days', 'calendar_month'].forEach(key => url.searchParams.delete(key));
           if (sourceId) url.searchParams.set('review_source', sourceId); else url.searchParams.delete('review_source');
           window.history.replaceState({}, '', url);
           changeScreen('personal');

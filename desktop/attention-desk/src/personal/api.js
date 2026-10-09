@@ -7,7 +7,7 @@ export class PersonalApiError extends Error {
 }
 
 export async function personalRequest(path, options = {}) {
-  const { signal, body, headers, ...rest } = options;
+  const { signal, body, headers, responseType = 'json', ...rest } = options;
   const controller = new AbortController();
   const forwardAbort = () => controller.abort();
   signal?.addEventListener('abort', forwardAbort, { once: true });
@@ -22,7 +22,7 @@ export async function personalRequest(path, options = {}) {
       headers: { ...(body !== undefined && !multipart ? { 'Content-Type': 'application/json' } : {}), ...headers },
       ...(body !== undefined ? { body: multipart ? body : JSON.stringify(body) } : {}),
     });
-    const payload = await response.json();
+    const payload = response.ok && responseType === 'blob' ? await response.blob() : await response.json();
     if (!response.ok) {
       const detail = payload.detail;
       throw new PersonalApiError(

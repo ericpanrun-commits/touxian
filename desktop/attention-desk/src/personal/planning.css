@@ -1,0 +1,49 @@
+.planning-toolbar, .planning-views, .planning-month-switch { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-bottom: 18px; }
+.personal-section h1:focus { outline: 2px solid var(--blue); outline-offset: 3px; }
+.planning-views { justify-content: flex-start; margin: 0; }
+.planning-toolbar > .personal-field { width: 180px; margin-bottom: 0; }
+.planning-event { margin-top: 24px; padding-top: 18px; border-top: 2px solid var(--ink); }
+.planning-event-link { padding: 0; color: var(--ink); background: transparent; border: 0; font: inherit; text-align: left; overflow-wrap: anywhere; cursor: pointer; }
+.planning-event-link:hover { color: var(--blue); text-decoration: underline; }
+.planning-deadline { padding: 14px 0; border-bottom: 1px solid var(--line-soft); }
+.planning-deadline:last-child { border-bottom: 0; }
+.planning-task-summary { color: var(--muted); margin: 10px 0; padding-left: 22px; line-height: 1.8; overflow-wrap: anywhere; }
+.personal-status.planning-overdue { color: var(--red); background: var(--red-soft); }
+.planning-export { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 10px; }
+.planning-export > p { flex-basis: 100%; }
+.planning-month-switch { margin: 0; justify-content: flex-start; }
+.planning-month { width: 100%; table-layout: fixed; border-collapse: collapse; }
+.planning-month caption { text-align: left; font-size: 13px; color: var(--muted); padding-bottom: 10px; }
+.planning-month th { font-weight: 400; color: var(--muted); font-size: 13px; padding-bottom: 10px; }
+.planning-month td { padding: 0; border: 1px solid var(--line-soft); }
+.planning-month td button { width: 100%; min-height: 84px; padding: 10px; background: var(--panel); border: 2px solid transparent; color: var(--ink); font: inherit; text-align: left; cursor: pointer; display: flex; flex-direction: column; justify-content: space-between; align-items: flex-start; gap: 6px; }
+.planning-month td button:hover { background: var(--paper); }
+.planning-month td button[aria-current='date'] > span:first-child { font-weight: 700; text-decoration: underline; text-underline-offset: 4px; }
+.planning-month td button.is-selected { border-color: var(--ink); background: var(--yellow-soft); }
+.planning-month td button:disabled { color: var(--muted); background: var(--soft); cursor: default; }
+.planning-month td button strong { color: var(--blue); font-size: 13px; }
+.planning-empty-day { color: var(--muted); font-size: 12px; }
+.planning-day-detail { margin-top: 26px; }
+.planning-day-detail > h2 { font-size: 17px; }
+.planning-reminder { padding: 20px 0; border-bottom: 1px solid var(--line-soft); }
+.planning-reminder p { overflow-wrap: anywhere; line-height: 1.7; }
+.planning-reminder-actions { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+.planning-reminder-actions .personal-field { margin: 0; width: 210px; }
+.planning-reminder-actions .personal-field label { font-size: 13px; }
+.personal-form .planning-policy-group { padding: 18px 0; }
+.planning-policy-group legend { font-weight: 600; padding-top: 18px; }
+.planning-policy-group .personal-checkbox-label { margin-bottom: 12px; }
+.planning-test-notification, .planning-startup { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--line-soft); }
+.planning-settings-nav { margin-bottom: 20px; }
+.planning-source-update { padding: 18px; border-left: 3px solid var(--blue); background: var(--blue-soft); margin-top: 20px; }
+@media (max-width: 600px) {
+  .personal-shell .personal-topbar .group-context { flex-basis: 100%; }
+  .personal-shell .personal-topbar .topbar-actions { flex-wrap: wrap; justify-content: flex-start; gap: 8px; }
+  .personal-shell .personal-topbar .topbar-actions .button { white-space: nowrap; flex-shrink: 0; }
+  .planning-month td button { min-height: 66px; padding: 6px 3px; font-size: 13px; }
+  .planning-month th { font-size: 11px; }
+  .planning-day-unit { display: none; }
+  .planning-deadline .personal-section-heading, .planning-reminder .personal-section-heading { flex-wrap: wrap; }
+  .planning-deadline .personal-date-value { font-size: 16px; }
+  .planning-reminder-actions .personal-field { flex-basis: 100%; width: 100%; }
+}

@@ -397,3 +397,11 @@ Phase 5 最终验收记录：见 [完整验收报告](PHASE-5-ACCEPTANCE.md) 与
 ## Phase 5.5 长文档提取可靠性
 
 长 PDF、长文本与多来源块使用有预算的分块提取、确定性合并和逐字依据校验；成功区域缓存，支持部分预览、取消及恢复。短通知保留一次调用。真实 26 页 PDF 已完成全部区域分析和重启保留验证；相对时间仍需人工提供可靠参照并确认。详见 [提取合同](EXTRACTION.md)、[Phase 5.5 报告](PHASE-5.5-REPORT.md) 与 [本地 checkpoint 记录](PHASE-5.5-CHECKPOINT.md)。后续用户授权的稳定基线为 phase5.5-long-document-stable，不 push。
+
+## Phase 6 · Today、提醒与日历
+
+工作台默认 Today，支持 Upcoming 7/14/30 天、逾期事项、Month Calendar、标准 ICS 导出和持久化提醒中心。只有用户确认且日期明确的 Deadline 会产生投影；来源更新先比较、再明确批准，保留旧依据。设置中可调整简单提醒策略、通知隐私和补发窗口，并发送测试提醒。
+
+后端运行期间每 30 秒检查提醒；完全退出后端不保证通知。Startup 选项仅说明当前尚未集成，不会自动创建启动项。新增 Windows 依赖可运行 `./start.ps1 -Install` 安装；已有库使用编号迁移，升级前建议保留备份。本次真实旧库已备份、逐值核对升级并验证重启保留。
+
+当前 Windows 返回 `DISABLED_FOR_USER`：系统关闭用户通知，应用会明确提示并保留提醒中心兜底。需要用户自行检查通知设置后点击“发送测试提醒”，完成横幅视觉确认。完整功能、安全、自动化、实际运行与 checkpoint 记录见 [PHASE-6-REPORT.md](PHASE-6-REPORT.md)。
