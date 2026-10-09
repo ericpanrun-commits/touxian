@@ -31,13 +31,19 @@ def adapter(monkeypatch):
     if os.name!='nt':
         pytest.skip('Windows adapter contract')
     from winrt.windows.ui.notifications import NotificationSetting
-    state = SimpleNamespace(setting=NotificationSetting.ENABLED,shown=[],raise_error=False)
+    state = SimpleNamespace(setting=NotificationSetting.ENABLED,setting_error=None,shown=[],raise_error=False)
     class Toast:
         def __init__(self,**kwargs): self.__dict__.update(kwargs)
+    class NativeNotifier:
+        @property
+        def setting(self):
+            if state.setting_error is not None:
+                raise state.setting_error
+            return state.setting
     class Toaster:
         def __init__(self,*args,**kwargs):
             assert kwargs['notifierAUMID']==APP_ID
-            self.toastNotifier = SimpleNamespace(setting=state.setting)
+            self.toastNotifier = NativeNotifier()
         def show_toast(self,toast):
             if state.raise_error: raise RuntimeError('private source body must not leak')
             state.shown.append(toast)
@@ -46,12 +52,38 @@ def adapter(monkeypatch):
     return WindowsNotifier(),state
 
 
-def test_adapter_blocks_os_disabled_without_show_or_data_leak(adapter):
+@pytest.mark.parametrize('setting',['DISABLED_FOR_USER','DISABLED_FOR_APPLICATION','DISABLED_BY_GROUP_POLICY','DISABLED_BY_MANIFEST'])
+def test_adapter_blocks_os_disabled_without_show_or_data_leak(adapter,setting):
     from winrt.windows.ui.notifications import NotificationSetting
     notifier,state = adapter
-    state.setting = NotificationSetting.DISABLED_FOR_USER
+    state.setting = NotificationSetting[setting]
     assert notifier.send(['private title'],delivery_id='fixture')=='os_blocked'
-    assert notifier.last_setting=='DISABLED_FOR_USER' and not state.shown
+    assert notifier.last_setting==setting and not state.shown
+
+
+@pytest.mark.parametrize('winerror',[-2147023728,0x80070490])
+def test_missing_setting_still_uses_native_delivery_and_reports_native_failure(adapter,winerror):
+    notifier,state = adapter
+    error = OSError('private diagnostic must not leak')
+    error.winerror = winerror
+    state.setting_error = error
+    notifier.last_setting = 'DISABLED_FOR_USER'
+    assert notifier.test()=='os_accepted'
+    assert notifier.last_setting is None and len(state.shown)==1
+    state.raise_error = True
+    assert notifier.test()=='delivery_failed'
+    assert len(state.shown)==1
+
+
+@pytest.mark.parametrize('winerror',[-2147024891,0x80070005,None])
+def test_other_setting_errors_fail_without_sending_or_stale_permission_status(adapter,winerror):
+    notifier,state = adapter
+    error = OSError('private diagnostic must not leak')
+    error.winerror = winerror
+    state.setting_error = error
+    notifier.last_setting = 'ENABLED'
+    assert notifier.test()=='delivery_failed'
+    assert notifier.last_setting is None and not state.shown
 
 
 def test_adapter_uses_bounded_literal_data_stable_tag_and_allowlisted_event_link(adapter,monkeypatch):

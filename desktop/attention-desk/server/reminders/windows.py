@@ -46,6 +46,7 @@ class WindowsNotifier:
             winreg.SetValueEx(key,'DisplayName',0,winreg.REG_SZ,'Attention Desk')
 
     def send(self,text,*,delivery_id,event_id=None,on_failed=None):
+        self.last_setting = None
         if os.name != 'nt':
             return 'unsupported'
         try:
@@ -53,10 +54,18 @@ class WindowsNotifier:
             from winrt.windows.ui.notifications import NotificationSetting
             self._register()
             toaster = InteractableWindowsToaster('Attention Desk',notifierAUMID=APP_ID)
-            setting = toaster.toastNotifier.setting
-            self.last_setting = setting.name
-            if setting != NotificationSetting.ENABLED:
-                return 'os_blocked'
+            try:
+                setting = toaster.toastNotifier.setting
+            except OSError as error:
+                # An unpackaged app's Setting lookup can return ERROR_NOT_FOUND
+                # even when native Show works. Let Show enforce Windows policy
+                # for this specific lookup error; all other errors still fail.
+                if getattr(error,'winerror',None) not in (-2147023728,0x80070490):
+                    raise
+            else:
+                self.last_setting = setting.name
+                if setting != NotificationSetting.ENABLED:
+                    return 'os_blocked'
             failed = threading.Event()
 
             def failure(_):

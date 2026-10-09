@@ -36,7 +36,7 @@ Today 包含今天截止、逾期未完成和当日计划/已触发提醒的时�
 
 隐私支持完整、仅标题 + Deadline（默认）、隐藏敏感内容；完整模式最多显示少量未完成任务，不放入原始私人通知。设置中的“发送测试提醒”独立于 Deadline。
 
-**真实系统结果：`DISABLED_FOR_USER`。** 后台 Scheduler 与测试按钮均调用了真实 WinRT adapter，系统关闭了用户通知，因此未显示真实横幅。界面明确显示原因，Reminder Center 记录失败并有限重试。没有自动更改 Windows 设置。单元测试验证了 ENABLED 接受路径、阻止路径、安全链接、固定错误码与实际安装库的 XML 序列化；这些不能代替横幅视觉验收。
+**Windows Toast 真实验收已通过。** 原报告将早期 `DISABLED_FOR_USER` 诊断解读为用户关闭通知，该判断已撤回。后续定位到通知状态查询兼容问题，具体修复与证据见 O 节；真实接口返回 `os_accepted` / `ENABLED`，测试通知进入 Windows 通知历史，用户已确认真实验收通过。没有自动更改 Windows 设置。系统明确禁用通知时仍拒绝投递，Reminder Center 保留失败记录并有限重试。
 
 参考：[Windows-Toasts](https://github.com/DatGuy1/Windows-Toasts)、[自定义 AUMID](https://windows-toasts.readthedocs.io/en/latest/custom_aumid.html)、[Microsoft desktop toast](https://learn.microsoft.com/en-us/windows/win32/shell/quickstart-sending-desktop-toast)。
 
@@ -85,14 +85,14 @@ Startup 采用用户允许的“UI + 清晰说明”范围：选项禁用，说�
 
 ## K. 完整测试
 
-最终完整 Python **678 passed**（156.02 秒，0 failed，1 条现有 deprecation warning）；frontend **21 passed**（0 failed）；production build **通过**（1,610 modules，1.99 秒）。严格 UI audit **0 errors / 0 warnings / 0 findings**，DESIGN.md lint **0 errors / 0 warnings**，`git diff --check` 通过。
+Toast 修复后重新运行最终完整 Python **686 passed**（65.08 秒，0 failed，1 条现有 deprecation warning）；frontend **21 passed**（0 failed）；production build **通过**（1,610 modules，3.04 秒）。另行运行全部 Reminder / Windows notification 专项 **46 passed**（4.68 秒）。此前严格 UI audit **0 errors / 0 warnings / 0 findings**，DESIGN.md lint **0 errors / 0 warnings**；本次未修改前端，`git diff --check` 再次通过。
 
 | 专项（包含于完整 suite） | 用例数 / 覆盖 |
 |---|---|
 | 时间与迁移 | 21：date/minute/range/unknown、DST、空时区、旧库逐值保留、回滚 |
 | Reminder | 34：默认策略、并发领取、重复 tick、重启、grace、编辑/状态/任务、Snooze/Dismiss、失败/隐私/离线 |
 | Planning / Calendar / ICS / 来源更新 | 35：跨月年、时区、终态、稳定 UID、标准解析、秘密/路径排除、显式批准 |
-| Windows adapter | 4：实际库 XML/NotificationData、受阻、接受、固定失败、稳定标签、安全链接 |
+| Windows adapter | 12：实际库 XML/NotificationData、四类系统禁用、有符号/无符号状态查询兼容、其他查询错误、接受/失败、稳定标签、安全链接 |
 | Collector / pairing | 149：含新增 Today/Calendar/ICS/Reminder 不对 LAN 暴露、手机 session 不能修改设置/提醒/来源 |
 | Document pipeline / 长文档 | 31 / 36 |
 | 官网 monitor / sources | 12 / 58 |
@@ -115,15 +115,30 @@ Startup 采用用户允许的“UI + 清晰说明”范围：选项禁用，说�
 
 ## M. 尚存人工项与范围限制
 
-1. **Windows 横幅视觉确认尚未通过**：当前系统返回 DISABLED_FOR_USER。用户自行检查 Windows 通知设置后，在设置页点击“发送测试提醒”，亲眼确认 Attention Desk / 测试提醒。应用内兜底与自动受阻处理已验收；没有为了显示通知而自动改系统限制。
+1. **Windows Toast 真实人工验收已通过**：用户已确认测试提醒成功。通知状态查询兼容问题已修复，应用内兜底、失败容错与去重也已重新验证；没有为了显示通知而自动改系统限制。
 2. 完全退出后端期间不保证通知；唤醒/重启仅在 grace 内补发。Startup/tray、Calendar 双向同步不在本轮实现范围。
 3. 测试套件有一条现有 Starlette/httpx deprecation warning；没有测试失败，不为本轮升级 transport 依赖。
 
-按照用户第 58 节，OS 视觉项作为已明确披露的人工确认项，不阻止通过自动化、迁移、安全和持久化门槛后的稳定 checkpoint。
+原 checkpoint 披露的 OS 视觉人工项现已完成，Phase 6 收尾包括本次 Toast 修复及完整回归。
 
 ## N. Phase 6 checkpoint
 
-- Commit message：`feat: complete phase 6 reminders and calendar`
+- 原 Phase 6 实现提交：`8382c0581b690f8414843dd9b15a938fceb9ccb9`，`feat: complete phase 6 reminders and calendar`。
+- Toast 修复 commit message：`fix: restore Windows toast notification delivery`。
 - Annotated tag：`phase6-reminders-calendar-stable`
-- 本报告随该提交保存；完整提交哈希、最终 `git status` 与标签指向在最终响应中列出，也可用 `git rev-parse phase6-reminders-calendar-stable^{commit}` 核对。
+- 按用户明确授权，将未 push 的本地 annotated stable tag 更新到 Toast 修复提交；不改动原实现提交。完整提交哈希、最终 `git status` 与标签指向在最终响应中列出，也可用 `git rev-parse phase6-reminders-calendar-stable^{commit}` 核对。
 - 提交门槛：staged/committed 秘密与私有数据审计均无发现，Git 干净；不 push，停止在 Phase 6。
+
+## O. 2026-10-09 测试提醒后续验证
+
+用户要求发送测试提醒。首次通过真实接口调用时，读取 `ToastNotifier.Setting` 抛出 `0x80070490 / ERROR_NOT_FOUND`，使应用在调用原生 Show 前退出。使用同一个 Attention Desk AUMID 发送匿名测试通知，原生 Show 成功，且该测试已进入 Windows 通知历史；这证明该次状态查询错误并不代表系统禁止投递。
+
+适配器现在仅对上述特定状态查询错误继续调用原生 Show，由 Windows 执行通知策略。其余状态查询错误仍报告失败，用户/应用/组策略/manifest 禁止通知时仍不调用 Show；每次发送清空旧的权限诊断，避免显示过期状态。没有修改 Windows 通知设置、其他应用身份、Firewall 或网络配置。
+
+修复后重启原有 loopback 后端，通过真实 `/api/personal/reminders/test` 再次发送：`result=os_accepted`、`accepted=true`、`notification_setting=ENABLED`。系统接受与通知历史已验证，用户随后确认 Windows Toast 真实验收通过；最终收尾时再次调用真实接口，同样返回接受 / ENABLED，桌面 API 仍仅监听 `127.0.0.1:8765`。
+
+修复初步回归 **81 passed**：Windows adapter 12、Reminder 34、Planning 35。正式收尾重新执行了完整 Python / frontend / build 与全部 Reminder / Windows notification 专项，结果见 K 节。本次仅修改后端适配器、对应测试与本报告。
+
+额外隔离验收模拟通知后端抛出异常：Engine 正常结束该轮，Reminder Center API 返回可见失败记录与下次有限重试时间；后端恢复后重试成功，随后 10 次 tick 与重新打开同一隔离库均不重复投递。Event / Deadline / Task 事实保持原值，日志不包含通知原文或异常中的敏感数据。此验收不触碰真实用户库。
+
+提交审计重新检查 431 个 Git 文件、本地真实 API Key/DPAPI 密文、6 份原件、12 条手机快照、112 个文档/OCR 块及 453 个运行文件/忽略示例，秘密匹配、私人文件、凭据模式、ignore 失败均为 0。证明脚本、匿名验收数据库、日志、缓存与构建输出均留在仓库外或原有忽略目录。按用户要求提交修复并更新本地 stable tag，不 push。
