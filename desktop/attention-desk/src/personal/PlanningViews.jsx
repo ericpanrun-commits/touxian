@@ -33,6 +33,13 @@ export function WorkbenchTabs({ view, onView, onReminders }) {
   </div><button type="button" className="personal-text-button" onClick={onReminders}>提醒中心</button></div>;
 }
 
+export function OfficialHomePreview() {
+  const resource = usePersonalResource('/official/feed?view=relevant&limit=3');
+  return <section className="personal-section"><div className="personal-section-heading"><h2>与你相关的官网信息</h2><a className="personal-text-button" href="?official_feed=relevant">查看官网信息</a></div><ReadStatus resource={resource} label="官网信息" />
+    {resource.data?.items.length ? <ul className="personal-event-list">{resource.data.items.map(item => <li key={item.id}><a className="personal-event-row" href={`?official_feed=relevant&official_item=${item.id}`}><span><strong>{item.title}</strong><small>{item.published_at || '日期未提供'} · {item.category} · 相关度 {item.relevance}%</small></span></a></li>)}</ul> : resource.data && !resource.loading ? <p className="personal-meta">后台会自动检查官网；也可打开官网信息立即同步。</p> : null}
+  </section>;
+}
+
 export function PlanningWorkbench({ view, onOpen, onCollect }) {
   const [days, setDays] = useState(() => { const value = Number(new URLSearchParams(window.location.search).get('upcoming_days')); return [7, 14, 30].includes(value) ? value : 7; });
   const [includeTerminal, setIncludeTerminal] = useState(false);

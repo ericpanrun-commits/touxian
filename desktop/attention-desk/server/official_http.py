@@ -4,6 +4,7 @@ from __future__ import annotations
 import ipaddress
 import socket
 import time
+import threading
 from dataclasses import dataclass
 from urllib.parse import urljoin, urlsplit
 import httpx
@@ -29,10 +30,14 @@ class HTMLResult:
 
 
 class PublicHTMLClient:
-    def __init__(self, source, *, transport=None, resolver=public_dns, delay=.25, stop=None):
+    _host_guard = threading.Lock()
+    _hosts = {}
+
+    def __init__(self, source, *, transport=None, resolver=public_dns, delay=1.0, stop=None, retries=2):
         self.source, self.resolver, self.delay, self.stop = source, resolver, delay, stop
+        self.retries = retries
         self.client = httpx.Client(timeout=httpx.Timeout(12, connect=8), follow_redirects=False, trust_env=False,
-                                   transport=transport, headers={'User-Agent': 'AttentionDesk/0.1 public-notices (+local personal use)',
+                                   transport=transport, headers={'User-Agent': 'AttentionDesk/0.7 (personal university notice reader; bounded hourly polling)',
                                                                  'Accept': 'text/html,application/xhtml+xml'})
         self.request_count = 0
 
@@ -42,7 +47,23 @@ class PublicHTMLClient:
     def __exit__(self, *_):
         self.client.close()
 
+    def _pause(self, seconds):
+        if self.stop:
+            if self.stop.wait(seconds):
+                raise SourceFailure('interrupted', '检查因应用退出而中断。', status='unreachable')
+        else:
+            time.sleep(seconds)
+
     def get(self, url, *, etag=None, last_modified=None):
+        for attempt in range(self.retries + 1):
+            try:
+                return self._get(url, etag=etag, last_modified=last_modified)
+            except SourceFailure as exc:
+                if exc.code not in {'timeout','network_error','temporary_http'} or attempt==self.retries:
+                    raise
+                self._pause(max(self.delay, 2 ** attempt))
+
+    def _get(self, url, *, etag=None, last_modified=None):
         headers = {}
         if etag:
             headers['If-None-Match'] = etag
@@ -53,13 +74,15 @@ class PublicHTMLClient:
             self.resolver(urlsplit(url).hostname)
             if self.stop and self.stop.is_set():
                 raise SourceFailure('interrupted', '检查因应用退出而中断。', status='unreachable')
-            if self.request_count:
-                if self.stop:
-                    self.stop.wait(self.delay)
-                else:
-                    time.sleep(self.delay)
-            self.request_count += 1
+            host = urlsplit(url).hostname
+            with self._host_guard:
+                lock, _ = self._hosts.setdefault(host, (threading.Lock(), 0.0))
+            # The lock spans the streamed response: one request per host even
+            # with multiple client instances. Pacing also survives source changes.
+            lock.acquire()
             try:
+                self._pause(max(0, self.delay-(time.monotonic()-self._hosts[host][1])))
+                self.request_count += 1
                 with self.client.stream('GET', url, headers=headers) as response:
                     if response.status_code in {301, 302, 303, 307, 308}:
                         location = response.headers.get('location')
@@ -73,7 +96,8 @@ class PublicHTMLClient:
                     if response.status_code in {401, 403}:
                         raise SourceFailure('access_denied', '公开页面拒绝访问或需要认证，已跳过。', status='unreachable')
                     if response.status_code != 200:
-                        raise SourceFailure('http_error', f'HTTP {response.status_code}，原有通知保留。', status='unreachable' if response.status_code >= 500 or response.status_code == 429 else 'error')
+                        temporary = response.status_code >= 500 or response.status_code == 429
+                        raise SourceFailure('temporary_http' if temporary else 'http_error', f'HTTP {response.status_code}，原有通知保留。', status='unreachable' if temporary else 'error')
                     size = response.headers.get('content-length', '')
                     if size.isdigit() and int(size) > 2_000_000:
                         raise SourceFailure('response_too_large', '页面超过 2 MB 限制，已跳过。')
@@ -90,4 +114,7 @@ class PublicHTMLClient:
                 raise SourceFailure('timeout', '网站请求超时，请稍后检查。', status='unreachable')
             except httpx.HTTPError:
                 raise SourceFailure('network_error', '网站暂时无法连接，已保留原有通知。', status='unreachable')
+            finally:
+                self._hosts[host] = (lock, time.monotonic())
+                lock.release()
         raise SourceFailure('redirect_limit', '重定向超过 3 次限制，已停止访问。')

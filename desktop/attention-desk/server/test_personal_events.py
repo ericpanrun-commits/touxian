@@ -101,7 +101,7 @@ def test_snapshot_is_immutable_and_initialization_is_repeatable(client, store):
     store.initialize()
     assert store.get_event(event["id"])["snapshot"]["original_text"] == ORIGINAL
     with store.connection() as connection:
-        assert [row[0] for row in connection.execute("SELECT version FROM schema_migrations ORDER BY version")] == [1, 2, 3, 4, 5, 6]
+        assert [row[0] for row in connection.execute("SELECT version FROM schema_migrations ORDER BY version")] == [1, 2, 3, 4, 5, 6, 7]
 
 
 def test_invalid_evidence_rolls_back_child_and_version(client, store):

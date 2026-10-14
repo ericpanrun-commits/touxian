@@ -122,6 +122,8 @@ Pairing approval is followed by an authenticated session read before mobile inta
 
 Phase 3's source management uses the same natural-height sections, ink buttons, paper palette, native checkboxes and status labels as the shared workbench. Five source sections display last check/success, new and changed counts, failures and entry links to the existing RawInbox. The shared notice region displays immutable web versions and links to unparsed attachments. This adds source provenance without changing tokens, typography or the established event/AI workflow.
 
+Phase 7 extends that same official entry into a readable feed and source-management subview. Today starts with three relevant official notices before its existing confirmed-date projection. Feed filters are native pressed buttons, list navigation uses explicit server pages, and selection/filter/page are URL state. Detail is a natural-height reading surface with escaped text, metadata, attachment links and explicit read/save actions. The existing blue link and focus tokens, yellow review/importance surface, red critical surface and semantic status words apply; no palette or typography values change. `usePersonalResource`, `personalRequest`, `ReadStatus` and `useOfficialSync` own abortable reads, serialized writes, polling and persistent feedback. Sources show one compact operational section with a disclosure for run history. No modal, date-entry widget, new toast provider or duplicated review editor is introduced.
+
 - Do preserve the exact notice and make each saved quote traceable.
 - Do use established controls and colors across the new list, collection and detail views.
 - Do keep failure inputs available for correction or retry.

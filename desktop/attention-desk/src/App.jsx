@@ -336,7 +336,7 @@ function RangeEmptyState({ dateRangeLabel, archiveCount, onReset, onOpenSettings
 function App() {
   const [screen, setScreen] = useState(() => {
     const params = new URLSearchParams(window.location.search);
-    if (params.get('official_sources') === '1') return 'official';
+    if (params.get('official_sources') === '1' || params.has('official_feed') || params.has('official_item')) return 'official';
     if (params.has('review_source') || params.has('personal_event') || params.has('personal_raw') || params.has('personal_view') || params.get('personal_settings') === '1' || params.get('personal_collector') === '1') return 'personal';
     const saved = window.localStorage.getItem('attention-screen');
     return ['personal', 'chat', 'official'].includes(saved) ? saved : 'personal';
@@ -939,8 +939,8 @@ function App() {
       setProfileOpen(false);
       setMailOpen(false);
       const url = new URL(window.location.href);
-      if (next === 'official') url.searchParams.set('official_sources', '1');
-      else url.searchParams.delete('official_sources');
+      if (next === 'official') url.searchParams.set('official_feed', 'latest');
+      else ['official_sources', 'official_feed', 'official_item', 'official_offset'].forEach(key => url.searchParams.delete(key));
       if (next !== 'personal') ['personal_event', 'personal_raw', 'personal_settings', 'personal_collector', 'personal_view', 'upcoming_days', 'calendar_month', 'review_source'].forEach(key => url.searchParams.delete(key));
       window.history.replaceState({}, '', url);
       setScreen(next);
@@ -959,7 +959,7 @@ function App() {
         <nav className="side-nav" aria-label="主导航">
           <button className={'nav-icon ' + (screen === 'personal' ? 'active' : '')} title="收集与事项" aria-label="收集与事项" onClick={() => changeScreen('personal')}><FileText size={19} /></button>
           <button className={'nav-icon ' + (screen === 'chat' ? 'active' : '')} title="微信群通知" aria-label="微信群通知" onClick={() => changeScreen('chat')}><Inbox size={19} /></button>
-          <button className={'nav-icon ' + (screen === 'official' ? 'active' : '')} title="官网来源" aria-label="官网来源" onClick={() => changeScreen('official')}><Globe2 size={19} /></button>
+          <button className={'nav-icon ' + (screen === 'official' ? 'active' : '')} title="官网信息" aria-label="官网信息" onClick={() => changeScreen('official')}><Globe2 size={19} /></button>
         </nav>
         <div className="side-bottom">
           <a className="nav-icon" title="项目说明" href="https://github.com/sssssjw11/wzu-notice-scraper#readme" target="_blank" rel="noopener noreferrer"><CircleHelp size={19} /></a>
@@ -974,7 +974,12 @@ function App() {
       </aside>
 
       <main className="main-canvas">
-        {screen === 'personal' ? <PersonalWorkspace navigationGuardRef={personalNavigationGuard} /> : screen === 'official' ? <OfficialMonitor onOpenReviews={sourceId => {
+        {screen === 'personal' ? <PersonalWorkspace navigationGuardRef={personalNavigationGuard} /> : screen === 'official' ? <OfficialMonitor onReview={snapshotId => {
+          const url = new URL(window.location.href);
+          ['official_sources', 'official_feed', 'official_item', 'official_offset', 'review_source'].forEach(key => url.searchParams.delete(key));
+          url.searchParams.set('personal_raw', snapshotId);
+          window.history.replaceState({}, '', url); changeScreen('personal');
+        }} onOpenReviews={sourceId => {
           const url = new URL(window.location.href);
           ['official_sources', 'personal_event', 'personal_raw', 'personal_settings', 'personal_collector', 'personal_view', 'upcoming_days', 'calendar_month'].forEach(key => url.searchParams.delete(key));
           if (sourceId) url.searchParams.set('review_source', sourceId); else url.searchParams.delete('review_source');

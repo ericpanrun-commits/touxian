@@ -7,6 +7,7 @@ import re
 from pathlib import Path
 from typing import Literal
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+import posixpath
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
@@ -29,9 +30,24 @@ def canonical_url(url: str, allowed_hosts: list[str]) -> str:
             raise ValueError()
     except ValueError as exc:
         raise SourceFailure('unsafe_url', '地址不在该来源允许的公开 HTTP/HTTPS 范围内。') from exc
+    if re.search(r'%(?:0[0-9a-f]|1[0-9a-f]|7f|5c)', url, re.I):
+        raise SourceFailure('unsafe_url', '地址包含无效控制字符。')
     query = [(k, v) for k, v in parse_qsl(parsed.query, keep_blank_values=True)
-             if not k.lower().startswith('utm_') and k.lower() not in {'fbclid', 'gclid'}]
-    return urlunsplit((parsed.scheme.lower(), host, parsed.path or '/', urlencode(sorted(query)), ''))
+             if not k.lower().startswith('utm_') and k.lower() not in {'fbclid', 'gclid', 'from', 'spm'}]
+    path = re.sub(r'%([0-9a-f]{2})', lambda m: chr(int(m[1],16)) if chr(int(m[1],16)) in 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~' else m[0].upper(), parsed.path or '/', flags=re.I)
+    normalized = posixpath.normpath('/' + path.lstrip('/'))
+    if path.endswith('/') and normalized != '/':
+        normalized += '/'
+    return urlunsplit((parsed.scheme.lower(), host, normalized, urlencode(sorted(query)), ''))
+
+
+def url_identity(url):
+    """Only a storage identity; never use this to choose a network destination."""
+    value = urlsplit(url)
+    host = value.hostname or ''
+    if host == 'zqu.edu.cn':
+        host = 'www.zqu.edu.cn'
+    return urlunsplit(('https', host, value.path or '/', value.query, ''))
 
 
 class SourceConfig(BaseModel):
@@ -43,11 +59,19 @@ class SourceConfig(BaseModel):
     category: str = Field(min_length=1, max_length=80)
     list_url: str
     allowed_hosts: list[str] = Field(min_length=1, max_length=5)
-    parser_type: Literal['vsb_school', 'vsb_div', 'vsb_table']
+    parser_type: Literal['vsb_school', 'vsb_div', 'vsb_table', 'vsb_generic']
     enabled: bool = True
-    polling_interval: int = Field(default=43200, ge=3600, le=604800)
+    polling_interval: int = Field(default=3600, ge=1800, le=604800)
     max_items: int = Field(default=20, ge=1, le=50)
     max_pages: int = Field(default=3, ge=1, le=5)
+    source_type: Literal['official_school','official_college','official_department'] = 'official_department'
+    priority: Literal['high','normal','low'] = 'normal'
+    parser_version: str = 'vsb-2'
+    selectors: dict[str, str] = Field(default_factory=dict)
+    backfill_days: int = Field(default=90, ge=30, le=90)
+    revalidate_interval: int = Field(default=86400, ge=1800, le=604800)
+    revalidate_limit: int = Field(default=3, ge=1, le=10)
+    disabled_reason: str = Field(default='', max_length=300)
 
     @field_validator('allowed_hosts')
     @classmethod
@@ -59,6 +83,8 @@ class SourceConfig(BaseModel):
     @model_validator(mode='after')
     def address(self):
         canonical_url(self.list_url, self.allowed_hosts)
+        if set(self.selectors) - {'links','title','date','body'} or any(len(v)>500 for v in self.selectors.values()):
+            raise ValueError('Invalid selector configuration')
         return self
 
 
@@ -68,8 +94,8 @@ def configuration_path():
 
 def load_sources(path=None):
     payload = json.loads(Path(path or configuration_path()).read_text(encoding='utf-8'))
-    if payload.get('version') != 1 or not isinstance(payload.get('sources'), list) or not 1 <= len(payload['sources']) <= 5:
-        raise ValueError('来源配置需包含 1—5 个经过验证的来源。')
+    if payload.get('version') != 1 or not isinstance(payload.get('sources'), list) or not 1 <= len(payload['sources']) <= 50:
+        raise ValueError('来源配置需包含 1—50 个经过验证的来源。')
     sources = [SourceConfig.model_validate(value) for value in payload['sources']]
     if len({s.id for s in sources}) != len(sources) or len({s.school for s in sources}) != 1:
         raise ValueError('当前仅支持一个学校，来源编号不能重复。')

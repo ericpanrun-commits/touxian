@@ -6,7 +6,7 @@ import { ConfirmDialog, EvidenceLinks, OriginalNotice } from './Evidence';
 import ExtractionWorkspace, { RawInbox } from './ExtractionWorkspace';
 import EventContext from './EventContext';
 import MobileCollectorSettings from './MobileCollectorSettings';
-import { CalendarView, PlanningWorkbench, WorkbenchTabs } from './PlanningViews';
+import { CalendarView, OfficialHomePreview, PlanningWorkbench, WorkbenchTabs } from './PlanningViews';
 import { ReminderCenter, ReminderSettings } from './ReminderViews';
 import IcsExport from './IcsExport';
 import './personal.css';
@@ -183,6 +183,7 @@ export default function PersonalWorkspace({ navigationGuardRef }) {
         onDirtyChange={setCollectionDirty} onBusyChange={reportChildBusy} onCreated={(events, metadata) => { applyEvent(events[0]); setNotice(metadata?.sourceUpdated ? '来源日期已更新。未来提醒与日历会使用确认后的日期，历史保留。' : `已确认并保存 ${events.length} 个事项，任务按你的参与决定创建。`); }} /> : null}
       {mode === 'collector' ? <MobileCollectorSettings onDirtyChange={setCollectionDirty} onBusyChange={reportChildBusy} onBack={() => navigate('today')} /> : null}
       {['today', 'upcoming', 'list'].includes(mode) ? <WorkbenchTabs view={mode} onView={navigate} onReminders={() => navigate('reminders')} /> : null}
+      {mode === 'today' ? <OfficialHomePreview /> : null}
       {['today', 'upcoming'].includes(mode) ? <PlanningWorkbench key={mode} view={mode} onOpen={openProjection} onCollect={() => navigate('collect')} /> : null}
       {mode === 'calendar' ? <CalendarView onOpen={openProjection} /> : null}
       {mode === 'reminders' ? <ReminderCenter onOpen={openProjection} onBusyChange={reportChildBusy} /> : null}

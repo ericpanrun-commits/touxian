@@ -212,7 +212,7 @@ def test_http_redirect_mime_size_timeout_limits(mode, code):
     with PublicHTMLClient(SOURCES['zqu-iec'], transport=httpx.MockTransport(handler), resolver=lambda host: None, delay=0) as client:
         with pytest.raises(SourceFailure) as failure: client.get(SOURCES['zqu-iec'].list_url)
     assert failure.value.code == code
-    assert len(requests) == (4 if mode == 'loop' else 1)
+    assert len(requests) == (4 if mode == 'loop' else 3 if mode == 'timeout' else 1)
 
 
 def test_conditional_headers_and_304_preserve_snapshot_and_clear_error(store):
@@ -289,7 +289,7 @@ def test_scheduler_checks_only_due_enabled_sources_and_setting_types(store):
     monitor.stop_event.wait = lambda seconds: next(calls)
     monitor.start_scan = lambda ids: due.extend(ids)
     monitor._schedule()
-    assert set(due) == {'zqu-school', 'zqu-jxqc', 'zqu-iec'}
+    assert set(due) == {s.id for s in SOURCES.values() if s.enabled} - {'zqu-xsc','zqu-jwc'}
     with pytest.raises(ValueError): monitor.set_enabled([], True)
     with pytest.raises(ValueError): monitor.set_enabled('zqu-school', 'true')
     assert counts(store)['event'] == counts(store)['ai_extraction'] == 0
