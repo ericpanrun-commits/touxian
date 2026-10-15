@@ -1,5 +1,15 @@
 # UX Contract
 
+## Phase 7.1 Bark settings and delivery
+
+Authoritative policy is the Phase 7.1 user brief and BARK.md, implemented in server/notifications and migration 008. Existing official_notification is extended with channel-specific persistent identities and states; Windows keeps its policy/privacy and stable claims. Official scheduler owns both crawl scheduling and Bark queue ticks. Only public trusted official information enters Bark; formal Reminder/Calendar facts remain separate.
+
+BarkSettings is a named variant of the existing settings workflow under personal_view=bark-settings. It reuses canonical Field/SubmitButton/useDraft, native checkbox/select, typed HH:mm, ConfirmDialog, persistent inline feedback, personalRequest/usePersonalResource and ReadStatus. Saving stays on the same screen, disables duplicate writes, uses expected_version, preserves input after failure/conflict and guards dirty navigation/reload. Test success states provider acceptance without claiming hardware delivery; tests are cooldown-limited and do not create official dedup rows. No credential input or full key is exposed or stored in the browser. Empty/unconfigured/offline states retain usable navigation and an explicit recovery route.
+
+History uses server pagination by 20, fixed safe reason labels and actual timestamps. OfficialItemDetail shows the same Bark delivery states. Default quiet hours are Asia/Shanghai 23:30–07:30; critical bypasses quiet hours. Existing and first-backfill information is suppressed on activation. Same channel/item/type and channel/reprint-group/type are permanently unique. Ambiguous provider outcomes are terminal and visible, prioritizing no duplicate banners over guaranteed delivery. No new dialog, toast, scrollbar, date-picker or event-editor owner is introduced.
+
+Verification owners: server/test_bark_notifications.py, tests/bark.test.mjs, tests/bark-browser.mjs. Browser checks include the real existing home/feed/source/planning routes plus isolated configured/test/failure/disabled/loading/empty/conflict/offline/narrow/keyboard cases; mocked phone sends are never described as real iPhone acceptance.
+
 ## Phase 6 planning and reminders
 
 The default personal workbench opens Today. Today, Upcoming (7/14/30 days) and all-items filters read the same confirmed structured facts. Today orders overdue before today's dates, then items with planned/fired reminders today, and explains inclusion with text. Terminal events are excluded by default and require an explicit filter. Overdue never changes Event or Task status. Calendar has month/day views and shares DeadlineProjection with workbench views; date-only values are all-day, exact times convert to system display time, and ranges include both civil dates. It never reads original files or invokes AI/OCR.

@@ -74,3 +74,4 @@ logs/
 .coverage
 .coverage.*
 htmlcov/
+!.env.example

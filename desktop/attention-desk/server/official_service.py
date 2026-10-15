@@ -5,17 +5,16 @@ import os
 import sqlite3
 import threading
 import time
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 from .official_http import PublicHTMLClient
 from .official_parsers import parse_article, parse_list
 from .official_sources import SourceConfig, SourceFailure, load_sources
 from .official_store import OfficialStore
-from .official_rules import load_profile
 
 
 class OfficialSourceMonitor:
-    def __init__(self, personal, *, config_path=None, client_factory=PublicHTMLClient, start_scheduler=True, notifier=None):
+    def __init__(self, personal, *, config_path=None, client_factory=PublicHTMLClient, start_scheduler=True, notifier=None, notifications=None):
         self.store = OfficialStore(personal)
         self.client_factory = client_factory
         self.stop_event = threading.Event()
@@ -33,7 +32,9 @@ class OfficialSourceMonitor:
             self.configured = {s.id for s in sources}
         except Exception:
             self.configuration_error = '官网来源配置未配置或无法读取，请检查本地来源配置文件。手动输入和已有事项仍可使用。'
-        if start_scheduler and os.environ.get('ATTENTION_OFFICIAL_POLL', '1') != '0' and not self.configuration_error:
+        from .notifications.service import NotificationDispatcher
+        self.notifications = notifications or NotificationDispatcher(personal, notifier=notifier)
+        if start_scheduler and os.environ.get('ATTENTION_OFFICIAL_POLL', '1') != '0':
             self.scheduler = threading.Thread(target=self._schedule, name='official-source-scheduler', daemon=True)
             self.scheduler.start()
 
@@ -156,7 +157,7 @@ class OfficialSourceMonitor:
                                 break
                             if self.stop_event.is_set() or lease_lost.is_set():
                                 raise SourceFailure('interrupted', '检查因应用退出而中断，已取得原文保留。', status='unreachable')
-                            discovered = self.store.discover(source, entry)
+                            discovered = self.store.discover(source, entry, backfill=backfill)
                             counts['discovered'] += int(discovered['new'])
                             try:
                                 state = self.store.fetch_state(entry['url'])
@@ -177,7 +178,7 @@ class OfficialSourceMonitor:
                                         continue
                                     article = parse_article(result.body, result.url, source, entry)
                                     cache[entry['url']] = (result, article)
-                                saved = self.store.collect(source, entry['url'], result.url, article, result)
+                                saved = self.store.collect(source, entry['url'], result.url, article, result, backfill=backfill)
                                 counts[saved['kind']] += 1
                                 counts['saved'] += 1
                                 if saved['kind']=='new' and not backfill:
@@ -218,8 +219,9 @@ class OfficialSourceMonitor:
 
     def _schedule(self):
         while not self.stop_event.wait(30):
+            self.notifications.tick()
             try:
-                if not self._run_lock.locked():
+                if not self.configuration_error and not self._run_lock.locked():
                     stamp = datetime.now(timezone.utc).isoformat()
                     due = [s['id'] for s in self.store.source_rows() if s['id'] in self.configured and s['enabled'] and (not s['next_check_at'] or s['next_check_at'] <= stamp)]
                     if due:
@@ -229,29 +231,7 @@ class OfficialSourceMonitor:
                 continue
 
     def _notify(self,raw_id):
-        # First backfill and updates never notify. Stable display identity is
-        # claimed before native delivery; uncertain outcomes are never replayed.
-        try:
-            item=self.store.detail(raw_id)
-            profile=load_profile()
-            if not (item['importance']=='critical' or item['importance']=='high' and item['relevance']>=profile['notify_relevance']): return
-            publication=item['published_at']
-            if not publication or not (0 <= (datetime.now(timezone.utc).date()-date.fromisoformat(publication)).days <= profile['notify_fresh_days']): return
-            with self.store.personal.connection() as c:
-                settings=c.execute('SELECT enabled,privacy FROM reminder_settings WHERE id=1').fetchone()
-                if settings and not settings['enabled']: return
-                privacy=settings['privacy'] if settings else 'title'
-            claimed=self.store.claim_notification(raw_id,profile['notify_max_per_run'])
-            if not claimed: return
-            if self.notifier is None:
-                from .reminders.windows import WindowsNotifier
-                self.notifier=WindowsNotifier()
-            text=['Attention Desk','新重要官网通知' if privacy=='hidden' else item['title'], '请在官网信息工作台核对。']
-            result=self.notifier.send(text,delivery_id='official:'+claimed['display_group'])
-            self.store.finish_notification(claimed['display_group'],result)
-        except Exception:
-            # Notifications cannot fail ingestion or mutate Phase 6 facts.
-            return
+        self.notifications.notify_windows(raw_id)
 
     def notice_detail(self, source_id, url):
         # Compatibility route returns a saved raw review, never a second event model.

@@ -40,6 +40,7 @@ try:
     from .reminders.api import router as reminder_router
     from .reminders.service import ReminderService
     from .official_api import router as official_router
+    from .notifications.api import router as notification_router
 except ImportError:  # pragma: no cover - direct module execution fallback
     import mail_digest
     import profile_store as PROFILE
@@ -63,6 +64,7 @@ except ImportError:  # pragma: no cover - direct module execution fallback
     from server.reminders.api import router as reminder_router
     from server.reminders.service import ReminderService
     from server.official_api import router as official_router
+    from server.notifications.api import router as notification_router
 
 
 APP_ROOT = Path(__file__).resolve().parents[1]
@@ -136,6 +138,7 @@ app.include_router(collector_control_router)
 app.include_router(planning_router)
 app.include_router(reminder_router)
 app.include_router(official_router)
+app.include_router(notification_router)
 app.add_middleware(UploadBodyLimit)
 app.add_middleware(
     CORSMiddleware,

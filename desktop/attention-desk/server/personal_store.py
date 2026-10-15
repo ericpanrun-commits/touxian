@@ -17,7 +17,7 @@ from uuid import uuid4
 from .personal_models import CollectionInput, DeadlineInput, EvidenceInput, TaskInput
 
 MIGRATIONS = Path(__file__).with_name("migrations")
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 TERMINAL = {"done", "cancelled"}
 
 

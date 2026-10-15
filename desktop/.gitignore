@@ -81,3 +81,4 @@ attention-desk/output/
 
 # 开发过程截图产物（不入库）
 data/*.png
+!.env.example

@@ -8,6 +8,7 @@ import EventContext from './EventContext';
 import MobileCollectorSettings from './MobileCollectorSettings';
 import { CalendarView, OfficialHomePreview, PlanningWorkbench, WorkbenchTabs } from './PlanningViews';
 import { ReminderCenter, ReminderSettings } from './ReminderViews';
+import BarkSettings from './BarkSettings';
 import IcsExport from './IcsExport';
 import './personal.css';
 import './planning.css';
@@ -43,7 +44,7 @@ export default function PersonalWorkspace({ navigationGuardRef }) {
   const initialSettings = new URLSearchParams(window.location.search).get('personal_settings') === '1';
   const initialCollector = new URLSearchParams(window.location.search).get('personal_collector') === '1';
   const initialView = new URLSearchParams(window.location.search).get('personal_view');
-  const [mode, setMode] = useState(initialCollector ? 'collector' : initialSettings ? 'settings' : initialId ? 'detail' : initialRaw ? 'review' : ['today', 'upcoming', 'list', 'calendar', 'reminders', 'reminder-settings'].includes(initialView) ? initialView : 'today');
+  const [mode, setMode] = useState(initialCollector ? 'collector' : initialSettings ? 'settings' : initialId ? 'detail' : initialRaw ? 'review' : ['today', 'upcoming', 'list', 'calendar', 'reminders', 'reminder-settings', 'bark-settings'].includes(initialView) ? initialView : 'today');
   const [listStatus, setListStatus] = useState('active');
   const [selectedId, setSelectedId] = useState(initialId || initialRaw);
   const [intent, setIntent] = useState(null);
@@ -94,7 +95,7 @@ export default function PersonalWorkspace({ navigationGuardRef }) {
   }, [dirty]);
 
   useEffect(() => {
-    document.title = mode === 'collector' ? '手机收集 · Attention Desk' : mode === 'collect' ? '收集通知 · Attention Desk' : mode === 'review' ? '提取预览 · Attention Desk' : mode === 'settings' ? '提取设置 · Attention Desk' : mode === 'detail' && event ? `${event.title} · Attention Desk` : `${({ today: 'Today', upcoming: 'Upcoming', calendar: 'Calendar', reminders: '提醒中心', 'reminder-settings': '提醒设置' })[mode] || '个人事项'} · Attention Desk`;
+    document.title = mode === 'collector' ? '手机收集 · Attention Desk' : mode === 'collect' ? '收集通知 · Attention Desk' : mode === 'review' ? '提取预览 · Attention Desk' : mode === 'settings' ? '提取设置 · Attention Desk' : mode === 'detail' && event ? `${event.title} · Attention Desk` : `${({ today: 'Today', upcoming: 'Upcoming', calendar: 'Calendar', reminders: '提醒中心', 'reminder-settings': '提醒设置', 'bark-settings': 'Bark 手机通知' })[mode] || '个人事项'} · Attention Desk`;
   }, [mode, event?.title]);
 
   useEffect(() => {
@@ -118,7 +119,7 @@ export default function PersonalWorkspace({ navigationGuardRef }) {
     focusAfterLoad.current = true;
     setEditor(null); setEditorDirty(false); setCollectionDirty(false); setSelectedEvidence(null); setError(null); setNotice('');
     setEvent(null); setSelectedId(id); setMode(nextMode); setIntent(nextIntent); setReloadVersion(current => current + 1);
-    setEventUrl(nextMode === 'detail' ? id : null, ['review', 'settings'].includes(nextMode) ? id : null, nextMode === 'settings', nextMode === 'collector', ['today', 'upcoming', 'list', 'calendar', 'reminders', 'reminder-settings'].includes(nextMode) ? nextMode : null);
+    setEventUrl(nextMode === 'detail' ? id : null, ['review', 'settings'].includes(nextMode) ? id : null, nextMode === 'settings', nextMode === 'collector', ['today', 'upcoming', 'list', 'calendar', 'reminders', 'reminder-settings', 'bark-settings'].includes(nextMode) ? nextMode : null);
     };
     if (nextIntent) performNavigation(); else requestLeave(performNavigation);
   };
@@ -178,7 +179,7 @@ export default function PersonalWorkspace({ navigationGuardRef }) {
       {error ? <div className="error-banner personal-error" role="alert"><span>{error.message}</span><button type="button" className="button button-quiet" disabled={busy} onClick={() => mode === 'collect' ? navigate('list') : refresh()}>重新读取已保存内容</button></div> : null}
       {loading ? <div className="personal-loading" role="status"><LoaderCircle size={19} className="spin" />正在读取已保存的事项…</div> : null}
 
-      {['settings', 'reminder-settings'].includes(mode) ? <div className="planning-views planning-settings-nav" role="group" aria-label="设置类别"><button type="button" className={`button ${mode === 'reminder-settings' ? 'button-primary' : 'button-quiet'}`} aria-pressed={mode === 'reminder-settings'} disabled={busy} onClick={() => navigate('reminder-settings')}>提醒与日历</button><button type="button" className={`button ${mode === 'settings' ? 'button-primary' : 'button-quiet'}`} aria-pressed={mode === 'settings'} disabled={busy} onClick={() => navigate('settings', selectedId)}>AI 提取</button></div> : null}
+      {['settings', 'reminder-settings', 'bark-settings'].includes(mode) ? <div className="planning-views planning-settings-nav" role="group" aria-label="设置类别"><button type="button" className={`button ${mode === 'reminder-settings' ? 'button-primary' : 'button-quiet'}`} aria-pressed={mode === 'reminder-settings'} disabled={busy} onClick={() => navigate('reminder-settings')}>提醒与日历</button><button type="button" className={`button ${mode === 'settings' ? 'button-primary' : 'button-quiet'}`} aria-pressed={mode === 'settings'} disabled={busy} onClick={() => navigate('settings', selectedId)}>AI 提取</button><button type="button" className={`button ${mode === 'bark-settings' ? 'button-primary' : 'button-quiet'}`} aria-pressed={mode === 'bark-settings'} disabled={busy} onClick={() => navigate('bark-settings')}>Bark 手机通知</button></div> : null}
       {['collect', 'review', 'settings'].includes(mode) ? <ExtractionWorkspace key={`${mode}-${selectedId}-${reloadVersion}`} mode={mode} snapshotId={selectedId} intent={intent} onNavigate={navigate}
         onDirtyChange={setCollectionDirty} onBusyChange={reportChildBusy} onCreated={(events, metadata) => { applyEvent(events[0]); setNotice(metadata?.sourceUpdated ? '来源日期已更新。未来提醒与日历会使用确认后的日期，历史保留。' : `已确认并保存 ${events.length} 个事项，任务按你的参与决定创建。`); }} /> : null}
       {mode === 'collector' ? <MobileCollectorSettings onDirtyChange={setCollectionDirty} onBusyChange={reportChildBusy} onBack={() => navigate('today')} /> : null}
@@ -188,6 +189,7 @@ export default function PersonalWorkspace({ navigationGuardRef }) {
       {mode === 'calendar' ? <CalendarView onOpen={openProjection} /> : null}
       {mode === 'reminders' ? <ReminderCenter onOpen={openProjection} onBusyChange={reportChildBusy} /> : null}
       {mode === 'reminder-settings' ? <ReminderSettings key={reloadVersion} onDirtyChange={setCollectionDirty} onBusyChange={reportChildBusy} /> : null}
+      {mode === 'bark-settings' ? <BarkSettings key={reloadVersion} onDirtyChange={setCollectionDirty} onBusyChange={reportChildBusy} /> : null}
 
       {mode === 'list' && !loading && (!error || items.length > 0) ? <section className="personal-section"><div className="personal-section-heading"><h1 ref={headingRef} tabIndex={-1}>我的事项</h1><span className="personal-meta">共 {total} 件</span></div>
         <label className="personal-checkbox-label">事项状态 <select aria-label="事项状态" value={listStatus} disabled={busy} onChange={change => setListStatus(change.target.value)}><option value="active">未完成 / 未取消</option><option value="done">已完成</option><option value="cancelled">已取消</option><option value="all">全部状态</option></select></label>

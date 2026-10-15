@@ -97,7 +97,7 @@ class OfficialStore:
                 c.execute('''UPDATE official_run SET finished_at=?,status=?,scanned=?,discovered=?,inserted=?,updated=?,skipped=?,failed=?,requests=?,error_code=?,error=? WHERE id=?''',
                     (stamp,status,counts.get('scanned',0),counts.get('discovered',0),counts['new'],counts['changed'],counts['unchanged'],counts.get('failed',int(bool(error))),counts['requests'],error.code if error else '',str(error)[:300] if error else '',run_id))
 
-    def discover(self, source, entry):
+    def discover(self, source, entry, *, backfill=False):
         """Persist the public list identity even if fetching its body subsequently fails."""
         stamp = now()
         with self.personal.connection(write=True) as c:
@@ -109,6 +109,7 @@ class OfficialStore:
                 c.execute('''INSERT INTO raw_item (id,source_id,kind,submission_hash,created_at,external_id,canonical_url,original_url,title,published_at,discovered_at)
                     VALUES (?,?,'official_web',?,?,?,?,?,?,?,?)''',
                     (raw_id, source.id, hashlib.sha256(entry['url'].encode()).hexdigest(), stamp, external, entry['url'], entry['url'], entry['title'], entry['published_at'], stamp))
+                c.execute('UPDATE raw_item SET official_backfill=? WHERE id=?', (int(backfill), raw_id))
             c.execute('INSERT OR IGNORE INTO official_url_alias VALUES (?,?)', (entry['url'], raw_id))
             c.execute('INSERT OR IGNORE INTO official_url_alias VALUES (?,?)', (url_identity(entry['url']), raw_id))
             c.execute('INSERT INTO official_item_source VALUES (?,?,?,?) ON CONFLICT(raw_item_id,source_id) DO UPDATE SET last_seen_at=excluded.last_seen_at', (raw_id, source.id, stamp, stamp))
@@ -132,7 +133,7 @@ class OfficialStore:
             c.execute("UPDATE raw_item SET fetch_error='',last_fetch_attempt_at=? WHERE id=?", (stamp, state['raw_item_id']))
         return {'kind': 'unchanged', 'raw_snapshot_id': state['latest_snapshot_id']}
 
-    def collect(self, source, original_url, canonical, article, result):
+    def collect(self, source, original_url, canonical, article, result, *, backfill=False):
         """One transaction; no Event/Deadline/Task and no AI calls."""
         stamp = now()
         fingerprint = hashlib.sha256(encode({k: article[k] for k in ('original_text', 'title', 'published_at', 'attachments', 'images', 'body_status')}).encode()).hexdigest()
@@ -162,6 +163,7 @@ class OfficialStore:
                 c.execute('''INSERT INTO raw_item (id,source_id,kind,submission_hash,created_at,external_id,canonical_url,original_url,title,published_at,discovered_at)
                     VALUES (?,?,'official_web',?,?,?,?,?,?,?,?)''',
                     (raw_id, source.id, hashlib.sha256(canonical.encode()).hexdigest(), stamp, external, canonical, original_url, article['title'], article['published_at'], stamp))
+                c.execute('UPDATE raw_item SET official_backfill=? WHERE id=?', (int(backfill), raw_id))
             latest = c.execute('''SELECT w.* FROM raw_snapshot_web w JOIN raw_snapshot s ON s.id=w.raw_snapshot_id WHERE s.raw_item_id=? ORDER BY w.version DESC LIMIT 1''', (raw_id,)).fetchone()
             if not latest:
                 kind = 'new'
@@ -255,13 +257,20 @@ class OfficialStore:
             item=c.execute('SELECT i.*,r.title,r.published_at FROM official_item i JOIN raw_item r ON r.id=i.raw_item_id WHERE raw_item_id=?',(raw_id,)).fetchone()
             if not item: return None
             recent=(datetime.now(timezone.utc)-timedelta(hours=1)).isoformat()
-            if c.execute('SELECT COUNT(*) FROM official_notification WHERE claimed_at>?',(recent,)).fetchone()[0]>=max_count: return None
-            if c.execute("INSERT OR IGNORE INTO official_notification VALUES (?,?,?,NULL,'claimed')",(item['display_group'],raw_id,now())).rowcount!=1: return None
+            if c.execute("SELECT COUNT(*) FROM official_notification WHERE channel='windows' AND claimed_at>?",(recent,)).fetchone()[0]>=max_count: return None
+            instant=now()
+            if c.execute("""INSERT OR IGNORE INTO official_notification
+                (display_group,raw_item_id,claimed_at,result,id,channel,item_group,status,created_at,attempted_at,attempt_count,dedup_key)
+                VALUES (?,?,?,'claimed',?,'windows',?,'sending',?,?,1,?)""",
+                (item['display_group'],raw_id,instant,'windows:'+item['display_group'],item['display_group'],instant,instant,'windows:new_item:'+item['display_group'])).rowcount!=1: return None
             return dict(item)
 
     def finish_notification(self,group,result):
         with self.personal.connection(write=True) as c:
-            c.execute('UPDATE official_notification SET result=?,finished_at=? WHERE display_group=?',(result,now(),group))
+            instant=now()
+            c.execute("""UPDATE official_notification SET result=?,finished_at=?,status=?,sent_at=?,failed_at=?
+                WHERE display_group=? AND channel='windows'""",(result,instant,'sent' if result=='os_accepted' else 'failed',
+                instant if result=='os_accepted' else None,None if result=='os_accepted' else instant,group))
 
     @staticmethod
     def _view(c,item):
@@ -312,6 +321,9 @@ class OfficialStore:
             snap=c.execute('SELECT s.original_text,w.attachments_json,w.images_json,w.version,w.body_status FROM raw_snapshot s JOIN raw_snapshot_web w ON w.raw_snapshot_id=s.id WHERE s.id=?',(value['raw_snapshot_id'],)).fetchone()
             value.update(content=snap['original_text'],attachments=json.loads(snap['attachments_json']),images=json.loads(snap['images_json']),version=snap['version'],body_status=snap['body_status'])
             value['references']=[dict(r) for r in c.execute('''SELECT a.url FROM official_url_alias a JOIN official_item i ON i.raw_item_id=a.raw_item_id WHERE i.display_group=? ORDER BY a.url''',(value['display_group'],))]
+            status=c.execute("""SELECT status,sent_at,scheduled_at,last_error,suppressed_reason FROM official_notification
+                WHERE channel='bark' AND (raw_item_id=? OR item_group=?) LIMIT 1""",(raw_id,value['display_group'])).fetchone()
+            value['bark_notification']=dict(status) if status else {'status':'not_sent'}
             return value
 
     def set_item_state(self,raw_id,*,is_read=None,is_saved=None):

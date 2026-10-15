@@ -6,6 +6,7 @@ import useOfficialSync from './useOfficialSync';
 import OfficialSources, { SyncFeedback } from './OfficialSources';
 import { ReadStatus } from './PlanningViews';
 import { IMPORTANCE, OFFICIAL_VIEWS, officialLink, officialRoute, officialTime } from './officialHelpers';
+import { DELIVERY_STATUS, barkReason } from './barkHelpers';
 import './personal.css';
 import '../official.css';
 
@@ -31,6 +32,7 @@ function OfficialItemDetail({ id, onBack, onReview }) {
     {error ? <p className="personal-field-error" role="alert">{error.message}</p> : null}
     {item ? <><h1 ref={heading} tabIndex={-1}>{item.title}</h1><p className="personal-meta">{item.sources.map(source => source.name).join(' · ')}</p><ItemMeta item={item} />
       <p className="personal-meta">相关依据：{item.reasons.join('、')} · 采集于 {officialTime(item.fetched_at)} · 原文版本 {item.version}</p>
+      {item.bark_notification ? <p className="personal-meta">手机通知：{DELIVERY_STATUS[item.bark_notification.status]}{item.bark_notification.sent_at ? ` · ${officialTime(item.bark_notification.sent_at)}` : ''}{item.bark_notification.scheduled_at ? ` · 计划 ${officialTime(item.bark_notification.scheduled_at)}` : ''}{item.bark_notification.last_error || item.bark_notification.suppressed_reason ? ` · ${barkReason(item.bark_notification.last_error || item.bark_notification.suppressed_reason)}` : ''}</p> : null}
       <div className="personal-form-actions"><a className="button button-quiet" href={officialLink(item.url)} target="_blank" rel="noopener noreferrer"><ExternalLink size={16} />打开官网原文</a><button type="button" className="button button-quiet" disabled={busy || resource.loading} aria-pressed={item.is_saved} onClick={() => update({ is_saved: !item.is_saved })}><Bookmark size={16} />{item.is_saved ? '取消收藏' : '收藏'}</button><button type="button" className="button button-quiet" disabled={busy || resource.loading} onClick={() => update({ is_read: !item.is_read })}>{item.is_read ? '标为未读' : '标为已读'}</button><button type="button" className="button button-quiet" onClick={() => onReview(item.raw_snapshot_id)}>核对事项 / 创建提醒</button></div>
       {item.time_evidence.length ? <aside className="official-time-hints"><strong>原文中的时间线索 · 待核对</strong>{item.time_evidence.map(hint => <p key={hint.field}>{({ deadline_at: '截止', event_start_at: '开始', event_end_at: '结束' })[hint.field]}：{officialTime(hint.value)}<br /><span className="personal-meta">{hint.quote}</span></p>)}<p className="personal-meta">日期经你确认后才会进入 Reminder 和 Calendar。</p></aside> : null}
       <div className="official-article-text">{item.content}</div>
