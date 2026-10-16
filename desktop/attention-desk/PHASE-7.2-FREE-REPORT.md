@@ -90,6 +90,12 @@ GitHub 费用与额度依据：[官方 Actions billing](https://docs.github.com/
 | 当前版本静默恢复 | [38943829381](https://github.com/ericpanrun-commits/touxian/actions/runs/38943829381) | workflow success；worker partial，5 个来源中 3 个成功、2 个未完整完成，dry_run=true、sent=0 |
 | 首次真实 schedule | 待 GitHub 自动创建 | 仍保持 dry_run=true，未据此声明 Production Live |
 
+临时诊断工作流 `.github/workflows/zqu-schedule-diagnostic.yml` 用于区分 GitHub
+定时事件未创建与生产 job 门控问题。它同样每小时 :50，采用免费标准 Ubuntu
+runner、2 分钟上限、空 token 权限；只记录事件、repo/main、UTC 和门控布尔值，
+不读取 production Environment 或 Secrets，不访问数据库和 Bark，不构成另一个
+生产 crawler authority。诊断完成后移除，原生产工作流和 dry-run 开关保持不变。
+
 已从云端真实抓取成功的来源：校级通知公告、教务部课程通知、机汽学院教学通知、
 创新创业学院通知公告。第一轮限时批次没有扫描完全部 29 个来源；后续按最早到期
 轮转，同一到期时间才按优先级排序，避免普通/新闻来源持续被排到后面。

@@ -1,0 +1,45 @@
+name: ZQU schedule diagnostic
+
+"on":
+  schedule:
+    - cron: '50 * * * *'
+  workflow_dispatch: {}
+
+# Temporary control-plane probe: no checkout, secrets, database or Bark access.
+permissions: {}
+
+concurrency:
+  group: zqu-schedule-diagnostic
+  cancel-in-progress: false
+
+jobs:
+  metadata:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    env:
+      PROBE_EVENT: ${{ github.event_name }}
+      PROBE_REPOSITORY: ${{ github.repository }}
+      PROBE_REF: ${{ github.ref }}
+      PROBE_ACTIONS_ENABLED: ${{ vars.ZQU_ACTIONS_ENABLED == 'true' }}
+      PROBE_PRODUCTION_GATE: ${{ github.repository == 'ericpanrun-commits/touxian' && github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || vars.ZQU_ACTIONS_ENABLED == 'true') }}
+    steps:
+      - name: Record scheduler metadata
+        run: |
+          python3 - <<'PY'
+          import datetime
+          import json
+          import os
+
+          summary = {
+              'event': os.environ['PROBE_EVENT'],
+              'repository': os.environ['PROBE_REPOSITORY'],
+              'ref': os.environ['PROBE_REF'],
+              'actions_enabled': os.environ['PROBE_ACTIONS_ENABLED'] == 'true',
+              'production_gate': os.environ['PROBE_PRODUCTION_GATE'] == 'true',
+              'utc': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+          }
+          encoded = json.dumps(summary, sort_keys=True)
+          print('ZQU_SCHEDULE_DIAGNOSTIC ' + encoded)
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as report:
+              report.write('## ZQU schedule diagnostic\n\n```json\n' + encoded + '\n```\n')
+          PY
