@@ -1,20 +1,22 @@
 # Phase 7.2-Free Report
 
-2026-10-16：已完成安全安装与学校数据导入，**尚未完成云端上线验收**。
-未调用 Docker、未创建 Fly/收费资源、未修改 billing、未 push，真实 Bark 0 条。
-当前阻塞：GitHub 身份对 `sssssjw11/touxian` 只有 READ，无 push/admin 权限；
-默认 main 分支没有工作流。本代理未配置生产 Secrets，当前权限无法核实所有者
-是否另行配置。需要 push 才能激活 GitHub Actions，并由所有者确认所需 Secrets。
+2026-10-17：已完成安全安装与学校数据导入，**尚未完成云端上线验收**。
+GitHub 仓库归属已纠正：用户账号为 `ericpanrun-commits`，经明确授权创建公开仓库
+`ericpanrun-commits/touxian`，拥有 push/admin 权限。本地 origin 已指向该仓库，
+原 `sssssjw11/touxian` 保留为只读上游 upstream；不使用或索取第三方账号凭据。
+工作流和运行时生产白名单同步为用户自己的仓库，全部既有提交和数据库历史保留。
+尚需配置、验证数据库连接并完成 hosted dry run、一次 Bark 验收和真实 schedule。
+未调用 Docker、未创建 Fly/收费资源、未修改 billing，真实 cloud Bark 0 条。
 
 | # | 项目 | 当前结果 |
 | --- | --- | --- |
 | 1 | Architecture | GitHub 单次 Python worker → 现有 Supabase Free 私有 schema → 原 Bark client；复用 crawler、parser、分类、relevance、policy、dispatcher |
 | 2 | GitHub Actions schedule | 本地 YAML 每小时 :17，Ubuntu 24.04，12 分钟上限、固定 concurrency；远端尚未上线 |
-| 3 | Repo private/public | 原本就是 PUBLIC，未改变可见性；默认 main |
+| 3 | Repo private/public | 用户名下新建 PUBLIC 仓库 ericpanrun-commits/touxian；原上游可见性未改变；默认 main |
 | 4 | 每月 workflow 次数 | 30 天 720 次，31 天 744 次，另加少量手动验收 |
 | 5 | 实际单次 workflow 耗时 | 未运行 hosted workflow，不能用本机测试耗时代替 |
 | 6 | 每月 Actions minutes | 实测后用次数 × 向上取整单次计费分钟；12 分钟 job 上限对应 8,640/8,928 分钟上界，不是典型耗时预测 |
-| 7 | 当前免费 Actions allowance | 已有 PUBLIC repo 的标准 runner 免费；未使用 larger runner/cache/artifact。当前身份无法读取所有者 private 额度使用情况 |
+| 7 | 当前免费 Actions allowance | 用户名下 PUBLIC repo 的标准 runner 免费；未使用 larger runner/cache/artifact |
 | 8 | Persistent DB | 复用项目 mantuehuzptactymjpqg，仅 zqu_worker 10 张私有表；不同连接读回确认持久保存 |
 | 9 | DB current size | 导入后全项目 18,508,947 bytes（18.51 MB）；学校关系含索引 4,120,576 bytes（4.12 MB） |
 | 10 | DB free quota | 组织再次确认 Free，数据库 500 MB；实际月增长尚未观测，不能保证无限期不满 |
@@ -24,10 +26,10 @@
 | 14 | Dedup | DB 唯一约束按 channel/item/group/type；sent 永不重发；不明确投递结果终止自动重试 |
 | 15 | Bark cloud test | 未执行，真实发送 0；已准备手动 acceptance 模式，连接和自动链路合并最多 1 条，持久防重跑 |
 | 16 | Secrets | 本地真 Key 仍在忽略的 server/.env；云端使用 GitHub Secrets，尚未上传；不传给浏览器 |
-| 17 | Tests | 后端 960（含新增受控验收 6 项）、前端 30、浏览器 24 通过；生产 build、新增 Python 静态检查、YAML 结构测试通过；1 既有依赖 deprecation warning |
+| 17 | Tests | 仓库归属修正后后端 962 通过（含生产白名单、迁移与原生 PG 测试）；此前前端 30、浏览器 24、build 通过；本次有既有依赖弃用和 pytest 缓存目录权限两项 warning，无失败 |
 | 18 | Git commit | 功能提交 b722e6f；本地集成上游提交 cb09244；后续文档提交可用 git log -1 查看，不给未上线状态打 stable 标签 |
 | 19 | Git status | 本地提交后复核；生产导出、备份、日志、测试数据库和真实 .env 均忽略 |
-| 20 | 是否需要 push | **是**；遵守用户不擅自 push 的要求，所有者还需配置 environment/Secrets |
+| 20 | 是否需要 push | **是**；用户已授权自动上线，仅推送自己名下 ericpanrun-commits/touxian，不推送上游 |
 | 21 | 是否手动创建 Free Supabase project | **否**；复用已有 Free 项目，未创建新项目 |
 | 22 | 新增固定月成本 | **$0**；未创建收费资源/升级/改变 billing；仅采用已有 Free DB 和公开仓库标准 runner |
 
@@ -77,8 +79,8 @@ RLS 已开启且没有 anon/authenticated/PUBLIC 表授权。Supabase advisor �
 main，可以正常向前推送；如果所有者再次更新 main，push 前应重新 fetch 并检查，
 不得 force push。此步骤仅完成本地集成，没有 push 或触发云端运行。
 
-1. 审阅本地提交，使用有写权限的身份 push 到既有 repo 的默认 main；当前代理
-   不 push、不切换账号、不改变仓库可见性。确认 Actions 已有此 workflow。
+1. 审阅本地提交，使用现有 ericpanrun-commits 授权 push 到其自己仓库的 main。
+   保留全部提交和原上游来源，不 force push，不重写历史。确认 Actions 已有此 workflow。
 2. 创建 GitHub environment `zqu-production`，限制 main；Secrets 放在该 environment，
    下表 Variables 放在仓库级（尤其 schedule 的 job 条件需要仓库级 ZQU_ACTIONS_ENABLED）。
    连接从已有 Supabase 项目的 Connect 获取共享 pooler（支持 IPv4，不购买 addon）；
@@ -108,8 +110,10 @@ main，可以正常向前推送；如果所有者再次更新 main，push 前应
    `zqu_worker.leases` 的 cloud-acceptance-bark-v1，运行日志到期也不移除。
    receipt=reserved/failed_or_unknown 时停止检查，不重置、不删除来强行重发。
    常规任务排除未清理的 acceptance 记录，避免测试遗留触发自动 Bark。
-5. 验收通过再设 ZQU_NOTIFICATION_DRY_RUN=false、ZQU_ACTIONS_ENABLED=true。
-   观察多个 scheduled runs，包括本地后台退出、电脑关机期间；核对跨小时租约、
+5. 验收通过后仅设 ZQU_ACTIONS_ENABLED=true，保持 ZQU_NOTIFICATION_DRY_RUN=true。
+   等待真实 schedule 事件运行并确认 dry_run=true、sent=0，随后才将
+   ZQU_NOTIFICATION_DRY_RUN=false。手动 workflow_dispatch 不能替代首次真实 schedule。
+   观察 scheduled runs，包括本地后台退出、电脑关机期间；核对跨小时租约、
    抓取、Bark、重启持久和去重。完成之前不宣称 24/7 已验收。
 
 现有免费架构可以在电脑关闭后运行；**当前还未激活**。GitHub schedule 可能
@@ -133,8 +137,8 @@ main，可以正常向前推送；如果所有者再次更新 main，push 前应
 运行后观测。细节 crawl/worker logs 保留 30 天，文章 identity/baseline/dedup 永久
 保留。接近 Free 配额时应暂停任务并报告，不升级、不清理无关业务。
 
-后端全量日志 `artifacts/free-acceptance-full-backend.log`：960 passed。
-其中原生本机隔离 PostgreSQL 专项 33 passed，真实事务/权限/并发/断点测试，
+仓库修正后的后端全量日志 `artifacts/free-owner-repository-backend.log`：962 passed。
+其中原生本机隔离 PostgreSQL 专项及权限上下文测试 35 passed，真实事务/权限/并发/断点测试，
 没有 Docker。前端 30 passed、build 成功；浏览器报告
 `artifacts/phase72free-browser/browser-results.json`：24 passed，应用错误 0。
 浏览器 Bark 由路由 fixture 拦截；PG 链路测试采用模拟 HTTP。这些不替代真正的

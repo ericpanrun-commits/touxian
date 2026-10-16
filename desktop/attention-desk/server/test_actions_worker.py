@@ -92,13 +92,25 @@ def clients(config, mapping=None):
 
 
 @pytest.mark.parametrize('change',[{'GITHUB_ACTIONS':'false'},{'GITHUB_REPOSITORY':'evil/fork'},
-    {'GITHUB_REF':'refs/heads/dev'},{'GITHUB_EVENT_NAME':'pull_request'}, {'ZQU_EXPECTED_REPOSITORY':'evil/fork'}])
+    {'GITHUB_REPOSITORY':'sssssjw11/touxian'}, {'GITHUB_REF':'refs/heads/dev'},
+    {'GITHUB_EVENT_NAME':'pull_request'}, {'ZQU_EXPECTED_REPOSITORY':'evil/fork'}])
 def test_wrong_context_cannot_send_with_accidental_real_credentials(change):
     values={'APP_ENV':'production','AUTO_SYNC_ENABLED':'true','PRODUCTION_NOTIFICATION_AUTHORITY':'true',
-        'NOTIFICATION_DRY_RUN':'false','GITHUB_ACTIONS':'true','GITHUB_REPOSITORY':'sssssjw11/touxian',
+        'NOTIFICATION_DRY_RUN':'false','GITHUB_ACTIONS':'true','GITHUB_REPOSITORY':'ericpanrun-commits/touxian',
         'GITHUB_REF':'refs/heads/main','GITHUB_EVENT_NAME':'schedule',**change}
     runtime=replace(ActionsRuntime.from_env(values),storage_verified=True)
     assert not runtime.automatic_bark_allowed and not runtime.automatic_sync_allowed
+
+
+def test_owner_repository_can_become_verified_production_authority():
+    values={'APP_ENV':'production','AUTO_SYNC_ENABLED':'true','PRODUCTION_NOTIFICATION_AUTHORITY':'true',
+        'NOTIFICATION_DRY_RUN':'false','GITHUB_ACTIONS':'true','GITHUB_REPOSITORY':'ericpanrun-commits/touxian',
+        'GITHUB_REF':'refs/heads/main','GITHUB_EVENT_NAME':'schedule'}
+    runtime=ActionsRuntime.from_env(values)
+    assert not runtime.automatic_bark_allowed and not runtime.automatic_sync_allowed
+    verified=replace(runtime,storage_verified=True)
+    assert verified.automatic_bark_allowed and verified.automatic_sync_allowed
+    assert not replace(verified,dry_run=True).automatic_bark_allowed
 
 
 def test_secrets_not_in_repr_or_job_summary(tmp_path,capsys):

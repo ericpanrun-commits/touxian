@@ -4,7 +4,7 @@ from urllib.parse import urlsplit
 
 from ..runtime import flag
 
-REPOSITORY = 'sssssjw11/touxian'
+REPOSITORY = 'ericpanrun-commits/touxian'
 
 
 @dataclass(frozen=True)

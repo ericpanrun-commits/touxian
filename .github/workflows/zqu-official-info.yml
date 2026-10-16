@@ -30,7 +30,7 @@ concurrency:
 jobs:
   sync:
     # Forks and unconfigured schedules cannot read production secrets or send.
-    if: github.repository == 'sssssjw11/touxian' && github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || vars.ZQU_ACTIONS_ENABLED == 'true')
+    if: github.repository == 'ericpanrun-commits/touxian' && github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || vars.ZQU_ACTIONS_ENABLED == 'true')
     runs-on: ubuntu-24.04
     timeout-minutes: 12
     environment: zqu-production
