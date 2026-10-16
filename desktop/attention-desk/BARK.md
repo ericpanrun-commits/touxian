@@ -18,7 +18,7 @@ Bark 是接收自定义推送的 iPhone 应用。本渠道仅发送可信肇庆�
 
    将占位符替换为自己的 Key。也可设置 `BARK_PUSH_URL=https://api.day.app/你的Key`，它优先于 Device Key，内部提取 Key 后仍使用 POST JSON `/push`。自建服务有路径前缀时同时设置对应 BARK_SERVER_URL。不要在 URL 中附加账号密码。
 
-4. 重启后端（正常使用 `./start.ps1`）。有凭据时默认开启；`BARK_ENABLED=false` 明确关闭。优先级：进程环境 > `server/.env` > 工作台 `.env` > `desktop/.env`，不修改其他功能的配置。
+4. 重启后端（正常使用 `./start.ps1`）。需明确设置 `BARK_ENABLED=true` 才允许连接测试，默认关闭。开发后台默认不自动抓取或 Bark；生产自动推送另需唯一生产权限及数据验证。优先级：进程环境 > `server/.env` > 工作台 `.env` > `desktop/.env`。
 5. 个人工作台 → 设置 → **Bark 手机通知** → **发送测试通知**。
 6. 成功表示 Bark API 接受请求，请在 iPhone 核对横幅。测试标记 `[test]`，不占用正式去重，每分钟最多一次；健康检查不会定时给手机发消息。
 
@@ -38,7 +38,11 @@ Settings 不接受/返回 Key，只显示是否配置、服务主机、最近结
                        └─ BarkClient JSON POST → Bark → iPhone
 ```
 
-无需手动发送。现有官网 scheduler 每 30 秒检查通知队列，来源仍按原来的 30 分钟/1 小时/4 小时频率抓取。手动同步发现的新信息也进入相同策略。`ATTENTION_OFFICIAL_POLL=0` 用于测试，会关闭这整个官网调度周期。
+Phase 7.1 的本机链路曾由现有官网 scheduler 每 30 秒检查队列。Phase 7.2-Free
+把唯一生产自动权限交给 GitHub 小时任务，复用同一 crawler、策略与 dispatcher，
+每轮有限运行后退出。高/普通优先级至少间隔一小时，低优先级四小时。本地开发
+默认关闭自动抓取和自动 Bark；连接测试独立可用。`ATTENTION_OFFICIAL_POLL=0`
+仍用于关闭本地后台官网轮询。云端工作流尚未推送、启用，当前不能宣称自动送达。
 
 复用 Phase 7 档案：肇庆学院、车辆工程、机械与汽车工程学院、2026 级。不调用新的 LLM，不修改 relevance、importance 或已确认的 Reminder/Calendar 事实。
 
@@ -103,11 +107,20 @@ API 参考：[官方教程](https://github.com/Finb/Bark/blob/master/docs/en-us/
 
 ## 部署与 24/7
 
-唯一 source of truth 是 `desktop/data/attention-desk/personal.sqlite3`，或 ATTENTION_PERSONAL_DB 指定数据库。FastAPI lifespan 启动官网 scheduler、文档 worker、Reminder 和 dispatcher；start.ps1 使用一个 Uvicorn worker。数据库租约/原子领取也防多进程重复。
+Phase 7.2-Free 已把学校公开信息、来源、通知历史和 baseline 导入已有 Supabase
+Free 项目的私有 `zqu_worker` schema。私人事项、聊天和本地附件继续留在 SQLite。
+以后生产学校数据以远端为准，本地 SQLite 作为保留副本，不能再开启第二套自动
+推送。当前页面设置/历史仍属于当前后台；尚未接入私有云状态或云策略管理。
 
-审计未发现 fly.toml、Dockerfile、Procfile、云 worker、Supabase cron、部署 Actions 或 Windows 启动任务。没有创建资源、修改 billing 或迁移上云。**后端退出后无法继续抓取；电脑关机后无法推送。** 关闭网页但保留后端可继续。
+本地 GitHub workflow 已准备：普通 Ubuntu runner 每小时 :17 执行一次 Python
+worker，无 Docker、FastAPI、React 常驻进程。GitHub concurrency、数据库租约和
+原子领取防并发重复。Bark 和数据库凭据仅由 GitHub Secrets 提供，工作流不加载
+本地 `.env`。不使用 Fly，不执行仓库保留的旧 Fly 准备脚本。
 
-下一阶段需选定唯一常驻云端数据源，把 SQLite/附件完整迁移至持久存储并备份，确保只有一套来源/调度/通知历史，通过云 secret 注入 Bark，建立监控并确认费用。不能让本地和云端两个独立 SQLite 同时推送。本次代码支持常驻后端，但未部署。
+**当前还不能在电脑关机后自动抓取或推送**：工作流尚未 push，当前 GitHub
+身份只有 READ 权限，Secrets 未配置。首轮必须 dry_run=true，验证历史零推送
+后再做受控真实验收、启用 schedule。步骤和限制见
+[Phase 7.2-Free 报告](PHASE-7.2-FREE-REPORT.md)。
 
 ## 验证
 

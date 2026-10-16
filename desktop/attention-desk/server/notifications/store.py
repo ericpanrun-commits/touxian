@@ -68,10 +68,13 @@ class NotificationStore:
     def activate(self, config, *, at=None):
         if not config.configured or not config.enabled:
             return
+        self.establish_baseline(at=at)
+
+    def establish_baseline(self, *, at=None, ignore_disabled=False):
         instant = stamp(at or utc_now())
         with self.personal.connection(write=True) as c:
             prefs = self._preferences(c)
-            if prefs['activation_at'] or not prefs['enabled']:
+            if prefs['activation_at'] or not prefs['enabled'] and not ignore_disabled:
                 return
             # The same write lock covers timestamp AND the complete existing DB baseline.
             c.execute("UPDATE notification_preferences SET activation_at=? WHERE channel='bark'", (instant,))
@@ -79,7 +82,7 @@ class NotificationStore:
                     FROM raw_item r LEFT JOIN official_item i ON i.raw_item_id=r.id WHERE r.kind='official_web' ''').fetchall():
                 self._insert(c, dict(row), reason='historical', due=None, at=instant)
 
-    def reconcile(self, config, *, at=None, limit=100):
+    def reconcile(self, config, *, at=None, limit=100, dry_run=False):
         at = aware(at or utc_now())
         self.activate(config, at=at)
         with self.personal.connection(write=True) as c:
@@ -95,10 +98,12 @@ class NotificationStore:
             for row in rows:
                 item, sources = self.candidate(c, row['raw_item_id'])
                 reason, due = evaluate(item, sources, policy, activation_at=prefs['activation_at'], at=at)
-                if not (config.enabled and config.configured and prefs['enabled']):
+                if not dry_run and not (config.enabled and config.configured and prefs['enabled']):
                     reason, due = 'disabled', None
                 LOG.info('notification_candidate channel=bark item_id=%s', row['raw_item_id'])
-                self._insert(c, item, reason=reason, due=due, at=stamp(at))
+                inserted = self._insert(c, item, reason=reason, due=due, at=stamp(at))
+                if inserted and due and dry_run:
+                    LOG.info('notification_would_send channel=bark item_id=%s', row['raw_item_id'])
             return len(rows)
 
     def recover(self, *, at):

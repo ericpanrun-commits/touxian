@@ -1,3 +1,5 @@
+import { personalApiUrl } from './apiBase';
+
 export class PersonalApiError extends Error {
   constructor(message, code = 'request_failed') {
     super(message);
@@ -15,7 +17,7 @@ export async function personalRequest(path, options = {}) {
   const multipart = body instanceof FormData;
   const timeout = window.setTimeout(() => controller.abort(), multipart ? 60000 : 15000);
   try {
-    const response = await fetch('/api/personal' + path, {
+    const response = await fetch(personalApiUrl(path, import.meta.env?.VITE_API_BASE_URL || ''), {
       ...rest,
       cache: 'no-store',
       signal: controller.signal,

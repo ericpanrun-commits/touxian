@@ -8,6 +8,7 @@ from datetime import date, datetime, timezone
 from ..official_rules import load_profile
 from ..official_store import OfficialStore
 from ..planning.time import utc_now
+from ..runtime import RuntimeConfig
 from .bark import BarkClient, DeliveryResult
 from .config import BarkConfig
 from .policy import presentation
@@ -17,25 +18,33 @@ LOG = logging.getLogger(__name__)
 
 
 class NotificationDispatcher:
-    def __init__(self, personal, *, config=None, client=None, notifier=None, clock=utc_now):
+    def __init__(self, personal, *, config=None, client=None, notifier=None, clock=utc_now, runtime=None, repository=None, official_repository=None):
+        self.runtime = runtime or RuntimeConfig.from_env()
         self.config = config or BarkConfig.from_env()
         self.client = client or BarkClient(self.config)
-        self.repository = NotificationStore(personal)
-        self.official = OfficialStore(personal)
+        self.repository = repository if repository is not None else NotificationStore(personal)
+        self.official = official_repository if official_repository is not None else OfficialStore(personal)
         self.notifier, self.clock = notifier, clock
         self._lock = threading.Lock()
+        self.last_cycle_error = False
         try:
-            self.repository.activate(self.config, at=self.clock())
+            if self.runtime.automatic_bark_allowed or self.runtime.preview_allowed:
+                self.repository.activate(self.config, at=self.clock())
         except Exception:
             LOG.error('notification_activation channel=bark result=deferred')
 
     def tick(self, *, limit=10):
+        if not self.runtime.automatic_bark_allowed and not self.runtime.preview_allowed:
+            return 0
         if not self._lock.acquire(blocking=False):
             return 0
         count = 0
+        self.last_cycle_error = False
         try:
             self.repository.recover(at=self.clock())
-            self.repository.reconcile(self.config, at=self.clock())
+            self.repository.reconcile(self.config, at=self.clock(), dry_run=self.runtime.preview_allowed)
+            if self.runtime.preview_allowed:
+                return 0
             for _ in range(limit):
                 row = self.repository.claim(self.config, at=self.clock())
                 if not row:
@@ -52,6 +61,7 @@ class NotificationDispatcher:
         except Exception:
             # Neither provider failures nor local queue failures may fail ingestion/scheduling.
             LOG.error('notification_dispatch channel=bark result=cycle_failed')
+            self.last_cycle_error = True
         finally:
             self._lock.release()
         return count
@@ -61,11 +71,13 @@ class NotificationDispatcher:
         state = 'unconfigured' if not self.config.configured else 'disabled' if not self.config.enabled or not prefs['enabled'] else (
             'failed' if prefs['last_error'] else 'healthy' if prefs['last_success_at'] else 'configured')
         return {**self.config.public(), **prefs, 'status': state,
-                'preference_enabled': prefs['enabled'], 'enabled': self.config.enabled and prefs['enabled'], 'backend_required': True}
+                'preference_enabled': prefs['enabled'], 'enabled': self.config.enabled and prefs['enabled'], 'backend_required': True,
+                'runtime': self.runtime.public()}
 
     def save_settings(self, payload):
         self.repository.save_preferences(payload.enabled, payload.policy, payload.expected_version)
-        self.repository.activate(self.config, at=self.clock())
+        if self.runtime.automatic_bark_allowed or self.runtime.preview_allowed:
+            self.repository.activate(self.config, at=self.clock())
         return self.settings()
 
     def test_notification(self, *, body=None):
@@ -88,6 +100,8 @@ class NotificationDispatcher:
 
     def notify_windows(self, raw_id):
         """Phase 7 Windows policy/privacy and stable claim semantics are preserved."""
+        if not self.runtime.windows_allowed:
+            return
         try:
             item = self.official.detail(raw_id)
             profile = load_profile()

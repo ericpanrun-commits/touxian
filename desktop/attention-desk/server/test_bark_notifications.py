@@ -19,13 +19,14 @@ from server.notifications.store import NotificationStore
 from server.official_store import OfficialStore
 from server.personal_store import PersonalStore
 from server.planning.time import stamp, utc_now
+from server.runtime import RuntimeConfig
 from server.test_official_information import source, seed, document, listing, monitor, scan, TODAY
 
 
 @pytest.fixture
 def config():
     # Generated synthetic credentials; never copy a user's real key into test fixtures.
-    return BarkConfig.from_env({'BARK_DEVICE_KEY': secrets.token_urlsafe(24)})
+    return BarkConfig.from_env({'BARK_DEVICE_KEY': secrets.token_urlsafe(24),'BARK_ENABLED':'true'})
 
 
 @pytest.fixture
@@ -42,7 +43,8 @@ def dispatcher(store, config, *, handler=None, clock=utc_now):
         calls.append(json.loads(request.content))
         return handler(request) if handler else httpx.Response(200, json={'code': 200})
     client = BarkClient(config, transport=httpx.MockTransport(receive), sleep=lambda _: None)
-    service = NotificationDispatcher(store, config=config, client=client, clock=clock)
+    runtime = RuntimeConfig(environment='production',role='cloud',auto_sync=True,notification_authority=True,storage_verified=True)
+    service = NotificationDispatcher(store, config=config, client=client, clock=clock,runtime=runtime)
     policy = NotificationPolicyConfig(quiet_enabled=False)
     prefs = service.repository.preferences()
     service.repository.save_preferences(True, policy, prefs['version'])
@@ -57,6 +59,7 @@ def item(store, saved):
 def test_config_defaults_override_masking_and_disabled(config):
     assert config.enabled and config.configured
     assert not BarkConfig.from_env({}).enabled
+    assert not BarkConfig.from_env({'BARK_DEVICE_KEY':config.device_key}).enabled
     assert not BarkConfig.from_env({'BARK_DEVICE_KEY': config.device_key, 'BARK_ENABLED': 'false'}).enabled
     assert not BarkConfig.from_env({'BARK_DEVICE_KEY': 'your_bark_device_key_here'}).configured
     for public in [repr(config), json.dumps(config.public())]:

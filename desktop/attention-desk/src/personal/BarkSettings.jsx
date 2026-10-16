@@ -8,6 +8,7 @@ import { ReadStatus } from './PlanningViews';
 import { officialTime } from './officialHelpers';
 import usePersonalResource from './usePersonalResource';
 import { BARK_STATUS, DELIVERY_STATUS, barkReason, validQuietTime } from './barkHelpers';
+import WorkerStatus from './WorkerStatus';
 
 const RULES = [['critical', '紧急通知'], ['high_relevant', '重要且高相关'], ['vehicle_direct', '车辆工程直接相关'],
   ['college_grade', '学院要求 2026 级执行'], ['academic_core', '核心教务事项']];
@@ -63,8 +64,9 @@ export default function BarkSettings({ onDirtyChange, onBusyChange }) {
     <p className="personal-intro">重要且与你有关的学校新通知，自动送达 iPhone。点击打开官方原文。</p>
     <ReadStatus resource={resource} label="手机通知设置" /><div className="personal-feedback" role="status">{notice}</div>{error ? <p className="personal-field-error" role="alert">{error} 请保留当前输入，检查后重试。</p> : null}
     {settings ? <><p role="status"><strong>{BARK_STATUS[settings.status] || '状态待确认'}</strong></p><p className="personal-meta">Server：{settings.server} · Device Key：{settings.device_key_configured ? '已配置（仅后端保存）' : '未配置'}</p>
+      {settings.runtime && !settings.runtime.automatic_bark ? <p className="personal-meta">自动推送当前受运行模式保护而关闭。连接测试仍可独立使用；正式自动推送仅由已验证的云端生产后台执行。</p> : null}
       {!settings.configured ? <p className="personal-meta">在后端 server/.env 填写 BARK_DEVICE_KEY，重启后端后重新读取设置。无需修改代码。</p> : null}
-      {!settings.environment_enabled ? <p className="personal-meta">后端尚未启用 Bark。配置凭据后默认开启；BARK_ENABLED=false 会保持关闭。</p> : null}
+      {!settings.environment_enabled ? <p className="personal-meta">后端尚未启用 Bark。需在后端明确设置 BARK_ENABLED=true，之后才能发送连接测试。</p> : null}
       {settings.configuration_error ? <p role="alert" className="personal-field-error">后端 Bark 配置无效，请核对环境变量。</p> : null}
       <p className="personal-meta">最近成功：{officialTime(settings.last_success_at)}<br />最近失败：{officialTime(settings.last_failure_at)}{settings.last_error ? ` · ${barkReason(settings.last_error)}` : ''}<br />历史保护启用：{officialTime(settings.activation_at)}</p>
       <div className="personal-form-actions"><button type="button" className="button button-quiet" disabled={busy || !settings.configured || !settings.enabled} aria-busy={busy} onClick={() => run(async () => {
@@ -75,8 +77,8 @@ export default function BarkSettings({ onDirtyChange, onBusyChange }) {
       <p className="personal-meta">测试明确标记 test，每分钟最多一次。连接状态来自最近发送结果，后台不会定时向手机发测试通知。</p>
       <BarkForm key={revision} settings={settings} busy={busy} onDirtyChange={reportDirty} onSave={payload => run(async () => {
         setSaved(await personalRequest('/notifications/bark/settings', { method: 'PUT', body: payload })); setRevision(value => value + 1); reportDirty(false); setNotice('手机通知设置已保存。'); history.retry();
-      })} /><p className="personal-meta">目前需要电脑后端持续运行。关闭网页后可保留后端；电脑关机后无法继续抓取或推送。</p>
-    </> : null}</section><NotificationHistory resource={history} page={page} setPage={setPage} busy={busy} />
+      })} /><p className="personal-meta">{settings.runtime?.automatic_bark ? '自动抓取和推送由云端后台执行，无需保持前端或本地电脑开启。' : '正式自动推送尚未启用，请查看下方后台运行状态。'}</p>
+    </> : null}</section><WorkerStatus /><NotificationHistory resource={history} page={page} setPage={setPage} busy={busy} />
     {reloadDialog ? <ConfirmDialog title="读取已保存的手机通知设置？" description="当前未保存的输入将被替换，通知历史保留。" confirmLabel="读取已保存设置" onCancel={() => setReloadDialog(false)} onConfirm={() => { setReloadDialog(false); reload(); }} /> : null}
   </>;
 }

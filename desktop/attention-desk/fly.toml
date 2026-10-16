@@ -1,0 +1,54 @@
+# READINESS TEMPLATE ONLY. This app/volume has NOT been created or deployed.
+# Do not replace the existing unrelated ericpanphoto app.
+app = "zqu-workspace-worker"
+primary_region = "iad"
+kill_signal = "SIGTERM"
+kill_timeout = "60s"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  APP_ENV = "production"
+  APP_RUNTIME = "cloud"
+  INSTANCE_ID = "production-fly"
+  APP_DATA_DIR = "/data"
+  ATTENTION_PERSONAL_DB = "/data/production.sqlite3"
+  TZ = "Asia/Shanghai"
+  AUTO_SYNC_ENABLED = "false"
+  BARK_ENABLED = "false"
+  BARK_SERVER_URL = "https://api.day.app"
+  BARK_GROUP = "ZQU"
+  PRODUCTION_NOTIFICATION_AUTHORITY = "false"
+  CLOUD_BOOTSTRAP_MODE = "true"
+  NOTIFICATION_DRY_RUN = "true"
+  BACKUP_KEEP = "7"
+  CORS_ALLOWED_ORIGINS = "http://127.0.0.1:5173,http://localhost:5173"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+  [[http_service.checks]]
+    grace_period = "60s"
+    interval = "30s"
+    method = "GET"
+    timeout = "5s"
+    # Bootstrap can await an SSH/SFTP database import. /health/ready stays 503
+    # until the real DB is validated; deploy success alone never means activated.
+    path = "/health"
+
+[[mounts]]
+  source = "school_data"
+  destination = "/data"
+
+[[vm]]
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1
+
+[[restart]]
+  policy = "always"
+  processes = ["app"]

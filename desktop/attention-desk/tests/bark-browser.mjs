@@ -49,6 +49,10 @@ try {
 
   // Frontend states use fixtures that contain no secret and never reach Bark.
   const realSettings = await (await context.request.get(base + '/api/personal/notifications/bark/settings')).json();
+  const realWorker = await (await context.request.get(base + '/api/personal/system/status')).json();
+  assert.equal(realWorker.automatic_bark, false);
+  assert.equal(realWorker.automatic_sync, false);
+  checks.push('local-production-authority-disabled');
   let settings = { ...realSettings, configured: true, device_key_configured: true, environment_enabled: true,
     preference_enabled: true, enabled: true, status: 'configured', version: 1 };
   let failTest = false; let conflict = false; let slow = false; let testCalls = 0; let writes = 0;
@@ -114,6 +118,26 @@ try {
   await page.getByText('正在读取手机通知设置…').waitFor();
   await page.getByText('未配置', { exact: true }).waitFor();
   await page.getByText(/暂无通知记录/).waitFor(); checks.push('loading-empty-unconfigured');
+  let worker = { ...realWorker, runtime: 'cloud', environment: 'production', cloud_deployed: true, database_persistent: true,
+    instance: 'browser-fixture', status: 'online', scheduler: 'healthy', automatic_sync: true, automatic_bark: true,
+    bootstrap: false, dry_run: false, backup_status: 'available' };
+  let workerOffline = false;
+  await page.route('**/api/personal/system/status', route => workerOffline ? route.abort('connectionfailed') : route.fulfill({ json: worker }));
+  await go('?personal_view=bark-settings');
+  await page.getByText('云端后台 · 运行中', { exact: true }).waitFor();
+  await page.screenshot({ path: path.join(output, 'worker-online.png'), fullPage: true });
+  checks.push('worker-production-persistent');
+  worker = { ...worker, status: 'degraded', scheduler: 'stale', backup_status: 'failed' };
+  await page.getByRole('button', { name: '刷新运行状态', exact: true }).click();
+  await page.getByText('云端后台 · 状态异常', { exact: true }).waitFor();
+  await page.getByText(/请检查后台运行日志和备份/).waitFor(); checks.push('worker-stale-backup-failure');
+  worker = { ...worker, status: 'bootstrapping', bootstrap: true, dry_run: true, scheduler: 'disabled', automatic_bark: false };
+  await page.getByRole('button', { name: '刷新运行状态', exact: true }).click();
+  await page.getByText('云端后台 · 准备中', { exact: true }).waitFor();
+  await page.getByText(/正在安全验证模式/).waitFor(); checks.push('worker-bootstrap-no-false-online');
+  workerOffline = true;
+  await page.getByRole('button', { name: '刷新运行状态', exact: true }).click();
+  await page.getByRole('alert').filter({ hasText: '下方保留上次读取结果' }).waitFor(); checks.push('worker-offline-retry');
   await page.unroute('**/api/personal/notifications/bark/**');
   await page.route('**/api/personal/notifications/bark/**', route => route.abort('connectionfailed'));
   await page.goto(base + '/?personal_view=bark-settings');

@@ -63,7 +63,8 @@ class BarkConfig:
         flag = env.get('BARK_ENABLED', '').lower()
         if flag and flag not in {'1', '0', 'true', 'false', 'yes', 'no', 'on', 'off'}:
             error = 'invalid_config'
-        enabled = flag in {'1', 'true', 'yes', 'on'} if flag else bool(key)
+        # Phase 7.2: having credentials alone must never silently enable delivery.
+        enabled = flag in {'1', 'true', 'yes', 'on'} if flag else False
         return cls(enabled, server, key, env.get('BARK_GROUP') or 'ZQU', env.get('BARK_DEFAULT_SOUND', ''), error)
 
     @staticmethod

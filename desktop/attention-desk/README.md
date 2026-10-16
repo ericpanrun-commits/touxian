@@ -411,3 +411,12 @@ Phase 5 最终验收记录：见 [完整验收报告](PHASE-5-ACCEPTANCE.md) 与
 后端运行期间每 30 秒检查提醒；完全退出后端不保证通知。Startup 选项仅说明当前尚未集成，不会自动创建启动项。新增 Windows 依赖可运行 `./start.ps1 -Install` 安装；已有库使用编号迁移，升级前建议保留备份。本次真实旧库已备份、逐值核对升级并验证重启保留。
 
 当前 Windows 返回 `DISABLED_FOR_USER`：系统关闭用户通知，应用会明确提示并保留提醒中心兜底。需要用户自行检查通知设置后点击“发送测试提醒”，完成横幅视觉确认。完整功能、安全、自动化、实际运行与 checkpoint 记录见 [PHASE-6-REPORT.md](PHASE-6-REPORT.md)。
+
+## Phase 7.2-Free · 学校信息与手机通知
+
+学校数据与历史通知已安全导入已有 Supabase Free 的私有 schema，原有业务表
+保持不变。本地默认关闭自动抓取与自动 Bark；本地 GitHub 小时工作流已准备，
+尚需所有者 push 并配置 Secrets、完成首轮静默和真实云端验收。当前不能在电脑
+关机后自动推送。不依赖 Docker、不创建 Fly 或收费资源。见
+[Phase 7.2-Free 状态与上线步骤](PHASE-7.2-FREE-REPORT.md)、
+[迁移安全审计](SUPABASE-MIGRATION-SAFETY-AUDIT.md) 和 [Bark 配置](BARK.md)。

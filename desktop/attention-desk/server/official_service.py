@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import logging
 import sqlite3
 import threading
 import time
@@ -11,11 +12,18 @@ from .official_http import PublicHTMLClient
 from .official_parsers import parse_article, parse_list
 from .official_sources import SourceConfig, SourceFailure, load_sources
 from .official_store import OfficialStore
+from .runtime import RuntimeConfig
+from .cloud_store import CloudStore
+
+LOG = logging.getLogger(__name__)
 
 
 class OfficialSourceMonitor:
-    def __init__(self, personal, *, config_path=None, client_factory=PublicHTMLClient, start_scheduler=True, notifier=None, notifications=None):
-        self.store = OfficialStore(personal)
+    def __init__(self, personal, *, config_path=None, client_factory=PublicHTMLClient, start_scheduler=True, notifier=None, notifications=None, runtime=None,
+                 repository=None, runtime_store=None, batch_seconds=900, article_limit=240):
+        self.runtime = runtime or RuntimeConfig.from_env()
+        self.store = repository if repository is not None else OfficialStore(personal)
+        self.batch_seconds, self.article_limit = batch_seconds, article_limit
         self.client_factory = client_factory
         self.stop_event = threading.Event()
         self.lock = threading.Lock()
@@ -33,8 +41,10 @@ class OfficialSourceMonitor:
         except Exception:
             self.configuration_error = '官网来源配置未配置或无法读取，请检查本地来源配置文件。手动输入和已有事项仍可使用。'
         from .notifications.service import NotificationDispatcher
-        self.notifications = notifications or NotificationDispatcher(personal, notifier=notifier)
-        if start_scheduler and os.environ.get('ATTENTION_OFFICIAL_POLL', '1') != '0':
+        self.notifications = notifications or NotificationDispatcher(personal, notifier=notifier, runtime=self.runtime)
+        self.cloud_store = runtime_store if runtime_store is not None else CloudStore(personal,self.runtime)
+        self.cloud_store.initialize()
+        if start_scheduler and self.runtime.automatic_sync_allowed and os.environ.get('ATTENTION_OFFICIAL_POLL', '1') != '0':
             self.scheduler = threading.Thread(target=self._schedule, name='official-source-scheduler', daemon=True)
             self.scheduler.start()
 
@@ -44,6 +54,7 @@ class OfficialSourceMonitor:
             self.scheduler.join(timeout=2)
         if self.worker and self.worker.is_alive():
             self.worker.join(timeout=45)
+        self.cloud_store.release()
 
     def overview(self):
         sources = [row for row in self.store.source_rows() if row['id'] in self.configured]
@@ -66,7 +77,7 @@ class OfficialSourceMonitor:
         self.store.set_enabled(source_id, enabled)
         return self.overview()
 
-    def start_scan(self, source_ids=None):
+    def _prepare_scan(self, source_ids=None):
         if self.configuration_error:
             raise ValueError(self.configuration_error)
         sources = {row['id']: row for row in self.store.source_rows() if row['id'] in self.configured}
@@ -88,9 +99,20 @@ class OfficialSourceMonitor:
         ids = list(dict.fromkeys(ids))
         with self.lock:
             self._run = {'running': True, 'done': 0, 'total': len(ids), 'failed': 0, 'current': '', 'new_count': 0, 'changed_count': 0}
+        return ids
+
+    def start_scan(self, source_ids=None):
+        ids = self._prepare_scan(source_ids)
         self.worker = threading.Thread(target=self._run_scan, args=(ids,), name='official-source-check', daemon=True)
         self.worker.start()
         return self.overview()
+
+    def run_once(self, source_ids=None):
+        """Synchronous finite cycle for Actions; shares the exact desktop crawler."""
+        ids = self._prepare_scan(source_ids)
+        self._run_scan(ids)
+        with self.lock:
+            return dict(self._run)
 
     def _run_scan(self, source_ids):
         cache = {}
@@ -106,11 +128,11 @@ class OfficialSourceMonitor:
                     lease_lost.set(); return
         renewal=threading.Thread(target=heartbeat,name='official-lease-heartbeat',daemon=True)
         renewal.start()
-        remaining=240
+        remaining=self.article_limit
         started=time.monotonic()
         try:
             for source_id in source_ids:
-                if self.stop_event.is_set() or lease_lost.is_set() or remaining<=0 or time.monotonic()-started>=900:
+                if self.stop_event.is_set() or lease_lost.is_set() or remaining<=0 or time.monotonic()-started>=self.batch_seconds:
                     break
                 current = next((s for s in self.store.source_rows() if s['id'] == source_id), None)
                 if not current or not current['enabled']:
@@ -119,6 +141,7 @@ class OfficialSourceMonitor:
                 with self.lock:
                     self._run['current'] = source.name
                 run_id=self.store.begin(source_id,owner)
+                LOG.info('source_sync_started instance=%s source_id=%s',self.runtime.instance_id,source_id)
                 backfill=not current['backfill_completed_at']
                 cutoff=(datetime.now(timezone.utc)-timedelta(days=source.backfill_days)).date().isoformat()
                 counts = {'new': 0, 'discovered': 0, 'changed': 0, 'unchanged': 0, 'saved': 0, 'requests': 0, 'scanned':0,'failed':0}
@@ -152,7 +175,7 @@ class OfficialSourceMonitor:
                         if not backfill:
                             work+=self.store.revalidation_entries(source,{e['url'] for e in work})
                         for entry in work:
-                            if remaining<=0 or time.monotonic()-started>=900:
+                            if remaining<=0 or time.monotonic()-started>=self.batch_seconds:
                                 error=error or SourceFailure('batch_limit','本轮达到文章上限，下一轮继续补全。',status='partial')
                                 break
                             if self.stop_event.is_set() or lease_lost.is_set():
@@ -196,6 +219,7 @@ class OfficialSourceMonitor:
                 counts['requests'] = client.request_count if client else 0
                 if error and not counts['failed']: counts['failed']=1
                 self.store.finish(source_id, counts, error,run_id)
+                LOG.info('source_sync_finished instance=%s source_id=%s inserted=%s updated=%s failed=%s',self.runtime.instance_id,source_id,counts['new'],counts['changed'],counts['failed'])
                 with self.lock:
                     self._run['done'] += 1
                     self._run['failed'] += int(error is not None)
@@ -218,9 +242,13 @@ class OfficialSourceMonitor:
                     self._run_lock.release()
 
     def _schedule(self):
-        while not self.stop_event.wait(30):
-            self.notifications.tick()
+        while not self.stop_event.wait(self.runtime.poll_seconds):
             try:
+                if not self.runtime.automatic_sync_allowed or not self.cloud_store.scheduler_claim():
+                    continue
+                LOG.info('scheduler_tick instance=%s environment=%s',self.runtime.instance_id,self.runtime.environment)
+                self.notifications.tick()
+                self.cloud_store.maintenance()
                 if not self.configuration_error and not self._run_lock.locked():
                     stamp = datetime.now(timezone.utc).isoformat()
                     due = [s['id'] for s in self.store.source_rows() if s['id'] in self.configured and s['enabled'] and (not s['next_check_at'] or s['next_check_at'] <= stamp)]
@@ -228,6 +256,7 @@ class OfficialSourceMonitor:
                         self.start_scan(due)
             except Exception:
                 # A transient local-store failure must not permanently kill polling.
+                LOG.warning('scheduler_cycle_failed instance=%s',self.runtime.instance_id)
                 continue
 
     def _notify(self,raw_id):

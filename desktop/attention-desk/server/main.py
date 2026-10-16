@@ -102,6 +102,9 @@ OFFICIAL = None
 @asynccontextmanager
 async def application_lifespan(application: FastAPI):
     global OFFICIAL
+    from .runtime import RuntimeConfig
+    if RuntimeConfig.from_env().environment == 'production':
+        raise RuntimeError('生产环境必须使用受保护的 server.cloud_app:app 入口。')
     personal_store = PersonalStore(default_database_path())
     personal_store.initialize()
     application.state.personal_store = personal_store
@@ -147,6 +150,13 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.get('/api/personal/system/status')
+def runtime_status():
+    if OFFICIAL is None:
+        raise HTTPException(503,detail='后台运行状态尚未就绪。')
+    return OFFICIAL.cloud_store.status()
 
 
 def load_json_bytes(raw: bytes) -> dict[str, Any]:
