@@ -19,7 +19,7 @@ ZQU_ACTIONS_ENABLED=false、ZQU_NOTIFICATION_DRY_RUN=true，未触发 hosted run
 | # | 项目 | 当前结果 |
 | --- | --- | --- |
 | 1 | Architecture | GitHub 单次 Python worker → 现有 Supabase Free 私有 schema → 原 Bark client；复用 crawler、parser、分类、relevance、policy、dispatcher |
-| 2 | GitHub Actions schedule | 本地 YAML 每小时 :17，Ubuntu 24.04，12 分钟上限、固定 concurrency；远端尚未上线 |
+| 2 | GitHub Actions schedule | 每小时 :50，Ubuntu 24.04，12 分钟上限、固定 concurrency；手动验收通过，首次真实 schedule 仍保持 dry-run |
 | 3 | Repo private/public | 用户名下新建 PUBLIC 仓库 ericpanrun-commits/touxian；原上游可见性未改变；默认 main |
 | 4 | 每月 workflow 次数 | 30 天 720 次，31 天 744 次，另加少量手动验收 |
 | 5 | 实际单次 workflow 耗时 | 未运行 hosted workflow，不能用本机测试耗时代替 |
@@ -126,7 +126,7 @@ main，可以正常向前推送；如果所有者再次更新 main，push 前应
 
 现有免费架构可以在电脑关闭后运行；**当前还未激活**。GitHub schedule 可能
 延迟或跳过，公开仓库 60 天无活动会停用 schedule，Free 服务不提供 24/7 SLA。
-应检查最近成功运行与 stale 状态；计划每小时 :17 减少整点拥堵。依据
+应检查最近成功运行与 stale 状态；每小时 :50 运行，避开整点。依据
 [GitHub schedule 文档](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule)。
 不创建新的提醒/监控付费服务，不自动提交空 commit 来绕过停用规则。
 

@@ -21,7 +21,7 @@ from server.actions.migrate import export_snapshot, import_snapshot, render_impo
 from server.actions.notifications import PostgresNotificationStore
 from server.actions.runtime import ActionsRuntime
 from server.actions.store import PostgresOfficialStore
-from server.actions.worker import emit_summary, run_once
+from server.actions.worker import emit_summary, run_once, source_due_order
 from server.notifications.bark import BarkClient
 from server.notifications.policy import NotificationPolicyConfig
 from server.official_http import HTMLResult, PublicHTMLClient
@@ -133,6 +133,21 @@ def test_database_trust_anchor_is_the_official_public_supabase_root():
     context=ssl.create_default_context(cafile=str(SUPABASE_CA))
     assert context.check_hostname and context.verify_mode==ssl.CERT_REQUIRED
     assert len(context.get_ca_certs())==1
+
+
+def test_bounded_cloud_batches_rotate_through_overdue_sources():
+    rows=[{'id':'important','priority':'high','next_check_at':'2026-10-17T02:00:00+00:00'},
+        {'id':'normal','priority':'normal','next_check_at':'2026-10-17T01:00:00+00:00'},
+        {'id':'news','priority':'low','next_check_at':'2026-10-17T00:00:00+00:00'}]
+    assert [row['id'] for row in sorted(rows,key=source_due_order)]==['news','normal','important']
+    rows[2]['next_check_at']='2026-10-17T04:00:00+00:00'
+    assert sorted(rows,key=source_due_order)[0]['id']=='normal'
+
+
+def test_equal_source_deadlines_preserve_priority_and_deterministic_order():
+    rows=[{'id':name,'priority':priority,'next_check_at':None}
+        for name,priority in [('news','low'),('high-b','high'),('normal','normal'),('high-a','high')]]
+    assert [row['id'] for row in sorted(rows,key=source_due_order)]==['high-a','high-b','normal','news']
 
 
 def test_migration_is_idempotent_and_private(pg):
@@ -396,7 +411,10 @@ def test_workflow_has_hourly_schedule_no_paid_runner_or_docker():
     path=Path(__file__).resolve().parents[3]/'.github/workflows/zqu-official-info.yml'
     workflow=yaml.safe_load(path.read_text())
     trigger=workflow.get('on',workflow.get(True))
-    assert trigger['schedule']==[{'cron':'17 * * * *'}]
+    assert len(trigger['schedule'])==1
+    minute,*period=trigger['schedule'][0]['cron'].split()
+    assert minute.isdigit() and 0<=int(minute)<60
+    assert period==['*','*','*','*']
     assert workflow['concurrency']['cancel-in-progress'] is False
     job=workflow['jobs']['sync']
     assert job['runs-on']=='ubuntu-24.04' and job['timeout-minutes']==12

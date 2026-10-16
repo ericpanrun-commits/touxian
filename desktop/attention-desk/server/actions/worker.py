@@ -25,6 +25,12 @@ LABELS={'sources_checked':'Sources checked','succeeded':'Succeeded','failed':'Fa
     'duplicate_prevented':'Acceptance repeat prevented','low_relevance_suppressed':'Acceptance low relevance suppressed'}
 
 
+def source_due_order(row):
+    # A bounded hourly batch must rotate through overdue sources. Priority only
+    # breaks equal deadlines, so a busy high-priority set cannot starve news.
+    return (row['next_check_at'] or '',{'high':0,'normal':1,'low':2}[row['priority']],row['id'])
+
+
 def emit_summary(summary, destination=None):
     safe={key:summary.get(key,0) for key in LABELS}
     safe.update(status=summary.get('status','failed'),dry_run=summary.get('dry_run',True),
@@ -77,7 +83,7 @@ def run_once(runtime, database, *, bark_config=None, client=None, client_factory
         instant=datetime.now(timezone.utc).isoformat()
         due=[row for row in store.source_rows() if row['id'] in monitor.configured and row['enabled']
              and (not row['next_check_at'] or row['next_check_at']<=instant)]
-        due.sort(key=lambda row:({'high':0,'normal':1,'low':2}[row['priority']],row['next_check_at'] or '',row['id']))
+        due.sort(key=source_due_order)
         if due:
             scan=monitor.run_once([row['id'] for row in due])
             summary.update(sources_checked=scan['done'],failed=scan['failed'],succeeded=scan['done']-scan['failed'],

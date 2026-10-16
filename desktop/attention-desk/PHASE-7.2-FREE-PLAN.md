@@ -31,7 +31,7 @@ historical preparation; do not execute their deployment helpers.
 
 ## Implementation
 
-Hourly workflow `17 * * * *` UTC, also hourly :17 in Asia/Shanghai, standard Ubuntu
+Hourly workflow `50 * * * *` UTC, also hourly :50 in Asia/Shanghai, standard Ubuntu
 24.04, one job, 12-minute timeout, fixed concurrency, no artifacts or package cache.
 Manual runs default dry; scheduled execution stays gated by `ZQU_ACTIONS_ENABLED`
 until the owner enables it. GitHub scheduling may be delayed/dropped, so status is

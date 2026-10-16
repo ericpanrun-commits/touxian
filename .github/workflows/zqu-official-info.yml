@@ -1,9 +1,9 @@
 name: ZQU official information
 
 on:
-  # UTC hourly at :17; Asia/Shanghai also runs every hour at :17.
+  # UTC hourly at :50; Asia/Shanghai also runs every hour at :50.
   schedule:
-    - cron: '17 * * * *'
+    - cron: '50 * * * *'
   workflow_dispatch:
     inputs:
       mode:
