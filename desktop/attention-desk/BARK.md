@@ -1,4 +1,4 @@
-# Bark iPhone 自动通知（Phase 7.1）
+# Bark iPhone 自动通知（Phase 7.1 / Phase 7.2-Free）
 
 Bark 是接收自定义推送的 iPhone 应用。本渠道仅发送可信肇庆学院官网的公开通知摘要；本地聊天、私人事项、密码和附件不进入 Bark。
 
@@ -42,7 +42,15 @@ Phase 7.1 的本机链路曾由现有官网 scheduler 每 30 秒检查队列。P
 把唯一生产自动权限交给 GitHub 小时任务，复用同一 crawler、策略与 dispatcher，
 每轮有限运行后退出。高/普通优先级至少间隔一小时，低优先级四小时。本地开发
 默认关闭自动抓取和自动 Bark；连接测试独立可用。`ATTENTION_OFFICIAL_POLL=0`
-仍用于关闭本地后台官网轮询。云端工作流尚未推送、启用，当前不能宣称自动送达。
+仍用于关闭本地后台官网轮询。云端工作流已经推送并配置，真实手动抓取和唯一
+受控 [test] Bark 成功，跨 runner 重复验收发送 0。定时任务每小时 :50，目前
+保持 dry-run，等待首轮真实 schedule 验收后再开放正式自动 Bark。当前状态见
+[生产上线报告](PHASE-7.2-FREE-REPORT.md)。
+
+云端只从 GitHub Environment `zqu-production` 读取 `SUPABASE_DB_URL`、
+`BARK_DEVICE_KEY`、`BARK_SERVER_URL`，不读取本机 `.env`。Supabase 仅使用
+本项目私有 `zqu_worker` schema；本地工作台仍使用本地数据，并非云端数据镜像。
+本地连接测试只在明确手动操作时发送，不应再启用第二个自动生产 scheduler。
 
 复用 Phase 7 档案：肇庆学院、车辆工程、机械与汽车工程学院、2026 级。不调用新的 LLM，不修改 relevance、importance 或已确认的 Reminder/Calendar 事实。
 
