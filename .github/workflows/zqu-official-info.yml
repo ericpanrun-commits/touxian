@@ -1,4 +1,5 @@
 name: ZQU official information
+run-name: ZQU official information · ${{ github.event_name }} · ${{ inputs.mode || 'cycle' }}
 
 on:
   # UTC hourly at :50; Asia/Shanghai also runs every hour at :50.
