@@ -3,7 +3,8 @@
 2026-10-16：已完成安全安装与学校数据导入，**尚未完成云端上线验收**。
 未调用 Docker、未创建 Fly/收费资源、未修改 billing、未 push，真实 Bark 0 条。
 当前阻塞：GitHub 身份对 `sssssjw11/touxian` 只有 READ，无 push/admin 权限；
-默认 main 分支没有工作流，生产 Secrets 未配置。需要 push 才能激活 GitHub Actions。
+默认 main 分支没有工作流。本代理未配置生产 Secrets，当前权限无法核实所有者
+是否另行配置。需要 push 才能激活 GitHub Actions，并由所有者确认所需 Secrets。
 
 | # | 项目 | 当前结果 |
 | --- | --- | --- |
@@ -24,7 +25,7 @@
 | 15 | Bark cloud test | 未执行，真实发送 0；需 hosted dry run 后进行最多 1 连接测试 + 1 受控自动链路测试 |
 | 16 | Secrets | 本地真 Key 仍在忽略的 server/.env；云端使用 GitHub Secrets，尚未上传；不传给浏览器 |
 | 17 | Tests | 后端 954、前端 30、浏览器 24 通过；生产 build、新增 Python 静态检查、YAML 结构测试通过；1 既有依赖 deprecation warning |
-| 18 | Git commit | 本报告所在本地功能提交；可用 git log -1 查看准确 hash，不给未上线状态打 stable 标签 |
+| 18 | Git commit | 功能提交 b722e6f；本地集成上游提交 cb09244；后续文档提交可用 git log -1 查看，不给未上线状态打 stable 标签 |
 | 19 | Git status | 本地提交后复核；生产导出、备份、日志、测试数据库和真实 .env 均忽略 |
 | 20 | 是否需要 push | **是**；遵守用户不擅自 push 的要求，所有者还需配置 environment/Secrets |
 | 21 | 是否手动创建 Free Supabase project | **否**；复用已有 Free 项目，未创建新项目 |
@@ -69,6 +70,12 @@ RLS 已开启且没有 anon/authenticated/PUBLIC 表授权。Supabase advisor �
 不得拿它当作云端在线证据或认为本地修改会同步生产策略。这个读取通道需另行审计。
 
 ## 所有者上线步骤
+
+交接复核发现远端 main 更新至 `b9d77eb`（Android 1.26.1）。已通过本地 merge
+`cb09244` 纳入，未重写原有提交或标签。确认学校工作台和 workflow 与 `b722e6f`
+完全一致，Android 与根 README 与上游完全一致。当前 HEAD 包含已检查的上游
+main，可以正常向前推送；如果所有者再次更新 main，push 前应重新 fetch 并检查，
+不得 force push。此步骤仅完成本地集成，没有 push 或触发云端运行。
 
 1. 审阅本地提交，使用有写权限的身份 push 到既有 repo 的默认 main；当前代理
    不 push、不切换账号、不改变仓库可见性。确认 Actions 已有此 workflow。
