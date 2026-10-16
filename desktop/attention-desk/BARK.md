@@ -43,8 +43,9 @@ Phase 7.1 的本机链路曾由现有官网 scheduler 每 30 秒检查队列。P
 每轮有限运行后退出。高/普通优先级至少间隔一小时，低优先级四小时。本地开发
 默认关闭自动抓取和自动 Bark；连接测试独立可用。`ATTENTION_OFFICIAL_POLL=0`
 仍用于关闭本地后台官网轮询。云端工作流已经推送并配置，真实手动抓取和唯一
-受控 [test] Bark 成功，跨 runner 重复验收发送 0。定时任务每小时 :50，目前
-保持 dry-run，等待首轮真实 schedule 验收后再开放正式自动 Bark。当前状态见
+受控 [test] Bark 成功，跨 runner 重复验收发送 0。首轮真实 schedule 已完成
+dry-run、发送 0，历史状态验证通过后已开启正式自动 Bark。定时任务每小时 :50，
+实际触发可能延迟；不再重复发送上线测试，永久 accepted receipt 必须保留。当前状态见
 [生产上线报告](PHASE-7.2-FREE-REPORT.md)。
 
 云端只从 GitHub Environment `zqu-production` 读取 `SUPABASE_DB_URL`、

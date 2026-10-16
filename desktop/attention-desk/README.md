@@ -1,6 +1,6 @@
 # Attention Desk
 
-Phase 7.1 已将官网新信息接入 Bark iPhone 自动通知，复用现有抓取/调度、分类和通知历史，加入历史基线、持久去重、有限重试及静默时间。Phase 7.2-Free 已完成 GitHub Actions → Supabase → Bark 云端手动验收，正在验证首次真实定时运行。配置与故障诊断见 [Bark 使用指南](BARK.md)，当前上线状态见 [生产报告](PHASE-7.2-FREE-REPORT.md)。
+学校官网信息与 Bark 已通过 GitHub Actions + Supabase Free 上线。真实定时抓取、数据库持久性、一次受控推送和跨 runner 去重均已验收，正式自动推送已开启；电脑和前端关闭后，云端仍独立运行。本地默认关闭自动抓取与自动 Bark。配置与故障诊断见 [Bark 使用指南](BARK.md)，证据及免费服务运行边界见 [生产报告](PHASE-7.2-FREE-REPORT.md)。
 
 本地 Web 工作台，把微信群导出的 `messages.json` 变成按 P0–P3 排序的注意力队列。
 
@@ -417,8 +417,8 @@ Phase 5 最终验收记录：见 [完整验收报告](PHASE-5-ACCEPTANCE.md) 与
 学校数据与历史通知已安全导入已有 Supabase Free 的私有 schema，原有业务表
 保持不变。本地默认关闭自动抓取与自动 Bark；用户自己的 GitHub 公开仓库
 ericpanrun-commits/touxian 已部署小时工作流，Secrets 已配置，真实云端静默抓取、
-一条受控 Bark 和跨 runner 去重均已通过。定时任务每小时 :50，首次真实定时
-静默验收之前仍保留 dry-run，正式自动推送尚未开放。云端链路不依赖前端、
+一条受控 Bark 和跨 runner 去重均已通过。首轮真实定时静默验收成功后，已开启
+正式自动推送；任务每小时 :50，GitHub 实际触发可能延迟或跳过。云端链路不依赖前端、
 本机后台、Docker 或 Fly，不新增收费资源。见
 [Phase 7.2-Free 状态与上线步骤](PHASE-7.2-FREE-REPORT.md)、
 [迁移安全审计](SUPABASE-MIGRATION-SAFETY-AUDIT.md) 和 [Bark 配置](BARK.md)。
