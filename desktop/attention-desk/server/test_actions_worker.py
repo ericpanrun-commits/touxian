@@ -1,7 +1,9 @@
 """Real PostgreSQL adapter integration; synthetic keys and HTTP transports only."""
 import json
+import hashlib
 import os
 import secrets
+import ssl
 from uuid import uuid4
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
@@ -13,7 +15,7 @@ import httpx
 import psycopg
 import pytest
 
-from server.actions.database import PostgresDatabase
+from server.actions.database import PostgresDatabase, SUPABASE_CA
 from server.actions.acceptance import RECEIPT, run_acceptance
 from server.actions.migrate import export_snapshot, import_snapshot, render_import_batches, render_import_sql, validate_payload
 from server.actions.notifications import PostgresNotificationStore
@@ -120,6 +122,17 @@ def test_secrets_not_in_repr_or_job_summary(tmp_path,capsys):
     target=tmp_path/'summary.md'
     emit_summary({'sent':1,'status':'ok','private_token':token},target)
     assert token not in capsys.readouterr().out+target.read_text()
+
+
+def test_database_trust_anchor_is_the_official_public_supabase_root():
+    pem=SUPABASE_CA.read_text(encoding='ascii')
+    assert pem.count('-----BEGIN CERTIFICATE-----')==1
+    assert 'PRIVATE KEY' not in pem
+    assert hashlib.sha256(ssl.PEM_cert_to_DER_cert(pem)).hexdigest()==(
+        '807025ad50d4ed219d2c9c7d299c004f824eb00cf7f65afef607d07b72e6cafa')
+    context=ssl.create_default_context(cafile=str(SUPABASE_CA))
+    assert context.check_hostname and context.verify_mode==ssl.CERT_REQUIRED
+    assert len(context.get_ca_certs())==1
 
 
 def test_migration_is_idempotent_and_private(pg):

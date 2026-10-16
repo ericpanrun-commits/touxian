@@ -8,6 +8,14 @@ GitHub 仓库归属已纠正：用户账号为 `ericpanrun-commits`，经明确�
 尚需配置、验证数据库连接并完成 hosted dry run、一次 Bark 验收和真实 schedule。
 未调用 Docker、未创建 Fly/收费资源、未修改 billing，真实 cloud Bark 0 条。
 
+2026-10-17 上线配置复核：用户仓库已完成正常 push，GitHub 已识别工作流；
+`zqu-production` 限定 main，两个 Bark Secrets 已配置。Repository Variables 保持
+ZQU_ACTIONS_ENABLED=false、ZQU_NOTIFICATION_DRY_RUN=true，未触发 hosted run。
+唯一缺少的私密配置为 SUPABASE_DB_URL，本机没有可恢复的数据库密码。
+数据库适配器已加入从 Supabase 官方地址取得的公开 CA，仍使用 verify-full。
+真实无密码连接通过证书校验并到达认证步骤，错误主机名被拒绝；未发送密码或 SQL。
+这项 TLS 检查不能替代有认证的数据库读写和云端验收。
+
 | # | 项目 | 当前结果 |
 | --- | --- | --- |
 | 1 | Architecture | GitHub 单次 Python worker → 现有 Supabase Free 私有 schema → 原 Bark client；复用 crawler、parser、分类、relevance、policy、dispatcher |
@@ -25,8 +33,8 @@ GitHub 仓库归属已纠正：用户账号为 `ericpanrun-commits`，经明确�
 | 13 | Historical protection | 539 条 suppressed/historical，全体 dedup 历史保留，replayable=0，原 activation 未改变 |
 | 14 | Dedup | DB 唯一约束按 channel/item/group/type；sent 永不重发；不明确投递结果终止自动重试 |
 | 15 | Bark cloud test | 未执行，真实发送 0；已准备手动 acceptance 模式，连接和自动链路合并最多 1 条，持久防重跑 |
-| 16 | Secrets | 本地真 Key 仍在忽略的 server/.env；云端使用 GitHub Secrets，尚未上传；不传给浏览器 |
-| 17 | Tests | 仓库归属修正后后端 962 通过（含生产白名单、迁移与原生 PG 测试）；此前前端 30、浏览器 24、build 通过；本次有既有依赖弃用和 pytest 缓存目录权限两项 warning，无失败 |
+| 16 | Secrets | Environment 中 BARK_DEVICE_KEY / BARK_SERVER_URL 已配置；SUPABASE_DB_URL 未配置；本地真 Key 仍在忽略的 server/.env，不输出值、不传给浏览器 |
+| 17 | Tests | TLS 修复后后端 963 通过（含 CA 信任、生产白名单、迁移与原生 PG 测试）；此前前端 30、浏览器 24、build 通过；1 项既有依赖弃用 warning，无失败 |
 | 18 | Git commit | 功能提交 b722e6f；本地集成上游提交 cb09244；后续文档提交可用 git log -1 查看，不给未上线状态打 stable 标签 |
 | 19 | Git status | 本地提交后复核；生产导出、备份、日志、测试数据库和真实 .env 均忽略 |
 | 20 | 是否需要 push | **是**；用户已授权自动上线，仅推送自己名下 ericpanrun-commits/touxian，不推送上游 |
@@ -137,8 +145,8 @@ main，可以正常向前推送；如果所有者再次更新 main，push 前应
 运行后观测。细节 crawl/worker logs 保留 30 天，文章 identity/baseline/dedup 永久
 保留。接近 Free 配额时应暂停任务并报告，不升级、不清理无关业务。
 
-仓库修正后的后端全量日志 `artifacts/free-owner-repository-backend.log`：962 passed。
-其中原生本机隔离 PostgreSQL 专项及权限上下文测试 35 passed，真实事务/权限/并发/断点测试，
+TLS 修复后的后端全量日志 `artifacts/free-launch-tls-backend.log`：963 passed。
+其中原生本机隔离 PostgreSQL 专项、权限上下文和证书测试 36 passed，真实事务/权限/并发/断点测试，
 没有 Docker。前端 30 passed、build 成功；浏览器报告
 `artifacts/phase72free-browser/browser-results.json`：24 passed，应用错误 0。
 浏览器 Bark 由路由 fixture 拦截；PG 链路测试采用模拟 HTTP。这些不替代真正的

@@ -1,6 +1,9 @@
 """Small thread-owned PostgreSQL connections, TLS and bounded transactions."""
 from contextlib import contextmanager
+from pathlib import Path
 import threading
+
+SUPABASE_CA = Path(__file__).with_name('certs') / 'supabase-prod-ca-2021.crt'
 
 
 class PostgresDatabase:
@@ -13,12 +16,11 @@ class PostgresDatabase:
     @contextmanager
     def connection(self):
         if not hasattr(self._local,'connection') or self._local.connection.closed:
-            import certifi
             import psycopg
             from psycopg.rows import dict_row
             connect = self._connect or psycopg.connect
             db = connect(self._dsn,autocommit=True,connect_timeout=8,prepare_threshold=None,
-                         sslmode='verify-full',sslrootcert=certifi.where(),row_factory=dict_row,
+                         sslmode='verify-full',sslrootcert=str(SUPABASE_CA),row_factory=dict_row,
                          application_name='zqu-actions-worker')
             self._local.connection = db
             with self._guard:self._connections.append(db)
