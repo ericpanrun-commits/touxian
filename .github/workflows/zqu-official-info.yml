@@ -6,6 +6,14 @@ on:
     - cron: '17 * * * *'
   workflow_dispatch:
     inputs:
+      mode:
+        description: 'cycle: normal sync; acceptance: at most ONE labelled cloud pipeline push'
+        type: choice
+        options:
+          - cycle
+          - acceptance
+        default: cycle
+        required: true
       dry_run:
         description: 'Evaluate and persist without sending Bark (required for first run)'
         type: boolean
@@ -41,6 +49,7 @@ jobs:
       BARK_DEVICE_KEY: ${{ secrets.BARK_DEVICE_KEY }}
       BARK_SERVER_URL: ${{ secrets.BARK_SERVER_URL }}
       BARK_GROUP: ZQU
+      ZQU_RUN_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'cycle' }}
       NOTIFICATION_DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && (inputs.dry_run && 'true' || 'false') || (vars.ZQU_NOTIFICATION_DRY_RUN != 'false' && 'true' || 'false') }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -53,6 +62,8 @@ jobs:
         run: |
           python - <<'PY'
           import os
+          if os.environ['ZQU_RUN_MODE'] == 'acceptance' and os.environ['NOTIFICATION_DRY_RUN'] != 'false':
+              raise SystemExit('Acceptance requires explicit dry_run=false after the first verified cycle.')
           required = ['SUPABASE_DB_URL', 'PRODUCTION_DATABASE_ID']
           if os.environ['NOTIFICATION_DRY_RUN'] == 'false':
               required += ['BARK_DEVICE_KEY', 'BARK_SERVER_URL']

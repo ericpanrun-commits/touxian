@@ -90,6 +90,14 @@ acceptance before enabling schedule. Do not claim computer-off delivery until
 real hosted runs and the schedule are verified. Detailed steps and 22-item status
 report are in `PHASE-7.2-FREE-REPORT.md`. No paid workaround is authorized.
 
+Manual hosted acceptance is now prepared as mode=acceptance, dry_run=false after
+the first verified mode=cycle dry run. It exercises parser/classifier/policy/
+queue/dispatcher/Bark for labelled fixtures only, at most one HTTP attempt. A
+permanent receipt prevents resend on fresh runners or failures; ordinary jobs
+exclude leftover test events. This supplements the earlier preparation: latest
+backend 960 passed (33 PostgreSQL integration cases), without real Bark or cloud
+mutation. The hosted acceptance still awaits owner push/Secrets/configuration.
+
 Monthly schedule: 720 runs/30 days or 744/31 days. Actual Actions elapsed time and
 source growth are unmeasured until a real job is enabled; report measurements,
 not local tests as hosted-run timings. Forecast private minutes conservatively

@@ -21,7 +21,8 @@ from .store import OneShotRuntimeStore, PostgresOfficialStore
 
 LABELS={'sources_checked':'Sources checked','succeeded':'Succeeded','failed':'Failed',
     'new_articles':'New articles','updated':'Updated','candidates':'Notification candidates',
-    'sent':'Bark sent','suppressed':'Suppressed','would_send':'Would send'}
+    'sent':'Bark sent','suppressed':'Suppressed','would_send':'Would send',
+    'duplicate_prevented':'Acceptance repeat prevented','low_relevance_suppressed':'Acceptance low relevance suppressed'}
 
 
 def emit_summary(summary, destination=None):
@@ -119,7 +120,12 @@ def main():
         if not runtime.database_url:
             raise ValueError('尚未配置远程数据库。')
         database=PostgresDatabase(runtime.database_url)
-        summary=run_once(runtime,database)
+        mode=os.environ.get('ZQU_RUN_MODE','cycle')
+        if mode=='acceptance':
+            from .acceptance import run_acceptance
+            summary=run_acceptance(runtime,database,event=os.environ.get('GITHUB_EVENT_NAME'))
+        elif mode=='cycle':summary=run_once(runtime,database)
+        else:raise ValueError('未知任务模式。')
         emit_summary(summary,os.environ.get('GITHUB_STEP_SUMMARY'))
         return 1 if summary['status']=='failed' else 0
     except Exception:

@@ -14,6 +14,7 @@ import psycopg
 import pytest
 
 from server.actions.database import PostgresDatabase
+from server.actions.acceptance import RECEIPT, run_acceptance
 from server.actions.migrate import export_snapshot, import_snapshot, render_import_batches, render_import_sql, validate_payload
 from server.actions.notifications import PostgresNotificationStore
 from server.actions.runtime import ActionsRuntime
@@ -376,3 +377,95 @@ def test_workflow_has_hourly_schedule_no_paid_runner_or_docker():
     assert job['runs-on']=='ubuntu-24.04' and job['timeout-minutes']==12
     text=path.read_text()
     assert 'server.actions.worker' in text and 'upload-artifact' not in text and 'docker' not in text.lower()
+    assert trigger['workflow_dispatch']['inputs']['mode']['default']=='cycle'
+    assert trigger['workflow_dispatch']['inputs']['mode']['options']==['cycle','acceptance']
+
+
+def test_cloud_acceptance_sends_one_scoped_pipeline_and_preserves_ordinary_queue(pg,imported,config):
+    runtime,path,_=imported
+    bark,factory,calls=clients(config)
+    run_once(runtime,pg,bark_config=config,client=bark,client_factory=factory,config_path=path)
+    with pg.connection() as db:
+        before=db.execute('SELECT id,status,dedup_key FROM zqu_worker.notification_events ORDER BY id').fetchall()
+        baseline=db.execute('SELECT activation_at FROM zqu_worker.meta').fetchone()
+    active=replace(runtime,dry_run=False)
+    result=run_acceptance(active,pg,event='workflow_dispatch',bark_config=config,client=bark)
+    assert result['status']=='ok' and result['sent']==1 and result['low_relevance_suppressed']==1
+    assert len(calls)==1 and '[test]' in json.loads(calls[0].content)['title']
+    with pg.connection() as db:
+        assert db.execute('SELECT id,status,dedup_key FROM zqu_worker.notification_events ORDER BY id').fetchall()==before
+        assert db.execute('SELECT activation_at FROM zqu_worker.meta').fetchone()==baseline
+        assert db.execute("SELECT count(*) AS n FROM zqu_worker.items WHERE body->>'acceptance_test'='true'").fetchone()['n']==0
+        assert db.execute('SELECT owner FROM zqu_worker.leases WHERE name=%s',(RECEIPT,)).fetchone()['owner']=='accepted'
+    fresh=PostgresDatabase(pg._dsn,connect=pg._connect)
+    try:again=run_acceptance(active,fresh,event='workflow_dispatch',bark_config=config,client=bark)
+    finally:fresh.close()
+    assert again['sent']==0 and again['duplicate_prevented']==1 and len(calls)==1
+
+
+def test_acceptance_refuses_schedule_dry_run_and_unverified_first_cycle(pg,imported,config):
+    runtime,_,_=imported
+    bark,_,calls=clients(config)
+    for current,event in [(replace(runtime,dry_run=False),'schedule'),(runtime,'workflow_dispatch')]:
+        with pytest.raises(ValueError,match='手动生产'):run_acceptance(current,pg,event=event,bark_config=config,client=bark)
+    with pytest.raises(ValueError,match='静默验证'):
+        run_acceptance(replace(runtime,dry_run=False),pg,event='workflow_dispatch',bark_config=config,client=bark)
+    assert not calls
+    with pg.connection() as db:
+        assert db.execute('SELECT count(*) AS n FROM zqu_worker.leases WHERE name=%s',(RECEIPT,)).fetchone()['n']==0
+
+
+def test_acceptance_retryable_failure_spends_budget_and_does_not_retry(pg,imported,config):
+    runtime,path,_=imported
+    bark,factory,_=clients(config)
+    run_once(runtime,pg,bark_config=config,client=bark,client_factory=factory,config_path=path)
+    calls=[]
+    failing=BarkClient(config,transport=httpx.MockTransport(lambda req:(calls.append(req) or httpx.Response(500))))
+    active=replace(runtime,dry_run=False)
+    result=run_acceptance(active,pg,event='workflow_dispatch',bark_config=config,client=failing)
+    again=run_acceptance(active,pg,event='workflow_dispatch',bark_config=config,client=failing)
+    assert result['status']=='failed' and again['duplicate_prevented']==1 and len(calls)==1
+    with pg.connection() as db:
+        assert db.execute("SELECT count(*) AS n FROM zqu_worker.notification_events WHERE metadata->>'acceptance_test'='true'").fetchone()['n']==0
+        assert db.execute('SELECT owner FROM zqu_worker.leases WHERE name=%s',(RECEIPT,)).fetchone()['owner']=='failed_or_unknown'
+
+
+def test_regular_worker_cannot_claim_or_recover_abandoned_acceptance_event(pg,imported,config):
+    runtime,path,_=imported
+    bark,factory,calls=clients(config)
+    run_once(runtime,pg,bark_config=config,client=bark,client_factory=factory,config_path=path)
+    with pg.connection() as db:
+        db.execute("UPDATE zqu_worker.notification_events SET metadata=metadata||'{\"acceptance_test\":true}'::jsonb WHERE status='pending'")
+    official=PostgresOfficialStore(pg);assert official.acquire_lease('orphan-test','actions',900)
+    repo=PostgresNotificationStore(pg,'orphan-test')
+    at=datetime.now(timezone.utc)
+    assert repo.claim(config,at=at) is None
+    with pg.connection() as db:
+        db.execute("UPDATE zqu_worker.notification_events SET status='sending',attempted_at=%s WHERE metadata->>'acceptance_test'='true'",(at-timedelta(minutes=4),))
+    repo.recover(at=at)
+    with pg.connection() as db:
+        assert db.execute("SELECT status FROM zqu_worker.notification_events WHERE metadata->>'acceptance_test'='true'").fetchone()['status']=='sending'
+    assert calls==[]
+
+
+def test_acceptance_unknown_previous_attempt_never_resends(pg,imported,config):
+    runtime,path,_=imported
+    bark,factory,calls=clients(config)
+    run_once(runtime,pg,bark_config=config,client=bark,client_factory=factory,config_path=path)
+    with pg.connection() as db:
+        db.execute("INSERT INTO zqu_worker.leases(name,owner,expires_at) VALUES(%s,'reserved','9999-01-01')",(RECEIPT,))
+    result=run_acceptance(replace(runtime,dry_run=False),pg,event='workflow_dispatch',bark_config=config,client=bark)
+    assert result['status']=='failed' and result['duplicate_prevented']==1 and calls==[]
+
+
+def test_acceptance_low_relevance_policy_failure_stops_before_any_push(pg,imported,config):
+    runtime,path,_=imported
+    bark,factory,calls=clients(config)
+    run_once(runtime,pg,bark_config=config,client=bark,client_factory=factory,config_path=path)
+    with pg.connection() as db:
+        db.execute("UPDATE zqu_worker.meta SET policy=policy||'{\"minimum_relevance\":0}'::jsonb WHERE id=1")
+    with pytest.raises(ValueError,match='未发送测试通知'):
+        run_acceptance(replace(runtime,dry_run=False),pg,event='workflow_dispatch',bark_config=config,client=bark)
+    assert calls==[]
+    with pg.connection() as db:
+        assert db.execute('SELECT count(*) AS n FROM zqu_worker.leases WHERE name=%s',(RECEIPT,)).fetchone()['n']==0

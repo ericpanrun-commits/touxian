@@ -22,9 +22,9 @@
 | 12 | Local automatic Bark | 运行中开发后台 automatic_sync=false、automatic_bark=false、scheduler=disabled；连接测试独立可用 |
 | 13 | Historical protection | 539 条 suppressed/historical，全体 dedup 历史保留，replayable=0，原 activation 未改变 |
 | 14 | Dedup | DB 唯一约束按 channel/item/group/type；sent 永不重发；不明确投递结果终止自动重试 |
-| 15 | Bark cloud test | 未执行，真实发送 0；需 hosted dry run 后进行最多 1 连接测试 + 1 受控自动链路测试 |
+| 15 | Bark cloud test | 未执行，真实发送 0；已准备手动 acceptance 模式，连接和自动链路合并最多 1 条，持久防重跑 |
 | 16 | Secrets | 本地真 Key 仍在忽略的 server/.env；云端使用 GitHub Secrets，尚未上传；不传给浏览器 |
-| 17 | Tests | 后端 954、前端 30、浏览器 24 通过；生产 build、新增 Python 静态检查、YAML 结构测试通过；1 既有依赖 deprecation warning |
+| 17 | Tests | 后端 960（含新增受控验收 6 项）、前端 30、浏览器 24 通过；生产 build、新增 Python 静态检查、YAML 结构测试通过；1 既有依赖 deprecation warning |
 | 18 | Git commit | 功能提交 b722e6f；本地集成上游提交 cb09244；后续文档提交可用 git log -1 查看，不给未上线状态打 stable 标签 |
 | 19 | Git status | 本地提交后复核；生产导出、备份、日志、测试数据库和真实 .env 均忽略 |
 | 20 | 是否需要 push | **是**；遵守用户不擅自 push 的要求，所有者还需配置 environment/Secrets |
@@ -98,9 +98,16 @@ main，可以正常向前推送；如果所有者再次更新 main，push 前应
    `first_dry_run_verified=false` 保持不变；生产 live 会拒绝执行。核查 job summary、
    worker_runs/cloud_status、来源成功/失败、历史 replay=0 和 Bark sent=0。
    如果没有任何来源成功、would_send 超过保护门槛或出现错误，先修复，勿开 live。
-4. 首轮通过后，进行受控真实验收：最多 1 条标记清晰的云连接测试和 1 条自动
-   pipeline 测试，确认 iPhone 收到及点击官方原文；重跑同一事件/新进程不能重发。
-   测试前检查待发送队列，避免用无约束 live run 代替受控测试。
+4. 首轮通过后，手动选择 **mode=acceptance、dry_run=false**。此模式只处理明确
+   标记 `[test]` 的合成样本，复用 parser/classifier/policy/queue/dispatcher/Bark，
+   不抓官网、不领取普通队列。先验证低相关样本被抑制，最多发送 **1 条**，合并
+   连接与 pipeline 验收。确认 iPhone 收到并可打开官方来源页面；这不是学校真实
+   公告，不需要办理任何事项。测试样本按外键顺序清理，不改历史记录或 baseline。
+   再运行同样的 acceptance（新 runner）：sent=0、duplicate_prevented=1。
+   发送前永久记录尝试预算，未知结果/5xx/中断均不自动重试。receipt 保留在
+   `zqu_worker.leases` 的 cloud-acceptance-bark-v1，运行日志到期也不移除。
+   receipt=reserved/failed_or_unknown 时停止检查，不重置、不删除来强行重发。
+   常规任务排除未清理的 acceptance 记录，避免测试遗留触发自动 Bark。
 5. 验收通过再设 ZQU_NOTIFICATION_DRY_RUN=false、ZQU_ACTIONS_ENABLED=true。
    观察多个 scheduled runs，包括本地后台退出、电脑关机期间；核对跨小时租约、
    抓取、Bark、重启持久和去重。完成之前不宣称 24/7 已验收。
@@ -113,18 +120,30 @@ main，可以正常向前推送；如果所有者再次更新 main，push 前应
 
 ## 数据增长和测试边界
 
+故障时先由所有者关闭 ZQU_ACTIONS_ENABLED，并保持 ZQU_NOTIFICATION_DRY_RUN=true；
+确认当前任务已结束后再检查或回退工作流/代码。不回滚数据库，不重装 migration，
+不删除通知、baseline 或验收 receipt。需要代码回退时通过新的 revert 提交，保留
+当前远端数据和所有历史提交，不 force push。已有 SQLite 完整备份与导出当前仍与
+尚未运行的云端初始数据对应；开始产生云端新数据后，须另行保存一致的学校 schema
+备份，不能把旧 SQLite 副本当作最新云数据恢复。
+
 当前学校总关系空间约每个 article identity 7.6 KB（包含来源、通知、运行记录及
 索引，不能当作精确单条正文大小）。仅举例：每天新增 100 条、30 天约 23 MB，
 每天 1,000 条约 228 MB，均未包含其他业务增长及长正文差异；实际增长要在 hosted
 运行后观测。细节 crawl/worker logs 保留 30 天，文章 identity/baseline/dedup 永久
 保留。接近 Free 配额时应暂停任务并报告，不升级、不清理无关业务。
 
-后端全量日志 `artifacts/phase72free-full-backend.log`：954 passed。
-其中原生本机隔离 PostgreSQL 专项 27 passed，真实事务/权限/并发/断点测试，
+后端全量日志 `artifacts/free-acceptance-full-backend.log`：960 passed。
+其中原生本机隔离 PostgreSQL 专项 33 passed，真实事务/权限/并发/断点测试，
 没有 Docker。前端 30 passed、build 成功；浏览器报告
 `artifacts/phase72free-browser/browser-results.json`：24 passed，应用错误 0。
 浏览器 Bark 由路由 fixture 拦截；PG 链路测试采用模拟 HTTP。这些不替代真正的
 GitHub → 学校网站 → Bark → iPhone 验收。
+
+新增验收覆盖：只领取合成样本而不发送普通积压，新连接重跑 0 请求，5xx/未知
+尝试不重发，schedule/dry run/未完成首轮静默均拒绝，低相关负例先检查后发送，
+中断遗留测试事件不被普通 worker 领取或恢复。没有新增/执行任何 migration，
+没有改动远端学校数据或永久 baseline。安装 SQL 的已批准指纹保持不变。
 
 Secret audit 检查当前代码、全部 Git 历史、workflow、README、frontend bundle、
 日志与导出，共 10,035 个文件/对象，没有真实 Bark Key 或 Supabase service key
