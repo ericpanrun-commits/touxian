@@ -304,3 +304,106 @@ def test_inbox_archive_is_shared_reversible_and_does_not_remove_originals(db):
     c.execute("SELECT eric_app_set_progress(%s,%s,'inbox_progress','first',%s,%s,%s,%s)",(workspace,device,revision,uuid4(),digest('restore'),Jsonb({'archived':False})))
     assert c.execute("SELECT eric_app_inbox_page(%s,'all','all',0,1)",(workspace,)).fetchone()[0]['total']==2
     assert c.execute("SELECT count(*) FROM eric_app_records WHERE workspace_id=%s AND kind='inbox'",(workspace,)).fetchone()[0]==2
+
+
+def work_item(db,kind):
+    c,workspace,device=db
+    if kind=='captures':return capture(c,workspace,device)[0]['id']
+    revision=publish(c,workspace,'event','stability-event',{'version':1})
+    item={'id':str(uuid4()),'device_id':str(device),'resource_key':'event:stability-event','method':'PATCH',
+        'path':'/events/stability-event','body':{'expected_version':1},'request_hash':digest('stability'),'expected_revision':revision}
+    c.execute('SELECT * FROM eric_app_enqueue_command(%s,%s)',(workspace,Jsonb(item)))
+    return item['id']
+
+
+@pytest.mark.parametrize('kind',['captures','commands'])
+def test_temporary_failure_then_success_keeps_identity_and_attempt_history(db,kind):
+    c,workspace,_=db;identity=work_item(db,kind)
+    first=c.execute('SELECT eric_app_claim_work(%s,%s,1)',(workspace,kind)).fetchone()[0][0]
+    assert first['attempts']==1 and first['last_attempt_at'] and first['completed_at'] is None
+    retry_state='received' if kind=='captures' else 'pending'
+    failed=c.execute('SELECT eric_app_finish_work(%s,%s,%s,%s,%s,%s)',
+        (workspace,kind,identity,first['lease_token'],retry_state,Jsonb({'code':'network_unavailable'}))).fetchone()[0]
+    assert failed['state']==retry_state and failed['error']['code']=='network_unavailable'
+    assert c.execute('SELECT eric_app_claim_work(%s,%s,1)',(workspace,kind)).fetchone()[0]==[]
+    c.execute(sql.SQL("UPDATE {} SET next_attempt_at=now()-interval '1 second' WHERE id=%s").format(sql.Identifier('eric_app_'+kind)),(identity,))
+    second=c.execute('SELECT eric_app_claim_work(%s,%s,1)',(workspace,kind)).fetchone()[0][0]
+    assert second['id']==str(identity) and second['attempts']==2
+    assert second['last_attempt_at']>=first['last_attempt_at']
+    result={'raw_item_id':'stable-raw','local_receipt_id':'stable-receipt','saved':True}
+    completed=c.execute("SELECT eric_app_finish_work(%s,%s,%s,%s,'completed',%s)",
+        (workspace,kind,identity,second['lease_token'],Jsonb(result))).fetchone()[0]
+    assert completed['state']=='completed' and completed['completed_at'] and completed['error'] is None
+    assert c.execute('SELECT eric_app_claim_work(%s,%s,1)',(workspace,kind)).fetchone()[0]==[]
+
+
+@pytest.mark.parametrize('kind',['captures','commands'])
+@pytest.mark.parametrize('crash',[False,True])
+def test_retry_exhaustion_is_terminal_even_when_final_worker_crashes(db,kind,crash):
+    c,workspace,_=db;identity=work_item(db,kind);table=sql.Identifier('eric_app_'+kind)
+    for attempt in range(1,6):
+        item=c.execute('SELECT eric_app_claim_work(%s,%s,1)',(workspace,kind)).fetchone()[0][0]
+        assert item['attempts']==attempt
+        if crash:
+            c.execute(sql.SQL("UPDATE {} SET lease_until=now()-interval '1 second' WHERE id=%s").format(table),(identity,))
+        else:
+            outcome=c.execute('SELECT eric_app_finish_work(%s,%s,%s,%s,%s,%s)',
+                (workspace,kind,identity,item['lease_token'],'received' if kind=='captures' else 'pending',Jsonb({'code':'provider_unavailable'}))).fetchone()[0]
+            if attempt<5:
+                assert outcome['state']!='failed' and outcome['completed_at'] is None
+                assert c.execute(sql.SQL('SELECT next_attempt_at>now() FROM {} WHERE id=%s').format(table),(identity,)).fetchone()[0]
+            c.execute(sql.SQL("UPDATE {} SET next_attempt_at=now()-interval '1 second' WHERE id=%s").format(table),(identity,))
+    assert c.execute('SELECT eric_app_claim_work(%s,%s,1)',(workspace,kind)).fetchone()[0]==[]
+    result=c.execute(sql.SQL('SELECT state,attempts,error,completed_at,lease_token FROM {} WHERE id=%s').format(table),(identity,)).fetchone()
+    assert result[0:2]==('failed',5) and result[2]['code']=='retry_exhausted'
+    assert result[3] and result[4] is None
+
+
+@pytest.mark.parametrize('kind',['captures','commands'])
+def test_processing_with_missing_lease_is_recoverable_and_renewal_does_not_change_attempt_time(db,kind):
+    c,workspace,_=db;identity=work_item(db,kind);table=sql.Identifier('eric_app_'+kind)
+    c.execute(sql.SQL("UPDATE {} SET state='processing',lease_until=NULL,attempts=1 WHERE id=%s").format(table),(identity,))
+    item=c.execute('SELECT eric_app_claim_work(%s,%s,1)',(workspace,kind)).fetchone()[0][0]
+    assert item['attempts']==2
+    assert c.execute('SELECT eric_app_renew_work(%s,%s,%s,%s)',(workspace,kind,identity,item['lease_token'])).fetchone()[0]
+    latest=c.execute(sql.SQL('SELECT to_jsonb(t) FROM {} t WHERE id=%s').format(table),(identity,)).fetchone()[0]
+    assert latest['last_attempt_at']==item['last_attempt_at']
+
+
+def test_newer_automatic_vision_cannot_replace_human_preview(db):
+    c,_,_=db
+    human={'preview':'User confirmed formula','preview_source':'human','vision_processed_at':'2026-11-01T00:00:00Z'}
+    automated={'preview':'AI formula','preview_source':'vision','vision_status':'completed','vision_processed_at':'2026-11-03T00:00:00Z'}
+    merged=c.execute('SELECT eric_app_preserve_inbox_vision(%s,%s)',(Jsonb(human),Jsonb(automated))).fetchone()[0]
+    assert merged['preview']==human['preview'] and merged['preview_source']=='human'
+    assert merged['vision_processed_at']==automated['vision_processed_at']
+
+
+def vision_capture(db):
+    c,workspace,device=db;identity=str(uuid4());sha=digest('synthetic image')
+    file={'resource_id':'capture:'+identity+':'+sha,'sha256':sha,'bytes':100,'mime':'image/png','filename':'image.png'}
+    capture(c,workspace,device,capture_id=identity,files=[file])
+    return {'schema':'eric-os-vision-result.v1','capture_id':identity,'resource_id':file['resource_id'],'sha256':sha,
+        'source':'original_image','analyzer':'synthetic','status':'completed','analyzed_at':'2026-11-03T00:00:00Z','result':{'summary':'Synthetic image analysis'}}
+
+
+@pytest.mark.parametrize('result',[{}, {'summary':'  '}, {'key_points':[]}, {'confidence':'high'}])
+def test_empty_vision_success_rolls_back_without_a_fake_history_or_capture_result(db,result):
+    c,workspace,_=db;value=vision_capture(db)
+    with pytest.raises(psycopg.errors.RaiseException,match='invalid_vision'):
+        c.execute('SELECT eric_app_append_vision_result(%s,%s)',(workspace,Jsonb({**value,'result':result})))
+    assert c.execute("SELECT count(*) FROM eric_app_records WHERE workspace_id=%s AND kind='vision_result'",(workspace,)).fetchone()[0]==0
+    assert c.execute('SELECT vision_status FROM eric_app_captures WHERE id=%s',(value['capture_id'],)).fetchone()[0] is None
+
+
+def test_vision_duplicate_and_out_of_order_retries_preserve_completed_result(db):
+    c,workspace,_=db;value=vision_capture(db)
+    first=c.execute('SELECT eric_app_append_vision_result(%s,%s)',(workspace,Jsonb(value))).fetchone()[0]
+    again=c.execute('SELECT eric_app_append_vision_result(%s,%s)',(workspace,Jsonb(value))).fetchone()[0]
+    assert again['id']==first['id'] and not again['inserted']
+    for stamp in [value['analyzed_at'],'2026-11-02T00:00:00Z']:
+        pending={**value,'status':'pending','result':{},'analyzed_at':stamp}
+        receipt=c.execute('SELECT eric_app_append_vision_result(%s,%s)',(workspace,Jsonb(pending))).fetchone()[0]
+        assert not receipt['latest']
+    row=c.execute('SELECT vision_status,vision_analysis FROM eric_app_captures WHERE id=%s',(value['capture_id'],)).fetchone()
+    assert row==('completed',value['result'])

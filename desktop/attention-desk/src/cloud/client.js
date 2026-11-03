@@ -145,7 +145,7 @@ async function sendCapture(item) {
   }
   if(receipt.id!==item.id||!receipt.received_at||receipt.state==='uploading'||files.some(file=>!receipt.files?.some(saved=>saved.resource_id===file.resource_id&&saved.sha256===file.sha256&&saved.bytes===file.bytes)))throw new CloudError('尚未确认云端接收，原件会保留并继续发送。');
   // Keep local originals through the cloud receipt. Space can be released only after this point.
-  await local.outbox.put({...item,state:receipt.state,server:receipt,error:null,confirmedAt:Date.now()});changed();
+  await local.outbox.put({...item,state:receipt.state,server:receipt,error:null,confirmedAt:Date.now(),completedAt:new Date().toISOString()});changed();
 }
 
 export async function saveCommand(path,body,{method='POST',target,expectedRevision}={}) {
@@ -162,6 +162,15 @@ export async function saveCommand(path,body,{method='POST',target,expectedRevisi
 async function acquireLease(token,owner) {
   const id='outbox:'+owner;
   return local.transaction('rw',local.leases,async()=>{const current=await local.leases.get(id);if(current&&current.until>Date.now()&&current.token!==token)return false;await local.leases.put({id,token,until:Date.now()+20_000});return true;});
+}
+function deliveryFailure(item,error) {
+  const attempts=(item.attempts||0)+1;
+  const temporary=(!error.status||error.status>=500||[408,429].includes(error.status))&&error.code!=='schema_mismatch';
+  const exhausted=temporary&&attempts-(item.retryBase||0)>=5;
+  return {state:exhausted?'failed':temporary?'local_pending':'needs_confirmation',attempts,
+    error:exhausted?{code:'retry_exhausted',last_error:error.code,retryable:true,message:'自动发送已重试 5 次，内容和原件保留；重新联网或打开应用后会继续。'}:{message:error.message,code:error.code},
+    completedAt:exhausted||!temporary?new Date().toISOString():null,
+    nextAttempt:Date.now()+Math.min(300_000,2000*2**Math.min(attempts-1,7))};
 }
 export async function pump() {
   if(pumping||stopped||!identity||navigator.onLine===false)return;
@@ -183,21 +192,23 @@ async function drain(owner,browserLocked) {
     const items=await local.outbox.where('owner').equals(owner).filter(item=>['local_pending','uploading'].includes(item.state)&&(!item.nextAttempt||item.nextAttempt<=Date.now())).sortBy('createdAt');
     for(const item of items) {
       if(stopped||identity?.owner!==owner)break;
+      item.lastAttemptAt=new Date().toISOString();
+      await local.outbox.update(item.id,{lastAttemptAt:item.lastAttemptAt});
       try {await sendCapture(item);}catch(error) {
-        const retry=!error.status||error.status>=500||error.status===429;
-        await local.outbox.update(item.id,{state:retry?'local_pending':'needs_confirmation',error:{message:error.message,code:error.code},attempts:item.attempts+1,nextAttempt:Date.now()+Math.min(300_000,2000*2**Math.min(item.attempts,7))});changed();
+        await local.outbox.update(item.id,deliveryFailure(item,error));changed();
         if(error.status===401||error.status===403)break;
       }
     }
     const commands=await local.commands.where('owner').equals(owner).filter(item=>item.state==='local_pending'&&(!item.nextAttempt||item.nextAttempt<=Date.now())).sortBy('createdAt');
     for(const item of commands) {
       if(stopped||identity?.owner!==owner)break;
+      await local.commands.update(item.id,{lastAttemptAt:new Date().toISOString()});
       try {
         const result=item.type==='progress'?await request(item.path,{method:'PUT',body:item.body}):await request('/commands',{method:'POST',body:{id:item.id,path:item.path,method:item.method,body:item.body,expected_revision:item.expectedRevision}});
-        await local.commands.update(item.id,{state:item.type==='progress'?'completed':result.state,server:result,error:null});changed();
+        await local.commands.update(item.id,{state:item.type==='progress'?'completed':result.state,server:result,error:null,
+          completedAt:item.type==='progress'||['completed','failed','needs_confirmation'].includes(result.state)?new Date().toISOString():null});changed();
       } catch(error) {
-        const retry=!error.status||error.status>=500||error.status===429;
-        await local.commands.update(item.id,{state:retry?'local_pending':'needs_confirmation',error:{message:error.message,code:error.code},attempts:item.attempts+1,nextAttempt:Date.now()+Math.min(300_000,2000*2**Math.min(item.attempts,7))});changed();
+        await local.commands.update(item.id,deliveryFailure(item,error));changed();
       }
     }
   } catch(error) {
@@ -294,8 +305,23 @@ async function poll() {
   } catch(error) {if(generation===syncGeneration&&(error.status===401||error.status===403))window.dispatchEvent(new CustomEvent('eric-auth-required',{detail:error}));}
   finally {polling=false;if(!stopped)pollTimer=setTimeout(poll,10_000);}
 }
-const recover=()=>{if(!stopped){void pump();void poll();}};
-export function startSync(){if(!stopped)return;stopped=false;syncGeneration++;window.addEventListener('online',recover);document.addEventListener('visibilitychange',recover);void pump();void poll();}
+const recover=async event=>{
+  if(stopped)return;
+  try {
+    // A new connection/session can resume a bounded failed transmission using
+    // its original identity and cumulative attempt count. Polling cannot reset it.
+    if(event?.type==='online'&&identity&&navigator.onLine!==false) {
+      const owner=identity.owner;
+      await local.transaction('rw',local.outbox,local.commands,async()=>{
+        for(const table of [local.outbox,local.commands])await table.where('owner').equals(owner)
+          .filter(item=>item.state==='failed'&&item.error?.code==='retry_exhausted'&&item.error?.retryable===true)
+          .modify(item=>{item.state='local_pending';item.retryBase=item.attempts;item.nextAttempt=0;item.error=null;item.completedAt=null;});
+      });
+    }
+    await pump();void poll();
+  } catch(error){window.dispatchEvent(new CustomEvent('eric-storage-unavailable',{detail:{type:error.name}}));}
+};
+export function startSync(){if(!stopped)return;stopped=false;syncGeneration++;window.addEventListener('online',recover);document.addEventListener('visibilitychange',recover);void recover({type:'online'});}
 export function stopSync(){stopped=true;syncGeneration++;clearTimeout(pollTimer);window.removeEventListener('online',recover);document.removeEventListener('visibilitychange',recover);}
 export async function signOut({alreadyRevoked=false}={}){
   if(identity&&!alreadyRevoked){try{await request('/devices/revoke',{method:'POST',body:{id:identity.device.id}});}catch(error){if(error.status!==401)throw error;}}

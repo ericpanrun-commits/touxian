@@ -135,7 +135,12 @@ class SubmissionService:
         if raw_id in self.tasks: return
         task = asyncio.create_task(self._finish(raw_id))
         self.tasks[raw_id] = task
-        task.add_done_callback(lambda _: self.tasks.pop(raw_id, None))
+        def finished(done):
+            self.tasks.pop(raw_id, None)
+            if not done.cancelled():
+                error=done.exception()
+                if error:record(self.personal,'process_status_write',error,job_id=raw_id,entity='raw_item')
+        task.add_done_callback(finished)
 
     async def resume_notes(self):
         # Resume local work through the same pipeline after a committed receive.
@@ -209,16 +214,14 @@ class SubmissionService:
             await asyncio.to_thread(self.inbox.classify, raw_id, sid)
             learning = getattr(self, 'learning', None)
             if learning:
-                try:
-                    await learning.ingest(raw_id, sid)
-                except Exception:
-                    record(self.personal, 'learning_projection', RuntimeError('learning_projection_failed'))
+                stage = 'learning_projection'
+                await learning.ingest(raw_id, sid)
         except asyncio.CancelledError:
             self.inbox.state(raw_id, 'recovery_needed', stage, {'code': 'interrupted', 'message': '处理已中断，原件保留，可重试本地处理。', 'retryable': True})
             raise
         except Exception as error:
-            record(self.personal, 'process', error)
-            self.inbox.state(raw_id, 'failed', stage, {'code': 'processing_failed', 'message': '原件已保存，自动整理未完成，可重试本地处理。', 'retryable': True})
+            record(self.personal, stage, error, job_id=raw_id, entity='raw_item')
+            self.inbox.state(raw_id, 'failed', stage, {'code': 'learning_projection_failed' if stage == 'learning_projection' else 'processing_failed', 'message': '原件已保存，自动整理未完成，可重试本地处理。', 'retryable': True})
 
     async def retry(self, raw_id, version):
         async with self.lock:

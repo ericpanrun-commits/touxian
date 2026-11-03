@@ -1,10 +1,10 @@
 """Local evidence projection. Cloud analysis stays disconnected until authorized."""
 import asyncio
 import json
-import logging
 import re
 from uuid import uuid5,NAMESPACE_URL
 from ..personal_store import PersonalError, encode, now
+from ..collector.safe_logs import record
 from ..school.documents import digest
 from .store import LearningStore, unpack, capture_projection
 from .models import CapturedPage, Quiz, MistakeSuggestion
@@ -29,10 +29,20 @@ class LearningService:
             async with self.semaphore:
                 try: await work()
                 except asyncio.CancelledError: raise
-                except Exception:
-                    logging.getLogger(__name__).warning('Learning background item stopped; saved sources retained.')
+                except Exception as error:
+                    record(self.personal,'learning_background',error,job_id=key,entity='learning')
+                    if key.startswith('capture:'):
+                        # Never overwrite a later owner confirmation or an already terminal capture.
+                        with self.personal.connection(write=True) as c:
+                            c.execute("UPDATE learning_capture SET status='needs_review',error_json=? WHERE id=? AND status='received'",
+                                (encode({'code':'background_failed','message':'后台处理未完成，原件保留；请核对后重试。'}),key.split(':',1)[1]))
         task=asyncio.create_task(run());self.tasks[key]=task
-        task.add_done_callback(lambda _:self.tasks.pop(key,None))
+        def finished(done):
+            self.tasks.pop(key,None)
+            if not done.cancelled():
+                error=done.exception()
+                if error:record(self.personal,'learning_status_write',error,job_id=key,entity='learning')
+        task.add_done_callback(finished)
 
     async def close(self):
         tasks=list(self.tasks.values())
@@ -126,7 +136,14 @@ class LearningService:
         if self.analysis_runner is None:
             self.store.finish_artifact(artifact['id'],status='needs_setup',error={'message':'本机保存和规则整理已完成；后台模型处理尚未启用。'})
             return None
-        return await self.analysis_runner(artifact,schema,payload)
+        try:return await self.analysis_runner(artifact,schema,payload)
+        except asyncio.CancelledError:
+            self.store.finish_artifact(artifact['id'],status='interrupted',error={'code':'interrupted','message':'后台处理已中断，原件保留。'})
+            raise
+        except Exception as error:
+            record(self.personal,'learning_analysis',error,job_id=artifact['id'],entity='learning_artifact')
+            self.store.finish_artifact(artifact['id'],status='needs_review',error={'code':'analysis_failed','message':'后台处理未完成，原件保留；未自动重放付费请求。'})
+            return None
 
     def analysis_status(self):
         from .analysis import authorization
@@ -393,6 +410,9 @@ class LearningService:
             # as though it is still processing indefinitely. Saved originals
             # and existing paid-operation ledgers remain untouched.
             notes.pause(context,'needs_source' if error.code in {'file_unavailable','original_required','not_downloaded'} else 'needs_review',str(error))
+        except Exception as error:
+            record(self.personal,'note_processing',error,job_id=cid,entity='learning_capture')
+            notes.pause(context,'needs_review','笔记后台处理未完成，原件保留；请核对后重试。')
         work.save(context,initial=initial)
 
     def quiz(self,followup_id):

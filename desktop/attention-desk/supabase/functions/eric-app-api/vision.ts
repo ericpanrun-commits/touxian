@@ -96,6 +96,11 @@ export function visionPayload(value: any): any {
   if (value.error !== undefined && value.error !== null && (typeof value.error !== 'object' || Array.isArray(value.error))) {
     throw new AppFault(400, 'invalid_input', '请核对视觉结果。');
   }
+  const hasContent = ['title','probable_course','topic','summary','readable_content'].some(key => typeof result[key] === 'string' && result[key].trim()) ||
+    ['equations','key_points','uncertain_regions'].some(key => Array.isArray(result[key]) && result[key].length > 0);
+  if (value.status === 'completed' && (!hasContent || value.error != null)) {
+    throw new AppFault(400, 'invalid_input', '视觉分析没有完成，原件保留；请提交失败状态和原因。');
+  }
   return value;
 }
 

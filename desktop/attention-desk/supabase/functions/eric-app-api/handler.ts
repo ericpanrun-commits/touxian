@@ -3,8 +3,8 @@ import { fileResponse,manifest,readableResource,ticket,verifyResource,verifyTick
 import { visionRoute } from './vision.ts';
 import { Views,dto,paging } from './views.ts';
 
-const CAPTURE_FIELDS=['id','device_id','source','title','text_content','purpose','files','course_candidates','shared_at','received_at','state','raw_item_id','learning_capture_id','course_id','lecture_id','error','vision_status','vision_provider','vision_analysis','vision_confidence','vision_processed_at','vision_error','revision','created_at','updated_at'];
-const COMMAND_FIELDS=['id','resource_key','method','path','state','result','error','revision','created_at','updated_at'];
+const CAPTURE_FIELDS=['id','device_id','source','title','text_content','purpose','files','course_candidates','shared_at','received_at','state','raw_item_id','learning_capture_id','course_id','lecture_id','error','attempts','next_attempt_at','last_attempt_at','completed_at','vision_status','vision_provider','vision_analysis','vision_confidence','vision_processed_at','vision_error','revision','created_at','updated_at'];
+const COMMAND_FIELDS=['id','resource_key','method','path','state','result','error','attempts','next_attempt_at','last_attempt_at','completed_at','revision','created_at','updated_at'];
 function project(row: any,fields: string[]): any {return Object.fromEntries(fields.filter(key=>key in row).map(key=>[key,row[key]]));}
 export function publicCapture(row: any): any {return project(row,CAPTURE_FIELDS);}
 function commandDto(row: any): any {return project(row,COMMAND_FIELDS);}

@@ -100,11 +100,14 @@ export class CloudStore {
       headers: {'Content-Type':'application/json', Prefer:'return=representation'},
       ...(body === undefined ? {} : {body: JSON.stringify(body)})});
     if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
+      const parsed = await response.json().catch(() => ({}));
+      const error = parsed && typeof parsed === 'object' ? parsed : {};
       const code = /\beric_[a-z_]+\b/.exec(error.message || '')?.[0];
       if (code && MESSAGES[code]) { const [status,message] = MESSAGES[code]; throw new AppFault(status,code,message); }
       if (code?.startsWith('eric_invalid')) throw new AppFault(400,code,'请核对填写内容，当前资料和原件仍然保留。');
       if (error.code === '23505') throw new AppFault(409,'duplicate_request','这项操作已接收，请重新读取最新状态。');
+      if (error.code === '42501' || response.status === 401 || response.status === 403) throw new AppFault(403,'data_access_denied','当前连接没有保存权限，请核对服务配置。');
+      if (['42P01','42703','42883','PGRST202','PGRST204','PGRST205'].includes(error.code)) throw new AppFault(500,'schema_mismatch','服务的数据结构需要核对，原件保留；请联系维护者。');
       throw new AppFault(503,'data_unavailable','暂时无法确认保存结果，系统会保留内容并重试。');
     }
     return response.status === 204 ? null : response.json();

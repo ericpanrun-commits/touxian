@@ -6,6 +6,7 @@ import asyncio,re,json
 from datetime import date,datetime
 from uuid import NAMESPACE_URL,uuid5
 from ..personal_store import PersonalError,encode,now
+from ..collector.safe_logs import record
 from ..school.documents import digest
 from ..school.models import LectureInput,GenerateInput,VisionInput
 from ..school.profiles import profile_for
@@ -300,7 +301,10 @@ class AutoNotes:
                 'date_basis':basis,'course_basis':context['course_basis'],'message':'笔记已保存、关联并完成本地识别；正在准备来源复盘。' if ready else '笔记与课次已关联，教材小节尚不能可靠对应，请核对一次来源。'}
             context['note_automation']=value
             self.service.store.finish_artifact(artifact['id'],value,model='local-note-routing-v1')
-        except PersonalError as error:
-            self.pause(context,'needs_review',str(error))
-            self.service.store.finish_artifact(artifact['id'],context['note_automation'],status='interrupted' if error.code=='note_context_changed' else 'needs_review',error={'code':error.code,'message':str(error)})
-            if error.code=='note_context_changed':raise
+        except (Exception,asyncio.CancelledError) as error:
+            interrupted=isinstance(error,asyncio.CancelledError) or getattr(error,'code',None)=='note_context_changed'
+            message=str(error) if isinstance(error,PersonalError) else '本地笔记整理未完成，原件和已保存页面保留。'
+            self.pause(context,'needs_review',message)
+            record(self.personal,'note_routing',error,job_id=artifact['id'],entity='learning_artifact',status='interrupted' if interrupted else 'needs_review')
+            self.service.store.finish_artifact(artifact['id'],context['note_automation'],status='interrupted' if interrupted else 'needs_review',error={'code':getattr(error,'code','note_processing_failed'),'message':message})
+            if interrupted:raise

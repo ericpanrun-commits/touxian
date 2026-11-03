@@ -6,6 +6,7 @@ import hashlib
 import json
 import math
 import os
+import sqlite3
 from pathlib import Path
 from urllib.parse import quote
 from uuid import UUID,uuid4
@@ -16,6 +17,7 @@ from pydantic import ValidationError
 from ..cloud_store import ProcessLock
 from ..personal_store import PersonalError
 from ..notes_anywhere.settings import BASE
+from ..collector.safe_logs import record
 from .commands import CommandExecutor
 from .projection import CloudProjection
 
@@ -25,6 +27,17 @@ PART_BYTES=4_000_000
 
 class SyncError(Exception):
     def __init__(self,code,status=503):self.code,self.status=code,status;super().__init__(code)
+
+
+def retryable(error):
+    """Only known temporary failures may replay a durable business operation."""
+    if isinstance(error,httpx.TransportError):return True
+    if isinstance(error,SyncError):
+        if error.code in {'schema_mismatch','data_access_denied','record_too_large','source_file_changed','source_part_changed','unsupported_file_protocol','connection_not_configured'}:return False
+        return error.status==429 or 500<=error.status<600
+    if isinstance(error,sqlite3.OperationalError):
+        return getattr(error,'sqlite_errorcode',None) in (sqlite3.SQLITE_BUSY,sqlite3.SQLITE_LOCKED)
+    return False
 
 
 def batches(items,max_bytes=4_000_000,max_items=100):
@@ -93,8 +106,11 @@ class CloudSync:
         response=await self.client.request(method,ENDPOINT+path,headers=headers,
             **({'json':body} if content is None else {'content':content}))
         if response.status_code not in (200,201,202):
-            value=response.json() if response.headers.get('content-type','').startswith('application/json') else {}
-            code=(value.get('detail') or {}).get('code','cloud_unavailable')
+            try:value=response.json()
+            except ValueError:value={}
+            detail=value.get('detail') if isinstance(value,dict) else None
+            candidate=detail.get('code') if isinstance(detail,dict) else None
+            code=candidate if isinstance(candidate,str) else 'cloud_unavailable'
             raise SyncError(code,response.status_code)
         try:return response.json()
         except ValueError:raise SyncError('invalid_cloud_response') from None
@@ -117,7 +133,9 @@ class CloudSync:
             await asyncio.sleep(20)
             try:await self.request('POST','/worker/heartbeat',{'epoch':self.epoch,'phase':self.state['phase'] if self.state['phase'] in ('preparing','processing') else 'connected'})
             except asyncio.CancelledError:raise
-            except Exception:pass
+            except Exception as error:
+                self.state['last_error']='heartbeat_unavailable'
+                record(self.personal,'cloud_heartbeat',error,job_id=self.epoch,entity='workspace')
 
     async def _run(self):
         while True:
@@ -125,6 +143,7 @@ class CloudSync:
             except asyncio.CancelledError:raise
             except Exception as error:
                 self.state.update(connected=False,last_error=error.code if isinstance(error,SyncError) else 'connection_unavailable')
+                record(self.personal,'cloud_sync',error,job_id=self.epoch,entity='workspace')
                 if isinstance(error,httpx.TransportError) and self.owns_client:
                     old=self.client;self.client=self._new_client();await old.aclose()
             await asyncio.sleep(self.poll_seconds)
@@ -280,6 +299,19 @@ class CloudSync:
 
     async def process(self,kind,item):
         lease=asyncio.create_task(self.renew(kind,item))
+        work=asyncio.create_task(self._process(kind,item))
+        try:
+            done,_=await asyncio.wait((lease,work),return_when=asyncio.FIRST_COMPLETED)
+            if lease in done:
+                # Lease failure must stop this owner before any further publish/ack.
+                await lease
+                raise SyncError('stale_processing_lease',409)
+            await work
+        finally:
+            for task in (lease,work):task.cancel()
+            await asyncio.gather(lease,work,return_exceptions=True)
+
+    async def _process(self,kind,item):
         paths=[]
         try:
             if kind=='captures':
@@ -300,10 +332,14 @@ class CloudSync:
         except (PersonalError,ValidationError) as error:
             result={'code':getattr(error,'code','invalid_input'),'message':str(error) if isinstance(error,PersonalError) else '内容需要核对，原有资料保留。'}
             state='failed' if kind=='captures' else 'needs_confirmation'
-        except Exception:
-            result={'code':'processing_interrupted','message':'处理暂时中断，原件保留，会自动继续。'};state='received' if kind=='captures' else 'pending'
+            record(self.personal,'cloud_process',error,job_id=item['id'],entity=kind,status=state)
+        except Exception as error:
+            temporary=retryable(error)
+            result={'code':'processing_interrupted' if temporary else 'processing_failed',
+                'message':'处理暂时中断，原件保留，会自动继续。' if temporary else '处理失败，原件保留；请核对错误后再重试。'}
+            state=('received' if kind=='captures' else 'pending') if temporary else 'failed'
+            record(self.personal,'cloud_process',error,job_id=item['id'],entity=kind,status=state)
         finally:
-            lease.cancel();await asyncio.gather(lease,return_exceptions=True)
             for path in paths:path.unlink(missing_ok=True)
         from .projection import public_value
         await self.request('POST','/worker/finish',{'kind':kind,'id':item['id'],'token':item['lease_token'],'state':state,'result':public_value(result),'records':[],
@@ -313,4 +349,4 @@ class CloudSync:
         while True:
             await asyncio.sleep(60)
             result=await self.request('POST','/worker/renew',{'kind':kind,'id':item['id'],'token':item['lease_token']})
-            if result.get('renewed') is not True:raise SyncError('stale_processing_lease')
+            if result.get('renewed') is not True:raise SyncError('stale_processing_lease',409)
