@@ -3,6 +3,8 @@ import os
 from fastapi import APIRouter, Depends, Request, HTTPException, Response as APIResponse
 from fastapi.responses import Response, JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
+from typing import Literal
+from uuid import UUID
 from .security import CollectorError
 
 router = APIRouter(prefix='/api/personal/collector', tags=['mobile collector control'])
@@ -62,6 +64,82 @@ def revoke_devices(controller=Depends(controller_for)):
     return perform(controller.revoke_devices)
 
 
+@router.post('/notes-setup')
+def notes_setup(controller=Depends(controller_for)):
+    return perform(controller.create_notes_setup)
+
+
+@router.get('/notes-qr')
+def notes_qr(setup_id:str='',controller=Depends(controller_for)):
+    return perform(lambda:Response(controller.notes_qr(setup_id),media_type='image/svg+xml',headers={'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}))
+
+
 @router.get('/qr')
 def qr(pairing_id: str = '', controller=Depends(controller_for)):
     return perform(lambda: Response(controller.qr(pairing_id), media_type='image/svg+xml', headers={'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff'}))
+
+
+class NotesAutoInput(BaseModel):
+    model_config=ConfigDict(extra='forbid',strict=True)
+    enabled:bool
+    confirmation_source:Literal['explicit_user_chat','explicit_local_ui']
+    confirmation_text:str=Field(max_length=200)
+
+
+@router.post('/notes-authorization')
+def notes_authorization(payload:NotesAutoInput,controller=Depends(controller_for)):
+    return perform(lambda:controller.authorize_notes_auto(payload.enabled,payload.confirmation_source,payload.confirmation_text))
+
+
+def anywhere_for(request:Request,response:APIResponse):
+    controller_for(request,response)
+    service=getattr(request.app.state,'notes_anywhere',None)
+    if not service:raise HTTPException(503,detail={'code':'not_ready','message':'笔记云端连接尚未准备好。'})
+    return service
+
+
+async def cloud_action(work):
+    from ..personal_store import PersonalError
+    try:return await work
+    except PersonalError as error:
+        return JSONResponse({'detail':{'code':error.code,'message':str(error)}},status_code=error.status,headers={'Cache-Control':'no-store'})
+    except Exception:
+        return JSONResponse({'detail':{'code':'notes_cloud_unavailable','message':'笔记云端暂不可用，已保存内容保留，请稍后重试。'}},status_code=503,headers={'Cache-Control':'no-store'})
+
+
+@router.get('/anywhere')
+async def anywhere_status(service=Depends(anywhere_for)):
+    return service.public()
+
+
+@router.post('/anywhere/setup')
+async def anywhere_setup(request:Request,service=Depends(anywhere_for)):
+    controller=request.app.state.collector
+    origin=controller.status().get('public_base_url')
+    if not origin:return JSONResponse({'detail':{'code':'setup_connection_unavailable','message':'首次手机配置页暂不可用，请稍后重试。'}},status_code=409)
+    async def work():
+        await service.device_setup(origin)
+        return controller.status()
+    return await cloud_action(work())
+
+
+@router.get('/anywhere/qr')
+def anywhere_qr(setup_id:str='',service=Depends(anywhere_for)):
+    setup=service.active_setup()
+    if not setup or setup['id']!=setup_id:raise HTTPException(409,detail={'code':'setup_unavailable','message':'请先生成笔记分享配置码。'})
+    return Response(setup['svg'],media_type='image/svg+xml',headers={'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'})
+
+
+@router.get('/anywhere/devices')
+async def anywhere_devices(service=Depends(anywhere_for)):
+    return await cloud_action(service.devices())
+
+
+class RevokeNoteDevice(BaseModel):
+    model_config=ConfigDict(extra='forbid')
+    device_id:UUID
+
+
+@router.post('/anywhere/revoke')
+async def anywhere_revoke(payload:RevokeNoteDevice,service=Depends(anywhere_for)):
+    return await cloud_action(service.revoke(str(payload.device_id)))

@@ -12,15 +12,31 @@ Windows 验证环境：PowerShell 7、Python 3.12.14、Node.js 24.17.0、npm 11.
 
 ## 目录
 
+- [Windows 日常入口](#windows-日常入口)
 - [5 分钟上手](#5-分钟上手)
 - [你会看到什么](#你会看到什么)
-- [四条消息来源](#四条消息来源)
+- [消息来源](#消息来源)
 - [运行](#运行)
 - [学院官网监测](#学院官网监测)
 - [API 模式](#api-模式)
 - [邮件摘要](#邮件摘要一键发送-ddl)
 - [JEV 边界](#jev-边界)
 - [用户画像增强](#用户画像增强可选默认关闭)
+
+## Windows 日常入口
+
+日常双击桌面或开始菜单里的 **Attention Desk**，即可用默认浏览器打开“今天”工作台。入口会检查本项目服务，未运行时静默启动，等待后端和页面就绪；已运行时复用现有服务。前端由常驻服务直接提供。
+
+关闭网页只会关闭页面，Collector 继续运行。下次仍可从快捷方式打开。入口使用当前用户的 `pythonw`，不要求管理员权限，也不保留命令行窗口；现有登录 Collector 任务独立保留。启动失败时显示中文提示，日志在 `desktop/data/attention-desk/logs/launcher.log`。
+
+项目运行环境安装好后，可在 PowerShell 7 中创建或重建当前用户的两个快捷方式：
+
+```powershell
+cd desktop/attention-desk
+.\scripts\install-desktop-shortcuts.ps1
+```
+
+入口需要已有的 `desktop/.venv` 运行环境。若页面构建缺失，会使用已安装的 Node/Vite 静默准备页面；缺少依赖时给出提示。首次安装依赖、开发调试仍见下方说明。
 
 ## 5 分钟上手
 
@@ -120,50 +136,25 @@ npm run build
 
 视觉和交互约定见 [DESIGN.md](DESIGN.md) 与 [UX-CONTRACT.md](UX-CONTRACT.md)。当前已完成启动、统一事项、DeepSeek、肇庆学院官网与文件/OCR 流程；不包含新的手机端或 Calendar。
 
-## 四条消息来源
+## 消息来源
 
-工作台支持四条**互相独立**的导入链路，任选其一，其余不受影响：
+独立 `messages.json` 与聊天记录 ZIP 手动导入继续可用。
+旧 WorkBuddy 转发收件箱、本机解密库 Bridge 和外部微信导出器入口已停用；旧接口统一返回 410，历史记录保留。
 
-| 来源 | 入口 | 说明 |
-|---|---|---|
-| 导入文件 | 设置 → 导入文件 | 直接上传 `messages.json`（微信导出的对象格式或消息数组） |
-| 聊天记录压缩包 | 设置 → 聊天记录包 | 上传微信「导出聊天记录」得到的 zip，本地解析文本与附件 |
-| 本机微信 | 设置 → 本机微信 | 只读读取本机微信，见下文 |
-| 转发收件箱 | 设置 → 转发收件箱 | 微信里把聊天记录转发给 WorkBuddy，工作台自动收取，见下文 |
+微信只读自动采集已改用本机数据库主路径，UIA / 整窗 OCR 不再承担消息采集。
+**微信 4.1.15.13 的 DB-0 实测通过：该次验收范围为「26车辆2班（公告群）」；最近 20 条读取、发送者、顺序、稳定 ID 和增量游标已验证。** 本机已启用当前用户后台任务；新安装仍默认关闭，需配置 `wechat.allowed_chats` 并完成本机验证。全部候选先复核，完整实测和媒体限制见 [DB-0 报告](WECHAT-DB-0-REPORT.md)。
 
-### 转发收件箱链路
+日常使用：打开「待确认」（`/?personal_view=wechat-inbox`），卡片只展示标题、摘要、来源、时间、优先级和已有截止时间。点击标题看详情，原始微信、sender、Evidence 和 AI 理由默认折叠；编辑与确认使用简洁 sheet。确认后才进入既有正式事项/任务/截止时间，同批其他候选继续待确认。忽略可以撤销，原文保留。
 
-把微信聊天记录「导出聊天记录」后**直接转发给 WorkBuddy**，即可跳过手动上传：
+「设置 → 微信采集 → 添加群」可以搜索微信群；搜索只读取群名、群 ID 和活跃时间，不打开消息分片。选择群并明确授权后才读取正文，首次回溯最近24小时；卡片支持即时启停、高/中/低优先级和移除，历史原文及各群 cursor 保留。每群独立组织上下文与 Evidence，不跨群合并。无变化群不调用 DeepSeek；全群共享请求与 token 上限。多群真实验收见 [WECHAT-MULTIGROUP-REPORT.md](WECHAT-MULTIGROUP-REPORT.md)。合成浏览器验收使用 `python -m server.tests_wechat.multigroup_fixture` + `npm run test:browser:wechat-groups`，测试不读取真实微信或发送手机推送。
 
-1. WorkBuddy 收到转发后会把 zip 存到 `~/.workbuddy/app/tmp/chat-history/`；
-2. 工作台启动时自建收件箱目录 `data/attention-desk/inbox/`，后台线程每 10 秒
-   （`ATTENTION_INBOX_POLL` 环境变量可调，设 0 关闭）扫描该目录，把新的
-   聊天记录 zip 拷入收件箱并登记 `manifest.json`（按内容哈希去重，拷贝只读、
-   不动 WorkBuddy 的原始文件；只收 mtime 已稳定且通过 zip 校验的文件）；
-3. 设置 → 转发收件箱里选中一条，点「开始分拣」，走与压缩包上传完全相同的
-   解析与分拣流程；导入成功标记 `imported`，失败标记 `error` 并保留原因。
+日常工作台功能、实际本机升级和完整闭环结果见 [工作台验收记录](WECHAT-WORKBENCH-REPORT.md)。
 
-本地收件箱 API：
+调度为北京时间 06:00–24:00 每 15 分钟，00:00–06:00 禁止读取、截图、OCR 与模型调用。
+只处理配置并完成验证绑定的群，所有 AI 结果先复核；无变化不调用模型。
+默认每日上限为 30 次 HTTP、100,000 token、5 次 Vision。
 
-- `GET /api/inbox`：收件箱概览（含 watcher 状态与条目列表，访问时顺带即时扫描一次）。
-- `POST /api/inbox/import`：传 `filename`（来自列表条目）及与 `/api/analyze-archive`
-  相同的可选参数；导入并分拣，成功后更新 manifest 状态。
-
-换机器部署时，这条链路依赖两个目录位置，都可用环境变量覆盖，不需要改代码：
-
-| 环境变量 | 默认值 | 作用 |
-|---|---|---|
-| `ATTENTION_INBOX_WATCH_DIR` | `~/.workbuddy/app/tmp/chat-history` | WorkBuddy 微信转发落盘目录 |
-| `ATTENTION_INBOX_POLL` | `10` | 轮询间隔秒数，设 0 关闭自动收取 |
-
-代码本身跨平台（只用标准库，路径走 `Path.home()`），Windows / macOS / Linux
-都可运行。目标机器上没有那个分享目录时不会报错：收件箱如实报告
-`watch_dir_exists: false`，自动收取停用，手动上传 zip 的链路照常可用。
-
-「本机微信」链路会优先发现并使用已经安装的 `weflow-cli` / CipherTalk 导出器，
-按“列会话 → 导出 JSON → 转换联系人包”的方式读取指定群；如果本机没有导出器，
-则回退到 `vendor/wechat-decrypt/config.json` 指向的兼容解密 SQLite。两条路径
-都会在分拣前生成同一格式的本地联系人包，入口只读，不会操作或发送微信消息。
+诊断、运行边界与尚未完成的真实微信验证见 [WECHAT-COLLECTOR.md](WECHAT-COLLECTOR.md)。
 
 ### 聊天记录压缩包链路
 
@@ -256,12 +247,8 @@ DeepSeek 不是 Jev 类模型，不吃 `state + questions` 协议，所以中间
 消息日期范围或重新分拣后仍然生效。归档可分别查看“已完成”和“已超期”，已完成事项
 可一键撤销；如果它的截止日也已过去，撤销后仍保留在超期归档。
 
-本机微信接口：
-
-- `GET /api/wechat/status`：检查导出器、微信进程、解密目录和 SQLite 分片是否可读，并报告数据新鲜度。
-- `GET /api/wechat/groups?q=群名`：搜索导出器会话或本机解密库中的群聊。
-- `POST /api/wechat/analyze`：按 `username` 或 `display_name` 读取指定群并分拣；可选 `from_date` / `to_date`（YYYY-MM-DD，首尾包含）。
-- `POST /api/wechat/export`：只导出消息包和脱敏后的文件清单；传 `resolve_files: true` 时会额外尝试定位已经下载到本机缓存的文件（文件条目只返回 `local_available`，不重复暴露每个文件的绝对缓存路径）。完整消息仍只写入本地联系人包。
+旧 `/api/wechat/*`、`/api/inbox` 和 `/api/inbox/import` 已停用（410）。
+新的本地采集状态与设置位于 `/api/personal/wechat/*`，不挂载到云端或手机收集入口。
 
 上传文件接口 `POST /api/analyze`、压缩包接口 `POST /api/analyze-archive`
 和示例接口 `GET /api/sample` 也接受相同的 `from_date` / `to_date` 参数。
@@ -422,3 +409,16 @@ ericpanrun-commits/touxian 已部署小时工作流，Secrets 已配置，真实
 本机后台、Docker 或 Fly，不新增收费资源。见
 [Phase 7.2-Free 状态与上线步骤](PHASE-7.2-FREE-REPORT.md)、
 [迁移安全审计](SUPABASE-MIGRATION-SAFETY-AUDIT.md) 和 [Bark 配置](BARK.md)。
+
+
+## 2026-10-23 · 日常工作台与微信 Bark
+
+首页、待确认、详情/编辑 sheet、正式事项和手机通知设置已简化，支持浅色/深色/跟随系统。微信 Candidate 只在明确确认后建立正式事项；Bark 使用独立去重队列和安全密钥输入，学校官网推送规则保持独立。真实 iPhone 连接测试已收到。
+
+详见 [体验、合并原因与完整验收记录](ATTENTION-DESK-UX-REPORT.md)。新版入口：`http://127.0.0.1:5173/?personal_view=today`。运行方式沿用 start.ps1 / 现有 Attention Desk 后台。
+
+微信候选现已分为 Action、FYI 和过滤：只有相关且信息完整的行动/安排进入待确认；FYI 自动归档到首页「值得知道」；疑问先暂存，无法识别的连续图片归入独立附件分组。Bark 继续只提醒符合门槛的重要行动，人工确认后才建立正式事项。原 8 条真实样本重筛后剩 1 条待确认，详见 [候选质量与真实样本回归](WECHAT-CANDIDATE-QUALITY-REPORT.md)。
+
+后续 sender/FYI 更新：年级群的 sender_mapping_mismatch 根因为系统消息的群 ID 前缀被当作成员身份比较；现已区分系统消息，成员身份只取同账号、同消息分片的 Name2Id，未知身份保留原始 ID。真实核对 125 条来源未发现串人，cursor 从 374 推进到 421，连续三轮无变化扫描没有新增模型调用。底层 adapter、allowlist、cursor/dedupe 和 Bark 规则保持。
+
+「值得知道」默认展示近 7 天，支持原文、归档/忽略与撤销、固定 30 天，以及手动「转为事项」。转换复用简洁 sheet 和既有正式事项事务，保留来源、不自动创造任务、不推送 Bark。超过保留期自动进入可访问的归档。回归入口为 `server/tests_wechat/test_sender_identity.py`、`server/tests_wechat/test_fyi_feed.py` 和原有工作台测试。

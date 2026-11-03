@@ -4,6 +4,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import hashlib
 import socket
 import threading
 import time
@@ -33,17 +34,78 @@ class CollectorController:
         self.bound = None
         self.origin = None
         self.qr_bytes = None
+        self.notes_qr_bytes = self.notes_setup_id = None
         self.revision = 0
         self.message = ''
         self.cached_network, self.network_checked = None, 0
         self.settings_path = personal.path.with_name('collector-settings.json')
         self.port, self.interface_id = 8473, None
+        self.notes_auto=None
         try:
             saved = json.loads(self.settings_path.read_text(encoding='utf-8'))
-            if set(saved) <= {'port', 'interface_id'} and type(saved.get('port')) is int and 1024 <= saved['port'] <= 65535:
+            if set(saved) <= {'port', 'interface_id','notes_auto'} and type(saved.get('port')) is int and 1024 <= saved['port'] <= 65535:
                 self.port, self.interface_id = saved['port'], saved.get('interface_id')
+                policy=saved.get('notes_auto')
+                if isinstance(policy,dict) and policy.get('scope_version')=='notes-private-wifi-v1' and policy.get('confirmation_text')=='允许上述范围，减少重配':
+                    self.notes_auto=policy
+                    if policy.get('enabled'):self.authority.restore_notes(personal.path.with_name('collector-notes-verifier.json'))
         except (OSError, ValueError, TypeError, KeyError):
             pass
+
+    def _save_settings(self):
+        value={'interface_id':self.interface_id,'port':self.port}
+        if self.notes_auto is not None:value['notes_auto']=self.notes_auto
+        temporary=self.settings_path.with_suffix('.tmp')
+        temporary.write_text(json.dumps(value,ensure_ascii=False),encoding='utf-8');temporary.replace(self.settings_path)
+
+    @staticmethod
+    def note_network(entry):
+        if entry.get('profile')!='Private' or entry.get('wireless') is not True or not entry.get('network_id') or not entry.get('interface_guid'):
+            raise CollectorError('private_wifi_required','请选择已连接的私人 Wi-Fi；其他网络不会自动接收笔记。',409)
+        return {k:entry[k] for k in ['id','address','interface_guid','network_id']}
+
+    def _network_unverified(self,data,expected):
+        if data.get('inspection_failed'):return True
+        for entry in data['interfaces']:
+            if entry.get('id')!=expected.get('id') or entry.get('address')!=expected.get('address'):continue
+            automatic=bool(self.notes_auto and self.notes_auto.get('enabled'))
+            if automatic:
+                allowed=self.notes_auto['network']
+                if any(entry.get(k) and entry[k]!=allowed.get(k) for k in ['interface_guid','network_id']):return False
+            if entry.get('profile')=='Unknown':return True
+            if automatic and entry.get('profile')=='Private' and entry.get('wireless') is True and (not entry.get('network_id') or not entry.get('interface_guid')):return True
+        return False
+
+    def authorize_notes_auto(self,enabled,confirmation_source,confirmation_text):
+        if enabled and confirmation_text!='允许上述范围，减少重配':raise CollectorError('consent_required','请明确允许90天笔记连接与当前私人Wi-Fi上的自动接收。',403)
+        with self.lock:
+            if not enabled:
+                self.stop(False);return self.status()
+            entry=select_interface(self.network(force=True),self.interface_id)
+            binding=self.note_network(entry)
+            if self.bound and self.note_network(self.bound)!=binding:raise CollectorError('network_conflict','当前接收网络不同，请停止后选择私人Wi-Fi。',409)
+            from .security import timestamp,utc_now
+            self.notes_auto={'enabled':True,'scope_version':'notes-private-wifi-v1','confirmation_source':confirmation_source,
+                'confirmation_text':confirmation_text,'confirmed_at':timestamp(utc_now()),'network':binding,'maximum_days':90}
+            self._save_settings()
+            self.authority.restore_notes(self.personal.path.with_name('collector-notes-verifier.json'))
+            if not self.server or not self.thread.is_alive():self.enable(entry['id'],self.port)
+            return self.create_notes_setup()
+
+    def resume_notes(self):
+        if not self.notes_auto or not self.notes_auto.get('enabled') or not self.authority.notes_ready():return
+        try:
+            expected=self.notes_auto['network']
+            data=self.network(force=True)
+            if self._network_unverified(data,expected):
+                self.message='暂时无法确认私人 Wi-Fi，笔记接收已暂停，确认原网络后会自动恢复。'
+                self._start_network_watch(expected)
+                return
+            entries=[e for e in data['interfaces'] if e.get('wireless') is True and e.get('profile')=='Private' and self.note_network(e)==expected]
+            if len(entries)!=1:raise CollectorError('network_changed','网络已变化，笔记接收保持关闭。',409)
+            self.enable(entries[0]['id'],self.port)
+        except (CollectorError,KeyError) as error:
+            self.stop(False,reason='network_changed');self.message=str(error) if isinstance(error,CollectorError) else '网络关联缺失，手机收集保持关闭。'
 
     def network(self, force=False):
         with self.lock:
@@ -58,16 +120,41 @@ class CollectorController:
             running = bool(self.server and self.thread and self.thread.is_alive())
             if self.server and not running:
                 self.authority.revoke('listener_stopped')
+                self.authority.notes_path=None
+                if self.notes_auto:self.notes_auto['enabled']=False;self._save_settings()
                 self.bound = self.origin = self.qr_bytes = None
                 self.stop_watch.set()
                 if self.listener:
                     self.listener.close()
                 self.server = self.thread = self.listener = None
+            anywhere=getattr(self,'anywhere',None)
+            notes_setup=anywhere.active_setup() if anywhere else None
             return {'enabled': running, 'port': self.port, 'preferred_interface_id': self.interface_id,
                     'interfaces': network['interfaces'], 'firewall': network['firewall'],
                     'address': self.bound['address'] if running else None, 'public_base_url': self.origin if running else None,
                     'collector_url': self.origin + '/collect' if running else None,
-                    'message': self.message or network.get('message', ''), 'revision': self.revision, **self.authority.public()}
+                    'message': self.message or network.get('message', ''), 'revision': self.revision,
+                    'anywhere':self.anywhere.public() if getattr(self,'anywhere',None) else None,
+                    'anywhere_setup_id':notes_setup['id'] if notes_setup else None,
+                    'notes_shortcut_ready':self.authority.notes_ready(),'notes_setup_id':self.notes_setup_id,
+                    'notes_auto_enabled':bool(self.notes_auto and self.notes_auto.get('enabled')),'notes_maximum_days':90 if self.notes_auto and self.notes_auto.get('enabled') else 7, **self.authority.public()}
+
+    def create_notes_setup(self):
+        with self.lock:
+            if not self.server or not self.thread.is_alive():
+                raise CollectorError('disabled','请先启用现有手机收集，再配置笔记分享。',409)
+            value=self.authority.issue_notes()
+            qr=qrcode.QRCode(error_correction=qrcode.constants.ERROR_CORRECT_M,box_size=6,border=4)
+            qr.add_data(self.origin+'/notes-setup#key='+value+('&days=90' if self.notes_auto and self.notes_auto.get('enabled') else ''));qr.make(fit=True)
+            output=io.BytesIO();qr.make_image(image_factory=qrcode.image.svg.SvgPathFillImage).save(output)
+            self.notes_qr_bytes=output.getvalue();self.notes_setup_id=hashlib.sha256(value.encode()).hexdigest()[:16]
+            return self.status()
+
+    def notes_qr(self,setup_id):
+        with self.lock:
+            if not self.notes_qr_bytes or setup_id!=self.notes_setup_id or not self.authority.notes_ready():
+                raise CollectorError('notes_setup_unavailable','请先生成笔记分享连接。',409)
+            return self.notes_qr_bytes
 
     def _regenerate(self):
         token = self.authority.regenerate()
@@ -90,6 +177,8 @@ class CollectorController:
             if not self.server or not self.thread.is_alive():
                 raise CollectorError('disabled', '请先启用手机收集。', 409)
             self.authority.revoke('devices_revoked')
+            self.authority.notes_path=None
+            if self.notes_auto:self.notes_auto['enabled']=False;self._save_settings()
             self.qr_bytes = None
             return self.status()
 
@@ -110,8 +199,15 @@ class CollectorController:
             self.port = port
             # Always enumerate again; neither saved settings nor the prior URL holds an IP.
             entry = select_interface(self.network(force=True), interface_id or self.interface_id)
+            if self.notes_auto and self.notes_auto.get('enabled'):
+                try:authorized=self.note_network(entry)==self.notes_auto['network']
+                except (CollectorError,KeyError):authorized=False
+                if not authorized:
+                    self.stop(False,reason='network_changed')
+                    raise CollectorError('network_changed','当前网络与已允许的私人 Wi-Fi 不同，笔记接收保持关闭。',409)
             origin = public_base_url(f'http://{entry["address"]}:{port}')
-            app = create_app(self.service, self.authority, origin, self.app_root)
+            app = create_app(self.service, self.authority, origin, self.app_root,
+                             notes_setup=lambda nonce:self.anywhere.setup_connection(nonce) if getattr(self,'anywhere',None) else None)
             listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             if hasattr(socket, 'SO_EXCLUSIVEADDRUSE'):
                 listener.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
@@ -144,35 +240,66 @@ class CollectorController:
             self.message = ''
             # Persist preference only; disabled and every capability starts fresh after restart.
             try:
-                temporary = self.settings_path.with_suffix('.tmp')
-                temporary.write_text(json.dumps({'interface_id': self.interface_id, 'port': self.port}), encoding='utf-8')
-                temporary.replace(self.settings_path)
+                self._save_settings()
             except OSError:
                 self.message = '手机收集已启用，但接口偏好未保存。重启后请重新选择。'
-            self.stop_watch = threading.Event()
-            self.watcher = threading.Thread(target=self._watch_network, args=(self.stop_watch,), name='attention-mobile-network', daemon=True)
-            self.watcher.start()
+            self._start_network_watch(entry)
             return self.status()
 
-    def _watch_network(self, stop_event):
+    def _start_network_watch(self, expected):
+        self.stop_watch = threading.Event()
+        self.watcher = threading.Thread(target=self._watch_network, args=(self.stop_watch, dict(expected)), name='attention-mobile-network', daemon=True)
+        self.watcher.start()
+
+    def _watch_network(self, stop_event, expected=None):
+        with self.lock:
+            expected=dict(expected or self.bound or {})
         while not stop_event.wait(20):
             data = self.network(force=True)
             with self.lock:
                 if stop_event.is_set() or stop_event is not self.stop_watch:
                     return
-                bound = self.bound
-                if not bound:
+                automatic=bool(self.notes_auto and self.notes_auto.get('enabled'))
+                if automatic and not self.authority.notes_ready():
+                    self.stop(False,reason='notes_expired')
+                    self.message='笔记分享连接已到期，请重新配置。'
                     return
-                valid = any(i['id'] == bound['id'] and i['address'] == bound['address'] and i['profile'] == 'Private' for i in data['interfaces'])
+                if self._network_unverified(data,expected):
+                    # Close the listener before retrying. An unavailable inspection
+                    # is not evidence that the owner changed the allowed network.
+                    self.stop(False,reason='network_unverified')
+                    self.message='暂时无法确认私人 Wi-Fi，手机接收已暂停。'+('确认原网络后会自动恢复。' if automatic else '请检查网络后重新启用。')
+                    if not automatic:return
+                    continue
+                if automatic:
+                    try:valid=any(i.get('wireless') is True and i.get('profile')=='Private' and self.note_network(i)==self.notes_auto['network'] for i in data['interfaces'])
+                    except (CollectorError,KeyError,TypeError):valid=False
+                else:
+                    valid=any(i['id']==expected.get('id') and i['address']==expected.get('address') and i['profile']=='Private' for i in data['interfaces'])
                 if not valid:
                     self.stop(False, reason='network_changed')
                     self.message = '网络已变化，手机收集已停止。请选择当前局域网后重新启用。'
                     return
+                if not self.server:
+                    try:self.enable(self.interface_id,self.port)
+                    except CollectorError:
+                        if self.notes_auto and self.notes_auto.get('enabled') and self.authority.notes_ready() and self._network_unverified(self.cached_network,expected):
+                            self.message='暂时无法确认私人 Wi-Fi，手机接收已暂停，确认原网络后会自动恢复。'
+                            continue
+                        self.stop(False,reason='resume_failed')
+                        self.message='手机接收恢复失败，请检查网络后重新启用。'
+                    return
 
     def stop(self, inspect=True, *, reason='collector_stopped'):
         with self.lock:
-            self.authority.revoke(reason)
-            self.stop_watch.set()
+            preserve=reason in {'collector_shutdown','network_unverified'} and bool(self.notes_auto and self.notes_auto.get('enabled'))
+            if not preserve and self.notes_auto:
+                self.notes_auto['enabled']=False;self._save_settings()
+            self.authority.revoke(reason,preserve_notes=preserve)
+            if not preserve:self.authority.notes_path=None
+            if not (preserve and reason=='network_unverified'):
+                self.notes_qr_bytes=self.notes_setup_id=None
+                self.stop_watch.set()
             server, thread, listener = self.server, self.thread, self.listener
             self.server = self.thread = self.listener = self.bound = self.origin = self.qr_bytes = None
             if server:
@@ -188,5 +315,5 @@ class CollectorController:
 
     async def close(self):
         import asyncio
-        await asyncio.to_thread(self.stop, False)
+        await asyncio.to_thread(self.stop, False, reason='collector_shutdown')
         await self.service.close()

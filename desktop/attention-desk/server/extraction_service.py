@@ -38,6 +38,10 @@ class ExtractionService:
             await asyncio.gather(*tasks, return_exceptions=True)
 
     async def start(self, snapshot_id, force=False, request_id=None, *, confirm_budget=False, scope='auto'):
+        with self.personal.connection() as connection:
+            source = connection.execute('SELECT i.kind FROM raw_snapshot s JOIN raw_item i ON i.id=s.raw_item_id WHERE s.id=?',(snapshot_id,)).fetchone()
+        if source and source['kind'] == 'wechat_batch':
+            raise PersonalError('微信来源必须经统一时段与成本门禁分析。','wechat_pipeline_required',409)
         config = self.settings._read()[1]
         snapshot = self.reviews.get(snapshot_id)["snapshot"]
         if snapshot.get('attachments') and not snapshot.get('blocks') and not snapshot.get('web'):
@@ -94,6 +98,8 @@ class ExtractionService:
                 connection.execute("UPDATE raw_review SET draft_json=NULL WHERE raw_snapshot_id=?", (snapshot_id,))
             schedule = shared is None
             result = ReviewStore._bundle(connection, snapshot_id)
+            from .inbox_cost import record_cost
+            if cached: record_cost(connection, extraction_id)
         if schedule:
             task = asyncio.create_task(self._run(extraction_id, snapshot, config))
             self.tasks[extraction_id] = task
@@ -153,6 +159,9 @@ class ExtractionService:
                 connection.execute("""UPDATE ai_extraction SET completed_at=?,status=?,raw_output=?,parsed_output=?,validation_json=?,error_json=?,token_usage_json=?,latency_ms=?,config_json=? WHERE id=?""",
                                    (now(), follower_validation["status"] if follower_validation else status, raw, encode(follower_parsed) if follower_parsed is not None else None,
                                     encode(follower_validation) if follower_validation else None, encode(error) if error else None, encode(usage), latency, encode(provenance), follower["id"]))
+            from .inbox_cost import record_cost
+            for value in [extraction_id] + [row['id'] for row in waiting]:
+                record_cost(connection, value)
             ids = [extraction_id] + [row["id"] for row in waiting]
             for value in ids:
                 connection.execute("UPDATE raw_review SET version=version+1,updated_at=? WHERE extraction_id=? AND status='pending'", (now(), value))

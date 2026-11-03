@@ -1,7 +1,7 @@
 export class CollectorError extends Error {
   constructor(message, code = 'connection_error') { super(message); this.code = code; }
 }
-export const connectionMessage = '电脑当前不可连接。请确认电脑与手机在同一 Wi-Fi、工作台正在运行。当前输入仍保留，恢复连接后可重试。';
+export const connectionMessage = '电脑当前不可连接。请确认电脑与手机在同一 Wi-Fi、工作台正在运行。尚未确认电脑接收。输入仅保留在当前页面，关闭或刷新可能丢失；请保留原材料，恢复连接后以同一发送重试。';
 function unpack(xhr) {
   let payload;
   try { payload = JSON.parse(xhr.responseText); } catch { throw new CollectorError(connectionMessage); }

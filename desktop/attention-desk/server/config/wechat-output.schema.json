@@ -1,0 +1,584 @@
+{
+  "$defs": {
+    "EvidenceMapping": {
+      "additionalProperties": false,
+      "properties": {
+        "field": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Field",
+          "type": "string"
+        },
+        "evidence_ids": {
+          "items": {
+            "maxLength": 120,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 40,
+          "title": "Evidence Ids",
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "field",
+        "evidence_ids"
+      ],
+      "title": "EvidenceMapping",
+      "type": "object"
+    },
+    "TimeValue": {
+      "additionalProperties": false,
+      "properties": {
+        "value": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Value"
+        },
+        "end_value": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "End Value"
+        },
+        "precision": {
+          "enum": [
+            "date",
+            "minute",
+            "range",
+            "unknown"
+          ],
+          "title": "Precision",
+          "type": "string"
+        },
+        "range_precision": {
+          "anyOf": [
+            {
+              "enum": [
+                "date",
+                "minute"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Range Precision"
+        },
+        "timezone": {
+          "const": "Asia/Shanghai",
+          "title": "Timezone",
+          "type": "string"
+        },
+        "original_text": {
+          "maxLength": 500,
+          "title": "Original Text",
+          "type": "string"
+        },
+        "anchor_message_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Anchor Message Id"
+        },
+        "uncertain": {
+          "title": "Uncertain",
+          "type": "boolean"
+        },
+        "evidence_ids": {
+          "items": {
+            "maxLength": 120,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 40,
+          "title": "Evidence Ids",
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "value",
+        "end_value",
+        "precision",
+        "range_precision",
+        "timezone",
+        "original_text",
+        "anchor_message_id",
+        "uncertain",
+        "evidence_ids"
+      ],
+      "title": "TimeValue",
+      "type": "object"
+    },
+    "WeChatAction": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 300,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "explicit",
+            "suggested"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "deadline_ids": {
+          "items": {
+            "maxLength": 120,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 40,
+          "title": "Deadline Ids",
+          "type": "array",
+          "uniqueItems": true
+        },
+        "evidence_ids": {
+          "items": {
+            "maxLength": 120,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 40,
+          "title": "Evidence Ids",
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "kind",
+        "deadline_ids",
+        "evidence_ids"
+      ],
+      "title": "WeChatAction",
+      "type": "object"
+    },
+    "WeChatDeadline": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "role": {
+          "maxLength": 180,
+          "minLength": 1,
+          "title": "Role",
+          "type": "string"
+        },
+        "relation": {
+          "enum": [
+            "current",
+            "previous",
+            "cancelled"
+          ],
+          "title": "Relation",
+          "type": "string"
+        },
+        "time": {
+          "$ref": "#/$defs/TimeValue"
+        }
+      },
+      "required": [
+        "id",
+        "role",
+        "relation",
+        "time"
+      ],
+      "title": "WeChatDeadline",
+      "type": "object"
+    },
+    "WeChatEvidence": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "message_id": {
+          "minLength": 1,
+          "title": "Message Id",
+          "type": "string"
+        },
+        "block_id": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Block Id",
+          "type": "string"
+        },
+        "quote": {
+          "maxLength": 4000,
+          "minLength": 1,
+          "title": "Quote",
+          "type": "string"
+        },
+        "start": {
+          "minimum": 0,
+          "title": "Start",
+          "type": "integer"
+        },
+        "end": {
+          "minimum": 1,
+          "title": "End",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "message_id",
+        "block_id",
+        "quote",
+        "start",
+        "end"
+      ],
+      "title": "WeChatEvidence",
+      "type": "object"
+    },
+    "WeChatItem": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "important": {
+          "title": "Important",
+          "type": "boolean"
+        },
+        "relevant": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Relevant"
+        },
+        "action_required": {
+          "title": "Action Required",
+          "type": "boolean"
+        },
+        "attention_level": {
+          "enum": [
+            "action",
+            "fyi",
+            "ignore"
+          ],
+          "title": "Attention Level",
+          "type": "string"
+        },
+        "information_complete": {
+          "title": "Information Complete",
+          "type": "boolean"
+        },
+        "await_more_context": {
+          "title": "Await More Context",
+          "type": "boolean"
+        },
+        "category": {
+          "enum": [
+            "deadline",
+            "event",
+            "task",
+            "notice",
+            "course_change",
+            "exam",
+            "registration",
+            "competition",
+            "meeting",
+            "administrative",
+            "other"
+          ],
+          "title": "Category",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "summary": {
+          "maxLength": 2000,
+          "title": "Summary",
+          "type": "string"
+        },
+        "start_time": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TimeValue"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "end_time": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TimeValue"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "deadline": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TimeValue"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "location": {
+          "anyOf": [
+            {
+              "maxLength": 500,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Location"
+        },
+        "action": {
+          "anyOf": [
+            {
+              "maxLength": 500,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Action"
+        },
+        "target_people": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Target People",
+          "type": "array"
+        },
+        "priority": {
+          "enum": [
+            "P0",
+            "P1",
+            "P2",
+            "P3"
+          ],
+          "title": "Priority",
+          "type": "string"
+        },
+        "confidence": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "evidence_message_ids": {
+          "items": {
+            "maxLength": 120,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 40,
+          "title": "Evidence Message Ids",
+          "type": "array",
+          "uniqueItems": true
+        },
+        "reason": {
+          "maxLength": 1000,
+          "title": "Reason",
+          "type": "string"
+        },
+        "time_text": {
+          "maxLength": 1000,
+          "title": "Time Text",
+          "type": "string"
+        },
+        "needs_review": {
+          "title": "Needs Review",
+          "type": "boolean"
+        },
+        "participation": {
+          "enum": [
+            "required",
+            "optional",
+            "unclear"
+          ],
+          "title": "Participation",
+          "type": "string"
+        },
+        "notice_kind": {
+          "enum": [
+            "new",
+            "update",
+            "cancellation",
+            "information"
+          ],
+          "title": "Notice Kind",
+          "type": "string"
+        },
+        "related_candidate_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Related Candidate Id"
+        },
+        "deadlines": {
+          "items": {
+            "$ref": "#/$defs/WeChatDeadline"
+          },
+          "maxItems": 20,
+          "title": "Deadlines",
+          "type": "array"
+        },
+        "actions": {
+          "items": {
+            "$ref": "#/$defs/WeChatAction"
+          },
+          "maxItems": 20,
+          "title": "Actions",
+          "type": "array"
+        },
+        "evidence_mapping": {
+          "items": {
+            "$ref": "#/$defs/EvidenceMapping"
+          },
+          "maxItems": 60,
+          "title": "Evidence Mapping",
+          "type": "array"
+        },
+        "uncertainties": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Uncertainties",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "important",
+        "relevant",
+        "action_required",
+        "attention_level",
+        "information_complete",
+        "await_more_context",
+        "category",
+        "title",
+        "summary",
+        "start_time",
+        "end_time",
+        "deadline",
+        "location",
+        "action",
+        "target_people",
+        "priority",
+        "confidence",
+        "evidence_message_ids",
+        "reason",
+        "time_text",
+        "needs_review",
+        "participation",
+        "notice_kind",
+        "related_candidate_id",
+        "deadlines",
+        "actions",
+        "evidence_mapping",
+        "uncertainties"
+      ],
+      "title": "WeChatItem",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "wechat.v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "batch_id": {
+      "minLength": 1,
+      "title": "Batch Id",
+      "type": "string"
+    },
+    "items": {
+      "items": {
+        "$ref": "#/$defs/WeChatItem"
+      },
+      "maxItems": 8,
+      "title": "Items",
+      "type": "array"
+    },
+    "evidence": {
+      "items": {
+        "$ref": "#/$defs/WeChatEvidence"
+      },
+      "maxItems": 100,
+      "title": "Evidence",
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema_version",
+    "batch_id",
+    "items",
+    "evidence"
+  ],
+  "title": "WeChatOutput",
+  "type": "object"
+}

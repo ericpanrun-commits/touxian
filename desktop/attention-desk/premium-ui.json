@@ -2,7 +2,8 @@
   "profile": "product-admin",
   "sourceRoots": [
     "src/personal",
-    "src/mobile"
+    "src/mobile",
+    "src/cloud"
   ],
   "canonicalMap": "UX-CONTRACT.md",
   "requiredCapabilities": [
@@ -21,11 +22,11 @@
     "build"
   ],
   "commands": {
-    "test": "../.venv/Scripts/python.exe -m pytest -q",
+    "test": "pwsh -NoProfile -File scripts/test-backend.ps1",
     "build": "npm run build"
   },
   "evidence": {
-    "crudFullFlow": "server/test_extraction_review.py",
-    "failurePaths": "server/test_collector.py"
+    "crudFullFlow": "tests/cloud-workbench-browser.mjs",
+    "failurePaths": "server/test_cloud_sync_sql.py"
   }
 }

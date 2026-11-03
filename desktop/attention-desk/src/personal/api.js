@@ -1,5 +1,17 @@
 import { personalApiUrl } from './apiBase';
 
+let transport = null;
+let fileResolver = null;
+let pdfResolver = null;
+let editorDraftResolver = null;
+export function setPersonalTransport(value) { transport = value; }
+export function setPersonalFileResolver(value) { fileResolver = value; }
+export function setPersonalPdfResolver(value) { pdfResolver = value; }
+export function setPersonalEditorDraftResolver(value) { editorDraftResolver = value; }
+export async function personalEditorDraft(form,options) { return editorDraftResolver ? editorDraftResolver(form,options) : null; }
+export async function personalFileUrl(path,options) { return fileResolver ? fileResolver(path,options) : path; }
+export async function personalPdfSource(source,options) { return pdfResolver ? pdfResolver(source,options) : null; }
+
 export class PersonalApiError extends Error {
   constructor(message, code = 'request_failed') {
     super(message);
@@ -9,13 +21,14 @@ export class PersonalApiError extends Error {
 }
 
 export async function personalRequest(path, options = {}) {
-  const { signal, body, headers, responseType = 'json', ...rest } = options;
+  if (transport) return transport(path, options);
+  const { signal, body, headers, responseType = 'json', timeoutMs, ...rest } = options;
   const controller = new AbortController();
   const forwardAbort = () => controller.abort();
   signal?.addEventListener('abort', forwardAbort, { once: true });
   if (signal?.aborted) controller.abort();
   const multipart = body instanceof FormData;
-  const timeout = window.setTimeout(() => controller.abort(), multipart ? 60000 : 15000);
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMs ? Math.min(300000, Math.max(1000, timeoutMs)) : multipart ? 60000 : 15000);
   try {
     const response = await fetch(personalApiUrl(path, import.meta.env?.VITE_API_BASE_URL || ''), {
       ...rest,

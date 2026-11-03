@@ -49,8 +49,23 @@ def list_raw(limit: int = Query(50, ge=1, le=100), offset: int = Query(0, ge=0),
 
 
 @router.post("/raw", status_code=201)
-def collect_raw(payload: RawInput, idempotency_key: str | None = Header(None), store=Depends(store_for)):
-    return perform(lambda: ReviewStore(store).collect(payload, request_key(idempotency_key)))
+async def collect_raw(payload: RawInput, request: Request, idempotency_key: str | None = Header(None), store=Depends(store_for), inbox_kind: str | None = None):
+    if inbox_kind is None:
+        return perform(lambda: ReviewStore(store).collect(payload, request_key(idempotency_key)))
+    from .inbox_api import service_for
+    from .collector.security import CollectorError
+    from uuid import uuid4
+    if inbox_kind not in {'text', 'url'}:
+        return perform(lambda: (_ for _ in ()).throw(PersonalError('请选择文字或链接。')))
+    try:
+        receipt = await service_for(request).bridge(service_for(request).submit('desktop', inbox_kind,
+            {'submission_id': request_key(idempotency_key) or str(uuid4()), 'source_name': payload.title_hint,
+             'source_time': payload.source_time, 'url' if inbox_kind == 'url' else 'text': payload.original_text}))
+        return receipt
+    except CollectorError as error:
+        return perform(lambda: (_ for _ in ()).throw(PersonalError(str(error), error.code, error.status)))
+    except PersonalError as error:
+        return perform(lambda: (_ for _ in ()).throw(error))
 
 
 @router.get("/raw/{snapshot_id}")
@@ -61,6 +76,14 @@ def raw_detail(snapshot_id: str, store=Depends(store_for)):
 @router.post("/raw/{snapshot_id}/analyze", status_code=202)
 async def analyze(snapshot_id: str, payload: AnalyzeInput, request: Request, idempotency_key: str | None = Header(None)):
     try:
+        service = analysis_for(request)
+        with service.personal.connection() as connection:
+            source = connection.execute('SELECT i.kind FROM raw_snapshot s JOIN raw_item i ON i.id=s.raw_item_id WHERE s.id=?',(snapshot_id,)).fetchone()
+        if source and source['kind'] == 'wechat_batch':
+            wechat = getattr(request.app.state,'wechat_service',None)
+            if wechat is None:
+                raise PersonalError('微信分析服务未就绪。','not_ready',503)
+            return await wechat.reanalyze(snapshot_id,payload.force)
         return await analysis_for(request).start(snapshot_id, payload.force, request_key(idempotency_key), confirm_budget=payload.confirm_budget, scope=payload.scope)
     except (PersonalError, sqlite3.DatabaseError) as exc:
         return perform(lambda: (_ for _ in ()).throw(exc))

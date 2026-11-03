@@ -176,93 +176,35 @@ class WatchDirResolutionTests(unittest.TestCase):
 
 
 class InboxEndpointTests(unittest.TestCase):
-    def setUp(self):
-        self.tmp = TemporaryDirectory()
-        self.root = Path(self.tmp.name)
-        self.watch_dir = self.root / "chat-history"
-        self.watch_dir.mkdir()
-        self.store = InboxStore(
-            self.root / "inbox", watch_dir=self.watch_dir, poll_seconds=0
-        )
-        self._original_inbox = main.INBOX
-        main.INBOX = self.store
-        self.client = TestClient(main.app)
+    """Retired entrypoints stay closed even when files exist or parameters look valid."""
+    def assert_retired(self, method, path, payload=None):
+        # No lifespan: endpoint retirement must not initialise the user's runtime DB.
+        client = TestClient(main.app)
+        response = client.request(method, path, json=payload)
+        self.assertEqual(response.status_code, 410)
+        self.assertEqual(response.json()['detail']['code'], 'legacy_source_disabled')
 
-    def tearDown(self):
-        main.INBOX = self._original_inbox
-        self.store.stop_watcher()
-        self.tmp.cleanup()
+    def test_overview_disabled(self):
+        self.assert_retired('GET', '/api/inbox')
 
-    def seed_watch_dir(self, name="聊天记录_20260927.zip"):
-        source = self.watch_dir / name
-        source.write_bytes(build_chat_zip())
-        backdate(source)
-        return source
+    def test_import_valid_looking_file_disabled(self):
+        self.assert_retired('POST', '/api/inbox/import', {'filename': 'notice.zip'})
 
-    def test_overview_lists_scanned_items(self):
-        source = self.seed_watch_dir()
-        response = self.client.get("/api/inbox")
-        self.assertEqual(response.status_code, 200, response.text)
-        body = response.json()
-        self.assertTrue(body["status"]["watch_dir_exists"])
-        self.assertEqual(len(body["items"]), 1)
-        self.assertEqual(body["items"][0]["filename"], source.name)
+    def test_import_empty_payload_disabled(self):
+        self.assert_retired('POST', '/api/inbox/import', {})
 
-    def test_import_runs_triage_and_marks_manifest(self):
-        source = self.seed_watch_dir()
-        response = self.client.post(
-            "/api/inbox/import",
-            json={"filename": source.name, "as_of": "2026-09-27"},
-        )
-        self.assertEqual(response.status_code, 200, response.text)
-        body = response.json()
-        self.assertEqual(body["source"]["source_kind"], "inbox-import")
-        self.assertEqual(body["source"]["source_strategy"], "workbuddy-share-inbox")
-        self.assertEqual(body["source"]["conversation"], "测试班级群")
-        self.assertTrue(body["items"], "应至少分拣出一个候选事项")
-        # manifest 已标记 imported
-        record = self.store.list_items()[0]
-        self.assertEqual(record["status"], "imported")
+    def test_old_wechat_status_disabled(self):
+        self.assert_retired('GET', '/api/wechat/status')
 
-    def test_import_without_filename_is_rejected(self):
-        response = self.client.post("/api/inbox/import", json={})
-        self.assertEqual(response.status_code, 400)
+    def test_old_wechat_groups_disabled(self):
+        self.assert_retired('GET', '/api/wechat/groups?q=private')
 
-    def test_import_missing_file_is_rejected(self):
-        response = self.client.post(
-            "/api/inbox/import", json={"filename": "ghost.zip"}
-        )
-        self.assertEqual(response.status_code, 400)
+    def test_old_wechat_export_disabled(self):
+        self.assert_retired('POST', '/api/wechat/export', {'group': 'example'})
 
-    def test_import_invalid_zip_marks_error(self):
-        source = self.seed_watch_dir()
-        # 先走正常概览链路，拿到 manifest 登记的条目文件名
-        overview = self.client.get("/api/inbox").json()
-        entry_name = overview["items"][0]["filename"]
-        # 用一个能通过 zip 校验、但缺少聊天记录文本的包替换收件箱内容
-        buffer = io.BytesIO()
-        with zipfile.ZipFile(buffer, "w") as archive:
-            archive.writestr("readme.md", b"nothing")
-        (self.root / "inbox" / entry_name).write_bytes(buffer.getvalue())
+    def test_old_wechat_analyze_disabled(self):
+        self.assert_retired('POST', '/api/wechat/analyze', {'group': 'example'})
 
-        response = self.client.post(
-            "/api/inbox/import", json={"filename": entry_name}
-        )
-        self.assertEqual(response.status_code, 400)
-        record = next(
-            item for item in self.store.list_items() if item["filename"] == entry_name
-        )
-        self.assertEqual(record["status"], "error")
-        self.assertIn("聊天记录", record["error"])
-
-    def test_import_unregistered_filename_is_rejected(self):
-        self.seed_watch_dir()
-        # 收件箱目录里有文件、但不在 manifest 登记内：必须拒绝
-        rogue = self.root / "inbox" / "rogue.zip"
-        rogue.write_bytes(build_chat_zip())
-        response = self.client.post("/api/inbox/import", json={"filename": "rogue.zip"})
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("收件箱", response.json()["detail"])
 
 
 if __name__ == "__main__":

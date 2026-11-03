@@ -9,7 +9,7 @@ from pypdf import PdfReader
 from docx import Document
 from docx.oxml.ns import qn
 import pypdfium2 as pdfium
-from .policy import DocumentError, MAX_PAGES, MAX_TEXT, MAX_PIXELS, validate_file
+from .policy import DocumentError, MAX_PAGES, MAX_TEXT, MAX_PIXELS, IMAGE_EXTENSIONS, validate_file
 
 VERSION = 'documents-2'
 CHUNK = 2500
@@ -31,9 +31,22 @@ def split_text(text, kind, *, page=None, section=None):
     return values
 
 
-def render_pdf(path, page_number, destination):
+def render_pdf(path, page_number, destination, *, max_pages=MAX_PAGES):
+    ext = Path(path).suffix.lower().removeprefix('.')
+    if ext in IMAGE_EXTENSIONS:
+        validate_file(path, ext)
+        if page_number != 1:
+            raise DocumentError('invalid_page', '图片笔记只有一页。')
+        with Image.open(path) as source:
+            rgba = ImageOps.exif_transpose(source).convert('RGBA')
+            image = Image.new('RGBA', rgba.size, 'white')
+            image.alpha_composite(rgba)
+            image = image.convert('RGB')
+            image.thumbnail((2400, 2400))
+            image.save(destination, format='PNG')
+        return str(destination)
     with pdfium.PdfDocument(str(path)) as pdf:
-        if not 1 <= page_number <= len(pdf) or len(pdf) > MAX_PAGES:
+        if not 1 <= page_number <= len(pdf) or len(pdf) > max_pages:
             raise DocumentError('page_limit', 'PDF 页数或所选页码超出上限。')
         page = pdf[page_number - 1]
         try:
@@ -174,7 +187,7 @@ def parse_document(path, ext, workdir):
                         scanned_pages=scanned, blank_pages=blank, needs_ocr=bool(scanned), pdf_kind='scanned_pdf' if len(scanned)+len(blank) == len(reader.pages) else 'mixed_pdf' if scanned else 'text_pdf', needs_review=bool(scanned))
     else:
         blocks, ocr = native_ocr(path, workdir)
-        metadata.update(extractor='windows.media.ocr', ocr=ocr, needs_review=True)
+        metadata.update(extractor='windows.media.ocr', ocr=ocr, needs_review=True, page_count=1)
     if not blocks: raise DocumentError('empty_text', '没有提取到有效文字，原文件保留。')
     if sum(len(b['text']) for b in blocks) > MAX_TEXT:
         raise DocumentError('text_limit', '提取文字超过 100 万字符上限，原文件保留。')

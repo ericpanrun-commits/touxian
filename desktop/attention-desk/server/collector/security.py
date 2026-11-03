@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import hashlib
-import json
+import json,re
 import secrets
 import threading
 import time
@@ -57,6 +57,8 @@ class PairingAuthority:
         self.records, self.requests = deque(maxlen=64), deque(maxlen=128)
         self.device_records, self.session_requests = deque(maxlen=64), deque(maxlen=128)
         self.diagnostics_path = Path(diagnostics_path) if diagnostics_path else None
+        self.notes_grant = None
+        self.notes_path = None
         self.diagnostics_ok = True
         # Restore diagnostics only. No invitation/session credential survives
         # a process restart; the local UI starts disabled with a new epoch.
@@ -145,12 +147,53 @@ class PairingAuthority:
             self._save()
             return token
 
-    def revoke(self, reason='devices_revoked'):
+    def revoke(self, reason='devices_revoked', *, preserve_notes=False):
         with self.lock:
             for owner in self.sessions:
                 self._device_ended(owner, 'revoked', reason)
             self.sessions.clear()
             self._revoke_invitation(reason)
+            if not preserve_notes:
+                self.notes_grant=None
+                self._save_notes()
+
+    def restore_notes(self,path):
+        with self.lock:
+            self.notes_path=Path(path)
+            try:
+                saved=json.loads(self.notes_path.read_text(encoding='utf-8'))
+                expires=datetime.fromisoformat(saved['expires'])
+                if re.fullmatch(r'[a-f0-9]{64}',saved['digest']) and expires.tzinfo is not None and self._now()<expires<=self._now()+timedelta(days=90):self.notes_grant={'digest':saved['digest'],'expires':expires.isoformat()}
+            except (OSError,ValueError,KeyError,TypeError):pass
+
+    def _save_notes(self):
+        if not self.notes_path:return
+        self.notes_path.parent.mkdir(parents=True,exist_ok=True)
+        temporary=self.notes_path.with_suffix('.tmp')
+        temporary.write_text(json.dumps(self.notes_grant or {}),encoding='utf-8');temporary.replace(self.notes_path)
+
+    def notes_ready(self):
+        with self.lock:
+            return bool(self.notes_grant and datetime.fromisoformat(self.notes_grant['expires'])>self._now())
+
+    def issue_notes(self):
+        """Local desktop setup grants append-only note intake, not browser access.
+
+        Normally temporary; explicit private-Wi-Fi authorization permits a
+        90-day verifier. Only its irreversible digest survives restart.
+        Manual stop, device revocation and network change still revoke it.
+        """
+        with self.lock:
+            value=secrets.token_urlsafe(32)
+            self.notes_grant={'digest':digest(value),'expires':(self._now()+timedelta(days=90) if self.notes_path else self._now()+timedelta(seconds=SESSION_SECONDS)).isoformat()}
+            self._save_notes()
+            return value
+
+    def notes_session(self,value):
+        with self.lock:
+            if not isinstance(value,str) or not 32<=len(value)<=128 or not self.notes_ready() or not secrets.compare_digest(digest(value),self.notes_grant['digest']):
+                raise CollectorError('notes_connection_invalid','笔记分享连接已失效，请在电脑的手机收集里重新配置。',401)
+            return Session('notes-'+self.notes_grant['digest'],'',datetime.fromisoformat(self.notes_grant['expires']))
 
     def _device_ended(self, owner, state, reason):
         for record in reversed(self.device_records):

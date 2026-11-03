@@ -1,0 +1,3 @@
+# Optional local CV diagnostics only; never required to enable the Collector.
+opencv-python-headless==4.13.0.92
+numpy==2.5.4

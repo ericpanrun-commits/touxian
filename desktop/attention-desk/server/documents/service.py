@@ -29,8 +29,11 @@ class DocumentService:
         with self.personal.connection(write=True) as c:
             source = c.execute('SELECT * FROM raw_snapshot WHERE id=?',(snapshot_id,)).fetchone()
             if not source: raise PersonalError('原文不存在。','not_found',404)
+            item = c.execute('SELECT kind FROM raw_item WHERE id=?',(source['raw_item_id'],)).fetchone()
+            if item['kind'] == 'wechat_batch':
+                raise PersonalError('微信图片须由微信采集的时段与预算门禁处理，不能绕过门禁解析。','wechat_media_pipeline_required',409)
             if not attachment_ids or len(set(attachment_ids))>10: raise PersonalError('请每次选择 1 至 10 个文件。')
-            active = c.execute("SELECT * FROM attachment_job WHERE raw_item_id=? AND status IN ('waiting','running')",(source['raw_item_id'],)).fetchone()
+            active = c.execute("SELECT * FROM attachment_job WHERE raw_item_id=? AND status IN ('waiting','running') AND operation IN ('parse','redownload')",(source['raw_item_id'],)).fetchone()
             if active: return dict(active)
             allowed = {r[0] for r in c.execute('SELECT attachment_id FROM snapshot_attachment WHERE raw_snapshot_id=?',(snapshot_id,))}
             if set(attachment_ids)-allowed: raise PersonalError('附件不属于这份原文。','invalid_reference',400)

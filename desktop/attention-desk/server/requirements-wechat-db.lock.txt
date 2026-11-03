@@ -1,0 +1,7 @@
+# Install only in artifacts/wechat-db0/venv; the existing app environment is unchanged.
+cryptography==46.0.5
+cffi==2.1.1
+pycparser==3.11
+zstandard==0.25.0
+psutil==7.2.2
+tzdata==2025.3

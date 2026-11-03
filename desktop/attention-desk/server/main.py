@@ -23,10 +23,8 @@ try:
     from . import mail_digest, profile_store as PROFILE
     from .chat_archive import ChatArchiveError, parse_archive, safe_filename
     from .completion_store import apply_completions, load_completions, set_completion
-    from .inbox import InboxStore
     from .official_monitor import AuthRequired
     from .official_service import OfficialSourceMonitor
-    from .wechat_bridge import WeChatBridge
     from .personal_api import router as personal_router
     from .personal_store import PersonalStore, SCHEMA_VERSION, default_database_path
     from .review_api import router as review_router
@@ -41,14 +39,13 @@ try:
     from .reminders.service import ReminderService
     from .official_api import router as official_router
     from .notifications.api import router as notification_router
+    from .notifications.wechat_api import router as wechat_bark_router
 except ImportError:  # pragma: no cover - direct module execution fallback
     import mail_digest
     import profile_store as PROFILE
     from chat_archive import ChatArchiveError, parse_archive, safe_filename
     from completion_store import apply_completions, load_completions, set_completion
-    from inbox import InboxStore
     from official_monitor import AuthRequired
-    from wechat_bridge import WeChatBridge
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     from server.personal_api import router as personal_router
     from server.personal_store import PersonalStore, SCHEMA_VERSION, default_database_path
@@ -65,6 +62,7 @@ except ImportError:  # pragma: no cover - direct module execution fallback
     from server.reminders.service import ReminderService
     from server.official_api import router as official_router
     from server.notifications.api import router as notification_router
+    from server.notifications.wechat_api import router as wechat_bark_router
 
 
 APP_ROOT = Path(__file__).resolve().parents[1]
@@ -75,11 +73,9 @@ SAMPLE_TRIAGE = SAMPLE_PATH.parent / "announcement_triage" / "triage.json"
 DIST_ROOT = APP_ROOT / "dist"
 # 上传压缩包解出的消息包与附件落到被 Git 忽略的本地目录
 ARCHIVE_ROOT = REPO_ROOT / "data" / "attention-desk" / "archives"
-# 转发收件箱：目录由工作台启动时自建；轮询 WorkBuddy 微信分享落盘目录
-INBOX = InboxStore(
-    REPO_ROOT / "data" / "attention-desk" / "inbox",
-    poll_seconds=int(os.environ.get("ATTENTION_INBOX_POLL", "10")),
-)
+# Retired legacy handles remain inert for compatibility with external test fixtures.
+from server.wechat_collect.legacy import DisabledLegacySource
+INBOX = DisabledLegacySource()
 
 
 def load_skill_module():
@@ -95,7 +91,7 @@ def load_skill_module():
 
 
 TRIAGE = load_skill_module()
-WECHAT = WeChatBridge()
+WECHAT = DisabledLegacySource()
 OFFICIAL = None
 
 
@@ -107,6 +103,8 @@ async def application_lifespan(application: FastAPI):
         raise RuntimeError('生产环境必须使用受保护的 server.cloud_app:app 入口。')
     personal_store = PersonalStore(default_database_path())
     personal_store.initialize()
+    from .learning.note_course import reconcile_timetable
+    application.state.course_registration = reconcile_timetable(personal_store)
     application.state.personal_store = personal_store
     extraction = ExtractionService(personal_store, AISettings(personal_store.path.with_name("ai-settings.json")))
     extraction.recover_interrupted()
@@ -115,26 +113,73 @@ async def application_lifespan(application: FastAPI):
     application.state.document_service = documents
     collector = CollectorController(personal_store, documents, extraction, APP_ROOT)
     application.state.collector = collector
+    application.state.inbox_service = collector.service
+    from .school.service import SchoolService
+    school = SchoolService(personal_store, documents, extraction)
+    application.state.school_service = school
+    from .learning.service import LearningService
+    learning = LearningService(personal_store, school, extraction)
+    from .learning.analysis import LearningAnalysis
+    learning.analysis_runner = LearningAnalysis(learning, extraction.settings)
+    application.state.learning_service = learning
+    school.start_local_recovery()
+    collector.service.learning = learning
+    from .notes_anywhere.settings import NotesSettings
+    from .notes_anywhere.service import AnywhereNotes
+    anywhere = AnywhereNotes(personal_store,collector.service,NotesSettings(personal_store.path.with_name('notes-anywhere-settings.json')))
+    application.state.notes_anywhere = anywhere
+    collector.anywhere = anywhere
+    await collector.service.resume_notes()
+    await anywhere.start()
+    from .cloud_sync.service import CloudSync
+    from .cloud_sync.settings import WorkerSettings
+    cloud_sync = CloudSync(personal_store,collector.service,school,extraction,WorkerSettings(personal_store.path.with_name('cloud-worker-settings.json')),learning)
+    application.state.cloud_sync = cloud_sync
+    await cloud_sync.start()
+    await asyncio.to_thread(collector.resume_notes)
+    learning.resume_background()
     official = OfficialSourceMonitor(personal_store)
     OFFICIAL = official
     application.state.official_monitor = official
     reminders = ReminderService(personal_store)
     application.state.reminder_service = reminders
+    from .wechat_collect.service import WeChatService
+    wechat = WeChatService(personal_store, extraction.settings)
+    application.state.wechat_service = wechat
+    from .notifications.wechat import WeChatBarkDispatcher
+    wechat_bark = WeChatBarkDispatcher(personal_store)
+    application.state.wechat_bark = wechat_bark
+    await wechat_bark.start()
+    await wechat.start()
     await reminders.start()
-    start_inbox_watcher()
     try:
         yield
     finally:
+        await cloud_sync.close()
+        await wechat_bark.close()
+        await wechat.close()
         await reminders.close()
+        await anywhere.close()
         await collector.close()
+        await learning.close()
+        await school.close()
         await extraction.close()
         await run_in_threadpool(documents.close)
         await run_in_threadpool(official.close)
-        INBOX.stop_watcher()
 
 
 app = FastAPI(title="Attention Desk API", version="0.1.0", lifespan=application_lifespan)
+from server.wechat_collect.api import router as wechat_router
+app.include_router(wechat_router)
 app.include_router(personal_router)
+from server.course_api import router as course_router
+app.include_router(course_router)
+from server.inbox_api import router as inbox_router
+app.include_router(inbox_router)
+from server.school.api import router as school_router
+app.include_router(school_router)
+from server.learning.api import router as learning_router
+app.include_router(learning_router)
 app.include_router(review_router)
 app.include_router(document_router)
 app.include_router(collector_control_router)
@@ -142,6 +187,7 @@ app.include_router(planning_router)
 app.include_router(reminder_router)
 app.include_router(official_router)
 app.include_router(notification_router)
+app.include_router(wechat_bark_router)
 app.add_middleware(UploadBodyLimit)
 app.add_middleware(
     CORSMiddleware,
@@ -1183,18 +1229,23 @@ async def jev_items(
 
 @app.get("/api/health")
 def health(check_integrations: bool = True) -> dict[str, Any]:
+    from server.desktop_runtime import health_identity
+    desktop = health_identity(APP_ROOT)
     storage = {"initialized": hasattr(app.state, "personal_store"), "schema_version": SCHEMA_VERSION}
     if not check_integrations:
         # Launcher readiness must not wait for optional local exporters or mail CLIs.
-        return {"status": "ok", "personal_storage": storage}
+        return {"status": "ok", "personal_storage": storage, **desktop}
     mail = mail_digest.mail_status()
     return {
         "status": "ok",
         "personal_storage": storage,
+        **desktop,
         "sample_available": SAMPLE_PATH.exists(),
         "skill_available": SKILL_SCRIPT.exists(),
         "algorithm_version": getattr(TRIAGE, "ALGORITHM_VERSION", "unknown"),
-        "wechat_ready": WECHAT.status().get("ready", False),
+        "wechat_ready": False,
+        "wechat_legacy_disabled": True,
+        "background": os.environ.get("ATTENTION_DESKTOP_BACKGROUND") == "1",
         "mail_ready": bool(mail.get("ready")),
         "mail": {"sender": mail.get("sender"), "reason": mail.get("reason")},
         "providers": ["local", "jev", "custom", "deepseek"],
@@ -1362,118 +1413,22 @@ def official_settings(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
 
 @app.get("/api/wechat/status")
 def wechat_status() -> dict[str, Any]:
-    """Report local read-only WeChat availability without exposing raw paths."""
-    return WECHAT.status()
+    raise HTTPException(410, detail={"code": "legacy_source_disabled", "message": "旧微信导出及转发收件箱已停用，请使用本地只读采集或独立 JSON/ZIP 导入。"})
 
 
 @app.get("/api/wechat/groups")
 def wechat_groups(q: str = "", limit: int = 80) -> dict[str, Any]:
-    status = WECHAT.status()
-    if not status.get("ready"):
-        exporter = status.get("exporter") or {}
-        if exporter.get("install_hint"):
-            raise HTTPException(status_code=503, detail=f"微信数据源未就绪；{exporter['install_hint']}")
-        raise HTTPException(status_code=503, detail="本机微信数据源不可读")
-    return {"groups": WECHAT.groups(q, limit), "query": q, "read_only": True}
+    raise HTTPException(410, detail={"code": "legacy_source_disabled", "message": "旧微信导出及转发收件箱已停用，请使用本地只读采集或独立 JSON/ZIP 导入。"})
 
 
 @app.post("/api/wechat/export")
 def wechat_export(payload: dict[str, Any] = Body(default_factory=dict)) -> dict[str, Any]:
-    identifier = payload.get("username") or payload.get("display_name") or payload.get("group")
-    if not isinstance(identifier, str) or not identifier.strip():
-        raise HTTPException(status_code=400, detail="需要 username 或 display_name")
-    status = WECHAT.status()
-    if not status.get("ready"):
-        raise HTTPException(status_code=503, detail="本机微信解密数据库尚未准备好")
-    try:
-        exported = WECHAT.export_group(
-            identifier.strip(),
-            resolve_files=bool(payload.get("resolve_files", False)),
-        )
-    except (ValueError, RuntimeError, OSError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    export_public = public_export_summary(exported)
-    return {
-        "status": "ok",
-        "source": export_public,
-        "messages_path": exported["messages_path"],
-        "files_path": exported["files_path"],
-        "message_count": exported["message_count"],
-        "file_count": exported["file_count"],
-        "resolved_file_count": export_public["resolved_file_count"],
-        "files": export_public["files"],
-        "refresh": exported.get("refresh"),
-        "read_only": True,
-    }
+    raise HTTPException(410, detail={"code": "legacy_source_disabled", "message": "旧微信导出及转发收件箱已停用，请使用本地只读采集或独立 JSON/ZIP 导入。"})
 
 
 @app.post("/api/wechat/analyze")
 async def wechat_analyze(payload: dict[str, Any] = Body(default_factory=dict)) -> JSONResponse:
-    identifier = payload.get("username") or payload.get("display_name") or payload.get("group")
-    if not isinstance(identifier, str) or not identifier.strip():
-        raise HTTPException(status_code=400, detail="需要 username 或 display_name")
-    status = WECHAT.status()
-    if not status.get("ready"):
-        raise HTTPException(status_code=503, detail="本机微信解密数据库尚未准备好")
-    try:
-        exported = await run_in_threadpool(
-            WECHAT.export_group,
-            identifier.strip(),
-            resolve_files=bool(payload.get("resolve_files", False)),
-        )
-    except (ValueError, RuntimeError, OSError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    from_date, to_date = date_range(payload.get("from_date"), payload.get("to_date"))
-    source = prepare_source(exported["source"], from_date, to_date)
-    source["source_kind"] = "wechat-local"
-    target_date = as_of_date(payload.get("as_of"))
-    profile = PROFILE.load_profile()
-    provider = str(payload.get("provider") or "local").strip().lower()
-    if provider == "local":
-        items, raw_count, lookup = local_items(source, target_date)
-        result = make_result(
-            source,
-            items,
-            raw_count,
-            target_date,
-            {"kind": "local", "label": "本地 Jev 基线", "calls": 0, "fallbacks": 0, "read_only_import": True},
-            lookup,
-            profile=profile,
-        )
-        export_public = public_export_summary(exported)
-        result["source_export"] = {
-            "messages_path": exported["messages_path"],
-            "files_path": exported["files_path"],
-            "file_count": exported["file_count"],
-            "resolved_file_count": export_public["resolved_file_count"],
-            "files": export_public["files"],
-            "refresh": exported.get("refresh"),
-        }
-        return JSONResponse(result)
-
-    api_key = str(payload.get("api_key") or "").strip()
-    endpoint = str(payload.get("endpoint") or "https://api.typesafe.ai/v1/systemone").strip()
-    if not api_key:
-        raise HTTPException(status_code=400, detail="远程模式需要 API key；本地微信导入本身不需要")
-    provider_kind, endpoint, model = resolve_remote_provider(provider, endpoint, str(payload.get("model") or ""))
-    if not endpoint.startswith(("http://", "https://")):
-        raise HTTPException(status_code=400, detail="endpoint 必须是 http:// 或 https:// 地址")
-    limit = max(1, min(safe_int(payload.get("max_candidates"), 48), 160))
-    items, raw_count, lookup, provider_meta = await jev_items(
-        source, target_date, endpoint, api_key, limit, model, provider_kind, profile
-    )
-    provider_meta["read_only_import"] = True
-    result = make_result(source, items, raw_count, target_date, provider_meta, lookup, profile=profile)
-    export_public = public_export_summary(exported)
-    result["source_export"] = {
-        "messages_path": exported["messages_path"],
-        "files_path": exported["files_path"],
-        "file_count": exported["file_count"],
-        "resolved_file_count": export_public["resolved_file_count"],
-        "files": export_public["files"],
-    }
-    return JSONResponse(result)
+    raise HTTPException(410, detail={"code": "legacy_source_disabled", "message": "旧微信导出及转发收件箱已停用，请使用本地只读采集或独立 JSON/ZIP 导入。"})
 
 
 @app.get("/api/sample")
@@ -1653,63 +1608,29 @@ async def analyze_archive(
 
 
 def start_inbox_watcher() -> None:
-    """启动 WorkBuddy 微信转发监视线程；poll_seconds=0 时自动关闭。"""
-    INBOX.start_watcher()
+    return None  # Legacy watcher permanently retired.
 
 
 @app.get("/api/inbox")
 def inbox_overview() -> dict[str, Any]:
-    """收件箱概览：每次访问顺带做一次即时扫描，保证刚转发就能看到。"""
-    try:
-        INBOX.scan()
-    except Exception:  # noqa: BLE001 - 概览接口不因扫描失败而挂掉
-        pass
-    return {"status": INBOX.status(), "items": INBOX.list_items()}
+    raise HTTPException(410, detail={"code": "legacy_source_disabled", "message": "旧微信导出及转发收件箱已停用，请使用本地只读采集或独立 JSON/ZIP 导入。"})
 
 
 @app.post("/api/inbox/import")
 async def inbox_import(payload: dict[str, Any] = Body(...)) -> JSONResponse:
-    """从收件箱导入指定 zip 并进入既有分拣流程。
-
-    入参 ``filename`` 必填（来自 ``GET /api/inbox`` 的条目）；其余可选参数
-    与 ``/api/analyze-archive`` 一致。导入成功后在 manifest 里标记 imported。
-    """
-    filename = str(payload.get("filename") or "").strip()
-    if not filename:
-        raise HTTPException(status_code=400, detail="缺少 filename，请先从收件箱列表选择")
-    try:
-        INBOX.scan()  # 即时扫一次，避免 watcher 间隔内刚转发的记录扑空
-        if not any(item.get("filename") == filename for item in INBOX.list_items()):
-            raise HTTPException(status_code=400, detail=f"收件箱里没有 {filename}，请刷新列表")
-        raw = await run_in_threadpool(INBOX.read_zip, filename)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    try:
-        result = await run_archive_analysis(
-            raw,
-            filename,
-            provider=str(payload.get("provider") or "local"),
-            api_key=str(payload.get("api_key") or ""),
-            endpoint=str(payload.get("endpoint") or "https://api.typesafe.ai/v1/systemone"),
-            model=str(payload.get("model") or "jev-system-one"),
-            as_of=payload.get("as_of"),
-            from_date=payload.get("from_date"),
-            to_date=payload.get("to_date"),
-            max_candidates=str(payload.get("max_candidates") or "48"),
-        )
-    except HTTPException as exc:
-        INBOX.mark_imported(filename, error=str(exc.detail))
-        raise
-    INBOX.mark_imported(filename)
-    result["source"]["source_kind"] = "inbox-import"
-    result["source"]["source_strategy"] = "workbuddy-share-inbox"
-    return JSONResponse(result)
+    raise HTTPException(410, detail={"code": "legacy_source_disabled", "message": "旧微信导出及转发收件箱已停用，请使用本地只读采集或独立 JSON/ZIP 导入。"})
 
 
-if DIST_ROOT.exists():
-    @app.get("/{path:path}")
-    def frontend(path: str):
-        requested = (DIST_ROOT / path).resolve()
-        if requested.is_file() and str(requested).startswith(str(DIST_ROOT.resolve())):
-            return FileResponse(requested)
-        return FileResponse(DIST_ROOT / "index.html")
+@app.get("/{path:path}")
+def frontend(path: str):
+    # The login Collector may start before the launcher prepares the frontend.
+    # Register this route once so a later build is served without restarting it.
+    dist = DIST_ROOT.resolve()
+    requested = (dist / path).resolve()
+    if not requested.is_relative_to(dist):
+        raise HTTPException(404, detail="页面不存在。")
+    if requested.is_file():
+        return FileResponse(requested)
+    if not (dist / "index.html").is_file():
+        raise HTTPException(503, detail="工作台页面尚未准备好，请从桌面重新打开 Attention Desk。")
+    return FileResponse(dist / "index.html")

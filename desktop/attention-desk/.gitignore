@@ -1,0 +1,16 @@
+node_modules/
+dist/
+artifacts/
+.pytest_cache/
+__pycache__/
+*.py[cod]
+*.sqlite*
+*.backup
+data/
+protected/
+.env
+.env.*
+!.env.example
+.openai/*.local.*
+.supabase/
+supabase/.temp/

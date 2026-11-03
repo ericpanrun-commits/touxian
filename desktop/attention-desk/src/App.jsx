@@ -531,15 +531,7 @@ function App() {
     loadProfile();
   }, []);
 
-  useEffect(() => {
-    if (!settingsOpen || sourceMode !== 'wechat') return undefined;
-    const controller = new AbortController();
-    const timer = window.setTimeout(() => loadWechatGroups(wechatQuery, controller.signal), 220);
-    return () => {
-      window.clearTimeout(timer);
-      controller.abort();
-    };
-  }, [settingsOpen, sourceMode, wechatQuery]);
+
 
   const loadInbox = async (signal) => {
     setInboxLoading(true);
@@ -556,20 +548,7 @@ function App() {
     }
   };
 
-  useEffect(() => {
-    if (!settingsOpen || sourceMode !== 'inbox') return undefined;
-    const controller = new AbortController();
-    loadInbox(controller.signal);
-    // 面板打开期间轮询，微信转发后几秒内自动出现在列表里
-    const timer = window.setInterval(() => {
-      if (!document.hidden) loadInbox();
-    }, 10000);
-    return () => {
-      controller.abort();
-      window.clearInterval(timer);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settingsOpen, sourceMode]);
+
 
   const runAnalysis = async (overrides = {}) => {
     const effectiveAsOf = overrides.asOf ?? asOf;
@@ -950,7 +929,7 @@ function App() {
   };
 
   return (
-    <div className={'app-shell' + (screen !== 'chat' ? ' personal-shell' : '')}>
+    <div className={'app-shell' + (screen !== 'chat' ? ' personal-shell' : '') + (screen === 'personal' ? ' desk-shell' : '')}>
       <aside className="sidebar">
         <div className="brand-lockup" title="Attention Desk">
           <div className="brand-mark"><img src="/touxian-icon.png" alt="" /></div>
@@ -974,7 +953,7 @@ function App() {
       </aside>
 
       <main className="main-canvas">
-        {screen === 'personal' ? <PersonalWorkspace navigationGuardRef={personalNavigationGuard} /> : screen === 'official' ? <OfficialMonitor onReview={snapshotId => {
+        {screen === 'personal' ? <PersonalWorkspace navigationGuardRef={personalNavigationGuard} onSwitchScreen={changeScreen} /> : screen === 'official' ? <OfficialMonitor onReview={snapshotId => {
           const url = new URL(window.location.href);
           ['official_sources', 'official_feed', 'official_item', 'official_offset', 'review_source'].forEach(key => url.searchParams.delete(key));
           url.searchParams.set('personal_raw', snapshotId);
@@ -1402,16 +1381,6 @@ function App() {
                   <Archive size={18} />
                   <span>聊天记录包</span>
                   <small>微信导出 zip</small>
-                </button>
-                <button className={sourceMode === 'wechat' ? 'source-option selected' : 'source-option'} onClick={() => setSourceMode('wechat')}>
-                  <MessageCircle size={18} />
-                  <span>本机微信</span>
-                  <small>导出器优先</small>
-                </button>
-                <button className={sourceMode === 'inbox' ? 'source-option selected' : 'source-option'} onClick={() => setSourceMode('inbox')}>
-                  <Inbox size={18} />
-                  <span>转发收件箱</span>
-                  <small>微信转发自动收</small>
                 </button>
               </div>
               {sourceMode === 'file' ? (

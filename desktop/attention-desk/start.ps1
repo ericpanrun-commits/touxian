@@ -38,7 +38,15 @@ try {
   if (-not (Test-Path -LiteralPath $venvPython)) { throw "尚未安装依赖，请先运行 .\start.ps1 -Install。" }
   if (-not (Test-Path -LiteralPath "node_modules\vite\bin\vite.js")) { throw "前端依赖不存在，请先运行 .\start.ps1 -Install。" }
   if ($ApiPort -eq $WebPort) { throw "前端和后端需要使用不同端口。" }
-  if ((Test-LocalPort $ApiPort) -or (Test-LocalPort $WebPort)) { throw "端口已被占用，请更换 -ApiPort 或 -WebPort；没有停止其他应用。" }
+  if (Test-LocalPort $WebPort) { throw "前端端口已被占用，请更换 -WebPort。" }
+  $reuseBackend = $false
+  if (Test-LocalPort $ApiPort) {
+    try {
+      $existingHealth = Invoke-RestMethod -Uri "http://127.0.0.1:$ApiPort/api/health?check_integrations=false" -NoProxy -TimeoutSec 3
+      $reuseBackend = ($existingHealth.status -eq 'ok' -and $existingHealth.background -eq $true)
+    } catch { $reuseBackend = $false }
+    if (-not $reuseBackend) { throw "后端端口已被占用，请更换 -ApiPort；没有停止其他应用。" }
+  }
 
   $env:ATTENTION_API_PORT = "$ApiPort"
   $env:ATTENTION_WEB_PORT = "$WebPort"
@@ -49,13 +57,17 @@ try {
   $logStamp = Get-Date -Format 'yyyyMMdd-HHmmss-fff'
   $stdoutLog = Join-Path $logDirectory "backend-$logStamp.out.log"
   $stderrLog = Join-Path $logDirectory "backend-$logStamp.err.log"
+  if (-not $reuseBackend) {
   $apiProcess = Start-Process -FilePath $venvPython -ArgumentList @("-m", "uvicorn", "server.main:app", "--host", "127.0.0.1", "--port", "$ApiPort", "--workers", "1") -WorkingDirectory $root -WindowStyle Hidden -PassThru -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog
+  }
 
   $ready = $false
   $startupDeadline = [DateTime]::UtcNow.AddSeconds(30)
   while ([DateTime]::UtcNow -lt $startupDeadline) {
-    $apiProcess.Refresh()
-    if ($apiProcess.HasExited) { break }
+    if ($null -ne $apiProcess) {
+      $apiProcess.Refresh()
+      if ($apiProcess.HasExited) { break }
+    }
     try {
       $health = Invoke-RestMethod -Uri "http://127.0.0.1:$ApiPort/api/health?check_integrations=false" -NoProxy -TimeoutSec 3
       if ($health.status -eq "ok") { $ready = $true; break }

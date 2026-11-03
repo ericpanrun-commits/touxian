@@ -9,7 +9,7 @@ if (-not $FirewallOnly) { foreach ($adapter in @(Get-NetAdapter -Physical | Wher
     $gateway = @(Get-NetRoute -InterfaceIndex $adapter.ifIndex -AddressFamily IPv4 -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue) | Select-Object -First 1
     if (-not $gateway) { continue }
     foreach ($address in @(Get-NetIPAddress -InterfaceIndex $adapter.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue)) {
-        $interfaces += @{id = [string]$adapter.ifIndex; name = $adapter.Name; address = $address.IPAddress; profile = if ($profile) { [string]$profile.NetworkCategory } else { 'Unknown' }}
+        $interfaces += @{id = [string]$adapter.ifIndex; name = $adapter.Name; address = $address.IPAddress; interface_guid = [string]$adapter.InterfaceGuid; network_id = if ($profile) { [string]$profile.Name } else { '' }; wireless = [bool]([string]$adapter.PhysicalMediaType -match '802.11'); profile = if ($profile) { [string]$profile.NetworkCategory } else { 'Unknown' }}
     }
 } }
 $firewall = @{private_enabled = $null; public_enabled = $null; matching_private_allow = $false; checked = $false}

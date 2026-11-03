@@ -1,5 +1,6 @@
 """Durable raw intake and review; formal entities are written only by confirmation."""
 from __future__ import annotations
+from contextlib import nullcontext
 
 import hashlib
 import json
@@ -30,11 +31,15 @@ class ReviewStore:
         review['item'] = dict(connection.execute('SELECT * FROM raw_item WHERE id=?', (review['snapshot']['raw_item_id'],)).fetchone())
         review['item']['source_type'] = review['item']['kind']
         review['source'] = dict(connection.execute('SELECT * FROM source WHERE id=?', (review['item']['source_id'],)).fetchone())
+        if review['item']['kind']=='wechat_batch':
+            review['wechat_candidates']=[dict(row) for row in connection.execute('SELECT id,model_item_id,status,event_id FROM wechat_candidate WHERE batch_id IN (SELECT id FROM wechat_batch WHERE snapshot_id=?)',(snapshot_id,))]
         for name in ("draft_json", "confirmed_event_ids"):
             review[name.removesuffix("_json")] = json.loads(review[name]) if review[name] else None
             if name.endswith("_json"):
                 del review[name]
         review["extraction"] = ReviewStore._extraction(connection, review["extraction_id"]) if review["extraction_id"] else None
+        from .courses import CourseStore
+        review["course_suggestions"]=CourseStore.suggestions(connection,review["snapshot"],review["extraction"])
         from .planning.source_update import comparison
         review['source_update'] = comparison(connection,review['snapshot']['raw_item_id'],snapshot_id,review['extraction'])
         return review
@@ -49,6 +54,7 @@ class ReviewStore:
                                ("token_usage_json", "token_usage"), ("config_json", "configuration"), ("progress_json", "progress"), ("plan_json", "plan")):
             value = result.pop(stored)
             result[public] = json.loads(value) if value else None
+        result['cost'] = json.loads(result.pop('cost_json', None) or 'null')
         result["thinking"] = bool(result["thinking"])
         result['chunks'] = []
         for chunk in connection.execute('SELECT * FROM ai_chunk_extraction WHERE extraction_id=? ORDER BY created_at,id',(extraction_id,)):
@@ -68,7 +74,9 @@ class ReviewStore:
         with self.personal.connection() as connection:
             where = "r.status != 'confirmed'" + (' AND (i.source_id=? OR EXISTS (SELECT 1 FROM official_item_source os WHERE os.raw_item_id=i.id AND os.source_id=?))' if source_id else '')
             # A phone intake may gain a parsed snapshot; queue only its newest version.
-            where += " AND (i.source_id!='mobile' OR NOT EXISTS (SELECT 1 FROM raw_snapshot newer WHERE newer.raw_item_id=s.raw_item_id AND (newer.created_at>s.created_at OR (newer.created_at=s.created_at AND newer.id>s.id))))"
+            where += " AND ((i.source_id!='mobile' AND i.kind!='wechat_batch') OR NOT EXISTS (SELECT 1 FROM raw_snapshot newer WHERE newer.raw_item_id=s.raw_item_id AND (newer.created_at>s.created_at OR (newer.created_at=s.created_at AND newer.id>s.id))))"
+            where += " AND NOT EXISTS (SELECT 1 FROM wechat_batch wb WHERE wb.snapshot_id=s.id AND wb.superseded_by IS NOT NULL)"
+            where += " AND (i.kind!='wechat_batch' OR EXISTS(SELECT 1 FROM wechat_candidate ca JOIN wechat_batch wb ON wb.id=ca.batch_id WHERE wb.snapshot_id=s.id AND ca.status='needs_review' AND ca.attention_level='action' AND ca.information_complete=1 AND ca.await_more_context=0))"
             parameters = [source_id, source_id] if source_id else []
             total = connection.execute('SELECT COUNT(*) FROM raw_review r JOIN raw_snapshot s ON s.id=r.raw_snapshot_id JOIN raw_item i ON i.id=s.raw_item_id WHERE ' + where, parameters).fetchone()[0]
             rows = connection.execute("""SELECT r.raw_snapshot_id, r.title_hint, r.status, r.updated_at, r.version,
@@ -93,9 +101,9 @@ class ReviewStore:
         connection.execute("INSERT INTO raw_review (raw_snapshot_id,title_hint,created_at,updated_at) VALUES (?,?,?,?)", (snapshot_id, title_hint, stamp, stamp))
         return snapshot_id
 
-    def collect(self, payload: RawInput, submission_id=None, *, source_id='manual_text', source_kind='manual_text', source_name='手动粘贴', raw_kind=None):
+    def collect(self, payload: RawInput, submission_id=None, *, source_id='manual_text', source_kind='manual_text', source_name='手动粘贴', raw_kind=None, connection=None):
         fingerprint = hashlib.sha256(encode(payload.model_dump()).encode("utf-8")).hexdigest()
-        with self.personal.connection(write=True) as connection:
+        with (nullcontext(connection) if connection is not None else self.personal.connection(write=True)) as connection:
             if submission_id:
                 existing = connection.execute("SELECT id, submission_hash FROM raw_item WHERE submission_id=?", (submission_id,)).fetchone()
                 if existing:
@@ -113,7 +121,14 @@ class ReviewStore:
         if len(encode(draft)) > 250000:
             raise PersonalError("草稿内容过大，请缩小后再保存。")
         with self.personal.connection(write=True) as connection:
-            self._review(connection, snapshot_id, expected_version, editable=True)
+            current=self._review(connection, snapshot_id, expected_version, editable=True)
+            if connection.execute('SELECT 1 FROM wechat_batch WHERE snapshot_id=?',(snapshot_id,)).fetchone() and current['draft_json']:
+                previous=json.loads(current['draft_json'])
+                combined={event['id']:event for event in previous.get('events',[])}
+                combined.update({event['id']:event for event in draft.get('events',[])})
+                draft={**draft,'events':list(combined.values())}
+                if len(encode(draft))>250000:
+                    raise PersonalError('草稿内容过大，请缩小后再保存。')
             connection.execute("UPDATE raw_review SET draft_json=?, version=version+1, updated_at=? WHERE raw_snapshot_id=?", (encode(draft), now(), snapshot_id))
             return self._bundle(connection, snapshot_id)
 
@@ -123,25 +138,71 @@ class ReviewStore:
             if review["status"] == "confirmed":
                 raise PersonalError("原文已经确认，正式事项仍保留。", "review_closed", 409)
             connection.execute("UPDATE raw_review SET status=?,version=version+1,updated_at=? WHERE raw_snapshot_id=?", (status, now(), snapshot_id))
+            batch = connection.execute('SELECT id FROM wechat_batch WHERE snapshot_id=?',(snapshot_id,)).fetchone()
+            if batch:
+                if status == 'cancelled':
+                    connection.execute("UPDATE wechat_batch SET status='ignored' WHERE id=?",(batch['id'],))
+                    connection.execute("UPDATE wechat_analysis_job SET status='ignored' WHERE batch_id=? AND status IN ('pending','budget_deferred','retry')",(batch['id'],))
+                    connection.execute("UPDATE wechat_candidate SET status='ignored' WHERE batch_id=? AND status!='accepted'",(batch['id'],))
+                elif status == 'pending':
+                    connection.execute("UPDATE wechat_batch SET status='pending' WHERE id=? AND status='ignored'",(batch['id'],))
+                    connection.execute("UPDATE wechat_analysis_job SET status='pending' WHERE batch_id=? AND status='ignored'",(batch['id'],))
+                    connection.execute("UPDATE wechat_candidate SET status=CASE WHEN attention_level='action' AND information_complete=1 AND await_more_context=0 THEN 'needs_review' ELSE COALESCE((SELECT json_extract(q.decision_json,'$.bucket') FROM wechat_attention_state q WHERE q.candidate_id=wechat_candidate.id),'unresolved') END WHERE batch_id=? AND status='ignored'",(batch['id'],))
+                    if not connection.execute("SELECT 1 FROM wechat_candidate WHERE batch_id=? AND status='needs_review' LIMIT 1",(batch['id'],)).fetchone():
+                        connection.execute("UPDATE raw_review SET status='archived' WHERE raw_snapshot_id=?",(snapshot_id,))
             return self._bundle(connection, snapshot_id)
 
-    def confirm(self, snapshot_id: str, payload: ConfirmationInput):
+    def confirm(self, snapshot_id: str, payload: ConfirmationInput, *, fyi_candidate_id=None, fyi_version=None):
         data = payload.model_dump(exclude={"expected_version"})
+        # Preserve pre-v20 confirmation fingerprints when the optional association is empty.
+        for item in data["events"]:
+            if item.get("course_id") is None:
+                item.pop("course_id",None)
         fingerprint = hashlib.sha256(encode(data).encode("utf-8")).hexdigest()
         with self.personal.connection(write=True) as connection:
             review = self._review(connection, snapshot_id)
-            if review["status"] == "confirmed":
+            batch=connection.execute('SELECT id FROM wechat_batch WHERE snapshot_id=?',(snapshot_id,)).fetchone()
+            selected_ids=[event.id for event in payload.events if event.selected]
+            if batch:
+                if fyi_candidate_id:
+                    manual=connection.execute("SELECT model_item_id FROM wechat_candidate WHERE id=? AND batch_id=? AND attention_level='fyi' AND status IN ('fyi','accepted')",(fyi_candidate_id,batch['id'])).fetchone()
+                    if not manual or len(payload.events)!=1 or selected_ids!=[manual['model_item_id']]:
+                        raise PersonalError('只能手动转换当前这条参考信息。','invalid_reference',400)
+                handled=[dict(row) for row in connection.execute('SELECT model_item_id,status,event_id,confirmation_hash FROM wechat_candidate WHERE batch_id=?',(batch['id'],)) if row['model_item_id'] in selected_ids]
+                if handled and all(row['status']=='accepted' for row in handled) and len(handled)==len(selected_ids):
+                    if not all(row['confirmation_hash']==fingerprint for row in handled):
+                        raise PersonalError('此候选已用其他内容确认，未重复创建事项。','confirmation_conflict',409)
+                    return {'events':[self.personal._detail(connection,row['event_id']) for row in handled],'review':self._bundle(connection,snapshot_id)}
+                if any(row['status'] in {'accepted','ignored'} for row in handled):
+                    raise PersonalError('候选已处理，请刷新待复核列表。','review_closed',409)
+                qualified={row[0] for row in connection.execute("SELECT model_item_id FROM wechat_candidate WHERE batch_id=? AND status='needs_review' AND attention_level='action' AND information_complete=1 AND await_more_context=0",(batch['id'],))}
+                if fyi_candidate_id:
+                    fyi=connection.execute("SELECT ca.model_item_id,f.version,f.state FROM wechat_candidate ca JOIN wechat_fyi_state f ON f.candidate_id=ca.id WHERE ca.id=? AND ca.batch_id=? AND ca.attention_level='fyi' AND ca.status='fyi'",(fyi_candidate_id,batch['id'])).fetchone()
+                    if not fyi or selected_ids!=[fyi['model_item_id']]:
+                        raise PersonalError('只能手动转换当前这条参考信息。','invalid_reference',400)
+                    if fyi['version']!=fyi_version:
+                        raise PersonalError('参考信息已更新，请重新打开后保存。','conflict',409)
+                    qualified={fyi['model_item_id']}
+                if not set(selected_ids)<=qualified:
+                    raise PersonalError('只有已确认相关且信息完整的行动事项可进入确认流程。','attention_not_action',409)
+            if review["status"] == "confirmed" and not fyi_candidate_id:
                 if review["confirmation_hash"] != fingerprint:
                     raise PersonalError("这条原文已用其他内容确认，不会重复创建事项。", "confirmation_conflict", 409)
                 ids = json.loads(review["confirmed_event_ids"])
                 return {"events": [self.personal._detail(connection, value) for value in ids], "review": self._bundle(connection, snapshot_id)}
-            self._review(connection, snapshot_id, payload.expected_version, editable=True)
+            self._review(connection, snapshot_id, payload.expected_version, editable=not fyi_candidate_id)
             if review["extraction_id"] != payload.extraction_id:
                 raise PersonalError("分析版本已改变，请重新读取预览。", "conflict", 409)
             extraction = self._extraction(connection, payload.extraction_id) if payload.extraction_id else None
             if extraction and extraction["status"] in {"running", "waiting"}:
                 raise PersonalError("分析仍在进行，请等待完成后确认。", "analysis_running", 409)
             snapshot_meta = snapshot_with_metadata(connection,connection.execute('SELECT * FROM raw_snapshot WHERE id=?',(snapshot_id,)).fetchone())
+            if snapshot_meta.get('wechat',{}).get('superseded_by'):
+                raise PersonalError('微信通知已有新候选，请先核对最新版本。','superseded',409)
+            if snapshot_meta.get('wechat'):
+                latest=connection.execute('SELECT id FROM raw_snapshot WHERE raw_item_id=? ORDER BY created_at DESC,id DESC LIMIT 1',(snapshot_meta['raw_item_id'],)).fetchone()
+                if latest['id']!=snapshot_id:
+                    raise PersonalError('图片或上下文已有新版本，请先核对最新原文。','superseded',409)
             if snapshot_meta.get('attachments') and not snapshot_meta.get('blocks') and not snapshot_meta.get('web'):
                 raise PersonalError('请先解析文件，再确认其中的内容。','files_pending',409)
             if (snapshot_meta.get('document_warnings') or extraction and (extraction.get("validation") or {}).get("warnings")) and not payload.acknowledged_warnings:
@@ -154,11 +215,16 @@ class ReviewStore:
             snapshot = dict(connection.execute("SELECT * FROM raw_snapshot WHERE id=?", (snapshot_id,)).fetchone())
             event_ids = []
             for candidate in selected:
+                if snapshot_meta.get('wechat') and candidate.participation == 'yes' and candidate.relevance != 'yes':
+                    raise PersonalError('请先明确确认这条微信通知与你相关，再选择执行。','relevance_confirmation_required',400)
                 event_id, stamp = identifier(), now()
                 declined = candidate.participation == "no" or candidate.relevance == "no"
-                status = "cancelled" if declined else "needs_review"
+                status = 'cancelled' if declined else 'needs_action' if snapshot_meta.get('wechat') and candidate.participation=='yes' and candidate.relevance=='yes' else 'needs_review'
                 connection.execute("INSERT INTO event (id,raw_item_id,raw_snapshot_id,title,summary,category,status,previous_status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
                                    (event_id, snapshot["raw_item_id"], snapshot_id, candidate.title, candidate.summary, candidate.category, status, "needs_review" if declined else None, stamp, stamp))
+                from .courses import course_public
+                course_public(connection,candidate.course_id)
+                connection.execute("UPDATE event SET course_id=? WHERE id=?",(candidate.course_id,event_id))
                 event = self.personal._event(connection, event_id)
                 deadline_map = {}
                 if len({value.id for value in candidate.deadlines}) != len(candidate.deadlines) or len({value.id for value in candidate.actions}) != len(candidate.actions):
@@ -169,8 +235,8 @@ class ReviewStore:
                     self.personal._original_phrase(connection, event, deadline.original_text)
                     deadline_id = identifier()
                     deadline_map[deadline.id] = deadline_id
-                    connection.execute("INSERT INTO deadline (id,event_id,label,value,precision,original_text,confirmed_by_user,created_at,updated_at) VALUES (?,?,?,?,?,?,1,?,?)",
-                                       (deadline_id, event_id, deadline.role, deadline.value, deadline.precision, deadline.original_text, stamp, stamp))
+                    connection.execute("INSERT INTO deadline (id,event_id,label,value,precision,original_text,confirmed_by_user,created_at,updated_at,end_value,range_precision,timezone) VALUES (?,?,?,?,?,?,1,?,?,?,?,?)",
+                                       (deadline_id, event_id, deadline.role, deadline.value, deadline.precision, deadline.original_text, stamp, stamp,deadline.end_value,deadline.range_precision,'Asia/Shanghai'))
                     for evidence in deadline.evidence:
                         self.personal._evidence(connection, event, f"deadlines.{deadline_id}.value", evidence)
                 for name in ("audience", "eligibility", "materials", "locations"):
@@ -198,8 +264,19 @@ class ReviewStore:
                 self.personal._audit(connection, event_id, "extraction_confirmed", event_id, None,
                                      {"ai_extraction_id": payload.extraction_id, "review": record, "acknowledged_warnings": payload.acknowledged_warnings})
                 event_ids.append(event_id)
-            connection.execute("UPDATE raw_review SET status='confirmed',version=version+1,draft_json=?,confirmation_hash=?,confirmed_event_ids=?,updated_at=? WHERE raw_snapshot_id=?",
-                               (encode(data), fingerprint, encode(event_ids), now(), snapshot_id))
+                connection.execute("UPDATE wechat_candidate SET status='accepted',event_id=?,confirmation_hash=? WHERE batch_id IN (SELECT id FROM wechat_batch WHERE snapshot_id=?) AND model_item_id=?",(event_id,fingerprint,snapshot_id,candidate.id))
+                if fyi_candidate_id:
+                    connection.execute("UPDATE wechat_fyi_state SET state='converted',event_id=?,archive_reason='converted',pinned_until=NULL,version=version+1,updated_at=? WHERE candidate_id=?",(event_id,stamp,fyi_candidate_id))
+            connection.execute("UPDATE wechat_candidate SET status='accepted',event_id=?,confirmation_hash=? WHERE batch_id IN (SELECT id FROM wechat_batch WHERE snapshot_id=?) AND model_item_id='_pending' AND status='needs_review'",(event_ids[0],fingerprint,snapshot_id))
+            remaining=connection.execute("SELECT count(*) FROM wechat_candidate WHERE batch_id=? AND status='needs_review'",(batch['id'],)).fetchone()[0] if batch else 0
+            all_ids=list(dict.fromkeys([*json.loads(review['confirmed_event_ids'] or '[]'),*event_ids]))
+            saved_data=data
+            if fyi_candidate_id and review['draft_json']:
+                previous=json.loads(review['draft_json'])
+                saved_data={**previous,**data,'events':[*[e for e in previous.get('events',[]) if e.get('id') not in selected_ids],*data['events']]}
+            connection.execute("UPDATE raw_review SET status=?,version=version+1,draft_json=?,confirmation_hash=?,confirmed_event_ids=?,updated_at=? WHERE raw_snapshot_id=?",
+                               ('pending' if remaining else 'confirmed',encode(saved_data),fingerprint,encode(all_ids),now(),snapshot_id))
+            connection.execute('UPDATE wechat_batch SET status=? WHERE snapshot_id=?',('needs_review' if remaining else 'accepted',snapshot_id))
             return {"events": [self.personal._detail(connection, value) for value in event_ids], "review": self._bundle(connection, snapshot_id)}
 
     def _activate_tasks(self, connection, event, actions, deadline_map):

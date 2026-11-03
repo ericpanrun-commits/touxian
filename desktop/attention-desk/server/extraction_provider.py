@@ -1,11 +1,9 @@
 """Provider boundary. Only DeepSeek is implemented; no domain writes occur here."""
 from __future__ import annotations
 
-import asyncio
 import json
 from dataclasses import dataclass
 from typing import Protocol
-import httpx
 from pydantic import SecretStr
 from .ai_settings import AIConfig
 from .extraction_models import ExtractionOutput
@@ -81,48 +79,8 @@ class DeepSeekProvider:
         self.transport = transport  # Test-only injection of an HTTP transport.
 
     async def extract(self, snapshot, config, api_key):
-        key = api_key.get_secret_value()
-        if not key:
-            raise ExtractionFailure("missing_key", "原文已保存。请在提取设置填写 DeepSeek API Key，或继续手动整理。")
-        endpoint = config.base_url.rstrip("/")
-        if not endpoint.endswith("/chat/completions"):
-            endpoint += "/chat/completions"
+        from .ai_transport import DeepSeekTransport
         body = {"model": config.model, "messages": extraction_messages(snapshot), "response_format": {"type": "json_object"},
                 "max_tokens": config.max_output_tokens, "thinking": {"type": "enabled" if config.thinking else "disabled"}, "stream": False}
-        errors = {401: ("unauthorized", "DeepSeek 密钥无效，请检查提取设置。"), 403: ("forbidden", "DeepSeek 拒绝访问，请检查账户权限。"),
-                  402: ("insufficient_balance", "DeepSeek 余额不足，原文仍然保留。"), 429: ("rate_limited", "DeepSeek 请求过于频繁，请稍后重新分析。")}
-        attempts = 0
-        try:
-            async with httpx.AsyncClient(timeout=config.timeout, transport=self.transport, follow_redirects=False) as client:
-                available = min(2, max(1, snapshot.get('_http_attempts_remaining', 2)))
-                for attempt in range(available):
-                    attempts += 1
-                    response = await client.post(endpoint, json=body, headers={"Authorization": "Bearer " + key})
-                    if response.status_code in {429, 502, 503} and attempt + 1 < available:
-                        await asyncio.sleep(0.5)
-                        continue
-                    if response.status_code >= 400 or response.is_redirect:
-                        code, message = errors.get(response.status_code, ("provider_error", "DeepSeek 服务暂时无法完成分析，请稍后重试或手动整理。"))
-                        raise ExtractionFailure(code, message, attempts=attempts)  # Never expose remote error bodies or request headers.
-                    if len(response.content) > 2_000_000:
-                        raise ExtractionFailure("response_too_large", "模型返回过大，请缩小通知后重试。", attempts=attempts)
-                    try:
-                        data = response.json()
-                        choice = data["choices"][0]
-                        content = choice["message"]["content"]
-                        usage = safe_usage(data.get("usage"))
-                    except (ValueError, KeyError, IndexError, TypeError):
-                        raise ExtractionFailure("invalid_response", "DeepSeek 响应结构不正确，原文已保留。", attempts=attempts)
-                    raw = content.replace(key, "[redacted]") if isinstance(content, str) else ""
-                    if choice.get("finish_reason") == "length" or usage.get('completion_tokens', 0) >= config.max_output_tokens:
-                        raise ExtractionFailure("truncated", "模型输出达到上限，未使用不完整候选。长文将尝试缩小分析区域；仍可手动整理。", raw_output=raw, usage=usage, attempts=attempts, finish_reason=choice.get('finish_reason'))
-                    if choice.get("finish_reason") != "stop":
-                        raise ExtractionFailure("incomplete_output", "模型未正常完成输出，原文仍然保留。", raw_output=raw, usage=usage, attempts=attempts, finish_reason=choice.get('finish_reason'))
-                    if not raw.strip():
-                        raise ExtractionFailure("empty_output", "DeepSeek 返回空结果，请重新分析或手动整理。", raw_output=raw, usage=usage, attempts=attempts)
-                    model = data.get("model", "")
-                    return ProviderResult(raw, usage, model[:100].replace(key, "[redacted]") if isinstance(model, str) else "", choice.get('finish_reason'), attempts)
-        except httpx.TimeoutException:
-            raise ExtractionFailure("timeout", "DeepSeek 分析超时。原文已保存，可重试或手动整理。", attempts=attempts)
-        except httpx.HTTPError:
-            raise ExtractionFailure("connection_error", "无法连接 DeepSeek。原文已保存，请检查网络或继续手动整理。", attempts=attempts)
+        available = min(2, max(1, snapshot.get('_http_attempts_remaining', 2)))
+        return await DeepSeekTransport(self.transport).request(body, config, api_key, attempts=available)

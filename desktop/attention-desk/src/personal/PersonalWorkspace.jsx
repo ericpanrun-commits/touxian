@@ -1,4 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import EricInbox from './EricInbox';
+import SchoolWorkspace from './SchoolWorkspace';
+import LearningWorkspace from './LearningWorkspace';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowLeft, Check, ClipboardPlus, LoaderCircle, Plus, RefreshCw, RotateCcw } from 'lucide-react';
 import { personalRequest } from './api';
 import { DeadlineForm, EventEditForm, TaskForm } from './Forms';
@@ -10,8 +13,17 @@ import { CalendarView, OfficialHomePreview, PlanningWorkbench, WorkbenchTabs } f
 import { ReminderCenter, ReminderSettings } from './ReminderViews';
 import BarkSettings from './BarkSettings';
 import IcsExport from './IcsExport';
+import WeChatSettings from './WeChatSettings';
+import WeChatCandidates from './WeChatCandidates';
+import UserContextSettings from './UserContextSettings';
+import { wechatCategory } from './wechatHelpers';
 import './personal.css';
 import './planning.css';
+import DeskChrome from './DeskChrome';
+import DeskSheet from './DeskSheet';
+import { CourseEditor } from './CourseField';
+import TodayDesk from './TodayDesk';
+import './desk.css';
 
 const STATUS = { needs_review: '待确认', needs_action: '待行动', in_progress: '进行中', done: '已完成', cancelled: '已取消' };
 const ORIGIN = { explicit: '原文明确要求', suggested: '辅助建议', manual: '我自行添加' };
@@ -19,7 +31,7 @@ const DECISIONS = { event_created: '创建事项', event_edited: '修改事项�
 const dateFormatter = new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium', timeStyle: 'short' });
 const displayTimestamp = (value) => dateFormatter.format(new Date(value));
 
-function setEventUrl(eventId, rawId = null, settingsOpen = false, collectorOpen = false, view = null) {
+function setEventUrl(eventId, rawId = null, settingsOpen = false, collectorOpen = false, view = null, candidateId = null) {
   const url = new URL(window.location.href);
   if (eventId) url.searchParams.set('personal_event', eventId);
   else url.searchParams.delete('personal_event');
@@ -29,8 +41,11 @@ function setEventUrl(eventId, rawId = null, settingsOpen = false, collectorOpen 
   else url.searchParams.delete('personal_settings');
   if (collectorOpen) url.searchParams.set('personal_collector', '1');
   else url.searchParams.delete('personal_collector');
+  if (view !== 'school') url.searchParams.delete('school_lecture');
   if (view) url.searchParams.set('personal_view', view);
   else url.searchParams.delete('personal_view');
+  if (candidateId) url.searchParams.set('personal_candidate', candidateId);
+  else url.searchParams.delete('personal_candidate');
   window.history.replaceState({}, '', url);
 }
 
@@ -38,16 +53,16 @@ function listItem(event) {
   return { ...event, task_count: event.tasks.length, completed_task_count: event.tasks.filter((task) => task.status === 'done').length, deadline_count: event.deadlines.length };
 }
 
-export default function PersonalWorkspace({ navigationGuardRef }) {
+export default function PersonalWorkspace({ navigationGuardRef, onSwitchScreen }) {
   const initialId = new URLSearchParams(window.location.search).get('personal_event');
   const initialRaw = new URLSearchParams(window.location.search).get('personal_raw');
   const initialSettings = new URLSearchParams(window.location.search).get('personal_settings') === '1';
   const initialCollector = new URLSearchParams(window.location.search).get('personal_collector') === '1';
   const initialView = new URLSearchParams(window.location.search).get('personal_view');
-  const [mode, setMode] = useState(initialCollector ? 'collector' : initialSettings ? 'settings' : initialId ? 'detail' : initialRaw ? 'review' : ['today', 'upcoming', 'list', 'calendar', 'reminders', 'reminder-settings', 'bark-settings'].includes(initialView) ? initialView : 'today');
+  const [mode, setMode] = useState(initialCollector ? 'collector' : initialSettings ? 'settings' : initialId ? 'detail' : initialRaw ? 'review' : ['today', 'upcoming', 'list', 'calendar', 'reminders', 'reminder-settings', 'bark-settings', 'wechat-settings', 'wechat-inbox', 'user-context', 'eric-inbox', 'school', 'learning'].includes(initialView) ? initialView : 'today');
   const [listStatus, setListStatus] = useState('active');
   const [selectedId, setSelectedId] = useState(initialId || initialRaw);
-  const [intent, setIntent] = useState(null);
+  const [intent, setIntent] = useState(() => { const candidateId = new URLSearchParams(window.location.search).get('personal_candidate'); return candidateId ? { candidateId } : null; });
   const [event, setEvent] = useState(null);
   const [items, setItems] = useState([]);
   const [total, setTotal] = useState(0);
@@ -95,7 +110,7 @@ export default function PersonalWorkspace({ navigationGuardRef }) {
   }, [dirty]);
 
   useEffect(() => {
-    document.title = mode === 'collector' ? '手机收集 · Attention Desk' : mode === 'collect' ? '收集通知 · Attention Desk' : mode === 'review' ? '提取预览 · Attention Desk' : mode === 'settings' ? '提取设置 · Attention Desk' : mode === 'detail' && event ? `${event.title} · Attention Desk` : `${({ today: 'Today', upcoming: 'Upcoming', calendar: 'Calendar', reminders: '提醒中心', 'reminder-settings': '提醒设置', 'bark-settings': 'Bark 手机通知' })[mode] || '个人事项'} · Attention Desk`;
+    document.title = mode === 'collector' ? '手机收集 · Attention Desk' : mode === 'collect' ? '收集通知 · Attention Desk' : mode === 'review' ? '提取预览 · Attention Desk' : mode === 'settings' ? '提取设置 · Attention Desk' : mode === 'detail' && event ? `${event.title} · Attention Desk` : `${({ learning: 'Learning', school: '课堂', 'eric-inbox': 'Eric Inbox', today: '今天', upcoming: 'Upcoming', calendar: 'Calendar', reminders: '提醒中心', 'reminder-settings': '提醒设置', 'bark-settings': 'Bark 手机通知', 'wechat-settings': '微信采集', 'wechat-inbox': '微信待确认', 'user-context': '用户画像' })[mode] || '个人事项'} · Attention Desk`;
   }, [mode, event?.title]);
 
   useEffect(() => {
@@ -119,9 +134,9 @@ export default function PersonalWorkspace({ navigationGuardRef }) {
     focusAfterLoad.current = true;
     setEditor(null); setEditorDirty(false); setCollectionDirty(false); setSelectedEvidence(null); setError(null); setNotice('');
     setEvent(null); setSelectedId(id); setMode(nextMode); setIntent(nextIntent); setReloadVersion(current => current + 1);
-    setEventUrl(nextMode === 'detail' ? id : null, ['review', 'settings'].includes(nextMode) ? id : null, nextMode === 'settings', nextMode === 'collector', ['today', 'upcoming', 'list', 'calendar', 'reminders', 'reminder-settings', 'bark-settings'].includes(nextMode) ? nextMode : null);
+    setEventUrl(nextMode === 'detail' ? id : null, ['review', 'settings'].includes(nextMode) ? id : null, nextMode === 'settings', nextMode === 'collector', ['today', 'upcoming', 'list', 'calendar', 'reminders', 'reminder-settings', 'bark-settings', 'wechat-settings', 'wechat-inbox', 'user-context', 'eric-inbox', 'school', 'learning'].includes(nextMode) ? nextMode : null, nextIntent?.candidateId);
     };
-    if (nextIntent) performNavigation(); else requestLeave(performNavigation);
+    if (typeof nextIntent === 'string') performNavigation(); else requestLeave(performNavigation);
   };
 
   const applyEvent = (saved) => {
@@ -165,27 +180,32 @@ export default function PersonalWorkspace({ navigationGuardRef }) {
   const terminal = event && ['done', 'cancelled'].includes(event.status);
   const waitingParticipation = event?.context && (event.context.participation !== 'yes' || event.context.relevance === 'no' || event.context.notice_kind === 'cancellation');
   const allComplete = event?.tasks.length > 0 && event.tasks.every((task) => task.status === 'done');
+  const savedNotice = event?.category === 'notice' && event?.status === 'needs_review' && event?.context && !event.tasks.length && !event.deadlines.length && !event.context.planned_actions?.length;
   const openProjection = (id, evidenceId) => navigate('detail', id, evidenceId ? { evidenceId } : null);
-  const reportChildBusy = value => { mutationPending.current = value; setBusy(value); };
+  const reportChildBusy = useCallback(value => { mutationPending.current = value; setBusy(value); }, []);
   const deadlineSource = deadline => event.evidence_snapshots?.[deadline?.source_snapshot_id] || event.snapshot;
   const originalSource = selectedEvidence ? event?.evidence_snapshots?.[selectedEvidence.raw_snapshot_id] || event?.snapshot : event?.snapshot;
 
   return <div className="personal-workspace">
-    <header className="topbar personal-topbar"><div className="group-context"><ClipboardPlus size={19} /><div><span className="context-label">个人工作台</span><strong>收集与事项</strong></div></div>
-      <div className="topbar-actions"><button type="button" className="button button-quiet" disabled={busy} onClick={() => navigate('today')}>工作台</button><button type="button" className="button button-quiet" disabled={busy} onClick={() => navigate('calendar')}>Calendar</button><button type="button" className="button button-quiet" disabled={busy} onClick={() => navigate('reminder-settings')}>设置</button><button type="button" className="button button-quiet" disabled={busy} onClick={() => navigate('collector')}>手机收集</button><button type="button" className="button button-primary" disabled={busy} onClick={() => navigate('collect')}><Plus size={16} />收集通知</button></div>
-    </header>
+    <DeskChrome mode={mode} busy={busy} onNavigate={navigate} onSwitchScreen={onSwitchScreen} />
     <div className="personal-content">
       <div className="personal-feedback" aria-live="polite" role="status">{notice}</div>
       {error ? <div className="error-banner personal-error" role="alert"><span>{error.message}</span><button type="button" className="button button-quiet" disabled={busy} onClick={() => mode === 'collect' ? navigate('list') : refresh()}>重新读取已保存内容</button></div> : null}
       {loading ? <div className="personal-loading" role="status"><LoaderCircle size={19} className="spin" />正在读取已保存的事项…</div> : null}
 
-      {['settings', 'reminder-settings', 'bark-settings'].includes(mode) ? <div className="planning-views planning-settings-nav" role="group" aria-label="设置类别"><button type="button" className={`button ${mode === 'reminder-settings' ? 'button-primary' : 'button-quiet'}`} aria-pressed={mode === 'reminder-settings'} disabled={busy} onClick={() => navigate('reminder-settings')}>提醒与日历</button><button type="button" className={`button ${mode === 'settings' ? 'button-primary' : 'button-quiet'}`} aria-pressed={mode === 'settings'} disabled={busy} onClick={() => navigate('settings', selectedId)}>AI 提取</button><button type="button" className={`button ${mode === 'bark-settings' ? 'button-primary' : 'button-quiet'}`} aria-pressed={mode === 'bark-settings'} disabled={busy} onClick={() => navigate('bark-settings')}>Bark 手机通知</button></div> : null}
+      {['settings', 'reminder-settings', 'bark-settings', 'wechat-settings', 'user-context'].includes(mode) ? <div className="planning-views planning-settings-nav" role="group" aria-label="设置类别"><button type="button" className={`button ${mode === 'reminder-settings' ? 'button-primary' : 'button-quiet'}`} aria-pressed={mode === 'reminder-settings'} disabled={busy} onClick={() => navigate('reminder-settings')}>提醒与日历</button><button type="button" className={`button ${mode === 'settings' ? 'button-primary' : 'button-quiet'}`} aria-pressed={mode === 'settings'} disabled={busy} onClick={() => navigate('settings', selectedId)}>AI 提取</button><button type="button" className={`button ${mode === 'bark-settings' ? 'button-primary' : 'button-quiet'}`} aria-pressed={mode === 'bark-settings'} disabled={busy} onClick={() => navigate('bark-settings')}>Bark 手机通知</button><button type="button" className={`button ${mode === 'wechat-settings' ? 'button-primary' : 'button-quiet'}`} aria-pressed={mode === 'wechat-settings'} disabled={busy} onClick={() => navigate('wechat-settings')}>微信采集</button><button type="button" className={`button ${mode === 'user-context' ? 'button-primary' : 'button-quiet'}`} aria-pressed={mode === 'user-context'} disabled={busy} onClick={() => navigate('user-context')}>用户画像</button></div> : null}
       {['collect', 'review', 'settings'].includes(mode) ? <ExtractionWorkspace key={`${mode}-${selectedId}-${reloadVersion}`} mode={mode} snapshotId={selectedId} intent={intent} onNavigate={navigate}
         onDirtyChange={setCollectionDirty} onBusyChange={reportChildBusy} onCreated={(events, metadata) => { applyEvent(events[0]); setNotice(metadata?.sourceUpdated ? '来源日期已更新。未来提醒与日历会使用确认后的日期，历史保留。' : `已确认并保存 ${events.length} 个事项，任务按你的参与决定创建。`); }} /> : null}
+      {mode === 'school' ? <SchoolWorkspace initialRawId={intent?.rawItemId} initialCourseId={intent?.courseId} onNavigate={navigate} onDirtyChange={setCollectionDirty} onBusyChange={reportChildBusy} /> : null}
+      {mode === 'learning' ? <LearningWorkspace onNavigate={navigate} onDirtyChange={setCollectionDirty} onBusyChange={reportChildBusy} /> : null}
+      {mode === 'eric-inbox' ? <EricInbox initialAdd={intent?.addInput} onNavigate={navigate} onDirtyChange={setCollectionDirty} onBusyChange={reportChildBusy} /> : null}
       {mode === 'collector' ? <MobileCollectorSettings onDirtyChange={setCollectionDirty} onBusyChange={reportChildBusy} onBack={() => navigate('today')} /> : null}
-      {['today', 'upcoming', 'list'].includes(mode) ? <WorkbenchTabs view={mode} onView={navigate} onReminders={() => navigate('reminders')} /> : null}
-      {mode === 'today' ? <OfficialHomePreview /> : null}
-      {['today', 'upcoming'].includes(mode) ? <PlanningWorkbench key={mode} view={mode} onOpen={openProjection} onCollect={() => navigate('collect')} /> : null}
+      {['upcoming', 'list'].includes(mode) ? <WorkbenchTabs view={mode} onView={navigate} onReminders={() => navigate('reminders')} /> : null}
+      {mode === 'today' ? <TodayDesk onNavigate={navigate} onCreated={events => { applyEvent(events[0]); setNotice('已确认，已进入正式事项。'); }} onBusyChange={reportChildBusy} /> : null}
+      {mode === 'wechat-inbox' ? <WeChatCandidates onSettings={() => navigate('wechat-settings')} onCreated={events => { applyEvent(events[0]); setNotice('微信通知已确认，已进入正式事项。'); }} onBusyChange={reportChildBusy} /> : null}
+      {mode === 'wechat-settings' ? <WeChatSettings onDirtyChange={setCollectionDirty} onBusyChange={reportChildBusy} /> : null}
+      {mode === 'user-context' ? <UserContextSettings onDirtyChange={setCollectionDirty} onBusyChange={reportChildBusy} /> : null}
+      {mode === 'upcoming' ? <PlanningWorkbench key={mode} view={mode} onOpen={openProjection} onCollect={() => navigate('collect')} /> : null}
       {mode === 'calendar' ? <CalendarView onOpen={openProjection} /> : null}
       {mode === 'reminders' ? <ReminderCenter onOpen={openProjection} onBusyChange={reportChildBusy} /> : null}
       {mode === 'reminder-settings' ? <ReminderSettings key={reloadVersion} onDirtyChange={setCollectionDirty} onBusyChange={reportChildBusy} /> : null}
@@ -194,59 +214,62 @@ export default function PersonalWorkspace({ navigationGuardRef }) {
       {mode === 'list' && !loading && (!error || items.length > 0) ? <section className="personal-section"><div className="personal-section-heading"><h1 ref={headingRef} tabIndex={-1}>我的事项</h1><span className="personal-meta">共 {total} 件</span></div>
         <label className="personal-checkbox-label">事项状态 <select aria-label="事项状态" value={listStatus} disabled={busy} onChange={change => setListStatus(change.target.value)}><option value="active">未完成 / 未取消</option><option value="done">已完成</option><option value="cancelled">已取消</option><option value="all">全部状态</option></select></label>
         {!items.length ? <div className="personal-empty"><h2>还没有收集事项</h2><p>粘贴一条通知，把截止时间和要做的事情保留下来。</p><button type="button" className="button button-primary" onClick={() => navigate('collect')}><Plus size={16} />粘贴第一条通知</button></div> : <ul className="personal-event-list">{items.map((item) => <li key={item.id}><button type="button" className="personal-event-row" onClick={() => navigate('detail', item.id)}>
-          <span><strong>{item.title}</strong><small>{item.category} · {item.deadline_count} 个截止时间 · {item.completed_task_count}/{item.task_count} 个任务完成</small><small>更新于 {displayTimestamp(item.updated_at)}</small></span><span className={`personal-status ${item.status}`}>{STATUS[item.status]}</span>
+          <span><strong>{item.title}</strong>{item.course ? <small>{item.course.name}</small> : null}<small>{wechatCategory(item.category)} · {item.deadline_count} 个截止时间 · {item.completed_task_count}/{item.task_count} 个任务完成</small><small>更新于 {displayTimestamp(item.updated_at)}</small></span><span className={`personal-status ${item.status}`}>{STATUS[item.status]}</span>
         </button></li>)}</ul>}
         {items.length < total ? <button type="button" className="button button-quiet" disabled={busy} onClick={loadMore}>加载更多事项</button> : null}
       </section> : null}
 
-      {mode === 'list' && !loading ? <RawInbox reloadVersion={reloadVersion} onOpen={id => navigate('review', id)} /> : null}
+      {mode === 'list' && !loading ? <details className="personal-section desk-disclosure"><summary>已收集的原文与提取预览</summary><RawInbox reloadVersion={reloadVersion} onOpen={id => navigate('review', id)} /></details> : null}
 
       {mode === 'detail' && event ? <>
         <button type="button" className="personal-text-button personal-back" disabled={busy} onClick={() => navigate('list')}><ArrowLeft size={15} />返回事项列表</button>
-        <section className="personal-section personal-event-header"><div className="personal-section-heading"><div><p className="personal-meta">{event.category}</p><h1 ref={headingRef} tabIndex={-1}>{event.title}</h1></div><span className={`personal-status ${event.status}`}>{STATUS[event.status]}</span></div>
+        <section className="personal-section personal-event-header"><div className="personal-section-heading"><div><p className="personal-meta">{wechatCategory(event.category)}</p><h1 ref={headingRef} tabIndex={-1}>{event.title}</h1></div><span className={`personal-status ${event.status}`}>{savedNotice ? '已保存' : STATUS[event.status]}</span></div>
+          {event.course ? <p className="personal-meta">课程：{event.course.name}</p> : null}
           {event.summary ? <p className="personal-summary">{event.summary}</p> : null}
           {event.source_update ? <p className="planning-source-update">来源已有新版本，已确认日期保持原值。<button type="button" className="personal-text-button" disabled={busy} onClick={() => navigate('review', event.source_update.id)}>核对来源变更</button></p> : null}
-          <IcsExport eventId={event.id} future={false} includeTerminal={terminal} />
+          <p className="personal-meta desk-source-line">来源：{event.snapshot.wechat?.messages?.[0]?.chat_name || event.snapshot.source_name || "手动收集"}{event.context?.locations?.length ? ` · ${event.context.locations.map(place => place.text).join("、")}` : ""}</p><details className="desk-disclosure"><summary>导出到日历</summary><IcsExport eventId={event.id} future={false} includeTerminal={terminal} /></details>
           <div className="personal-event-actions">
             {terminal ? <button type="button" className="button button-primary" disabled={busy} onClick={() => mutate(`/events/${event.id}/restore`, { method: 'POST', body: { expected_version: event.version } }, '事项已恢复，可继续修改。')}><RotateCcw size={16} />恢复修改</button> : <>
               <button type="button" className="button button-primary" disabled={busy} onClick={completeEvent}><Check size={16} />完成事项</button>
-              <button type="button" className="button button-quiet" disabled={busy} onClick={() => openEditor('event')}>编辑事项</button>
-              {event.status !== 'in_progress' ? <button type="button" className="button button-quiet" disabled={busy || waitingParticipation} onClick={() => requestLeave(() => status(event.status === 'needs_review' ? 'needs_action' : 'in_progress'))}>{event.status === 'needs_review' ? '确认需要行动' : '开始处理'}</button> : null}
+              <button type="button" className="button button-quiet" disabled={busy} onClick={() => openEditor('event')}>编辑事项</button><button type="button" className="personal-text-button" disabled={busy} onClick={() => openEditor('course')}>{event.course ? "修改课程" : "关联课程"}</button>
+              {event.status !== 'in_progress' && !savedNotice ? <button type="button" className="button button-quiet" disabled={busy || waitingParticipation} onClick={() => requestLeave(() => status(event.status === 'needs_review' ? 'needs_action' : 'in_progress'))}>{event.status === 'needs_review' ? '确认需要行动' : '开始处理'}</button> : null}
               <button type="button" className="personal-text-button personal-cancel" disabled={busy} onClick={() => requestLeave(() => status('cancelled'))}>取消事项</button>
             </>}
           </div>
           {terminal ? <p className="personal-meta">事项和原文仍保留，恢复后可以继续修改。未自动归档。</p> : null}
           {allComplete && !terminal ? <p className="personal-complete-note">所有任务已完成。你可以确认是否完成整个事项。</p> : null}
-          {editor?.type === 'event' ? <EventEditForm key={event.id} event={event} busy={busy} onDirtyChange={setEditorDirty} onCancel={cancelEditor} onSave={(fields) => mutate(`/events/${event.id}`, { method: 'PATCH', body: { ...fields, expected_version: event.version } }, '事项内容已保存。')} /> : null}
+          {editor?.type === "course" ? <DeskSheet title="关联课程" busy={busy} onClose={() => requestLeave(cancelEditor)}><CourseEditor key={event.id} event={event} busy={busy} onDirtyChange={setEditorDirty} onCancel={cancelEditor} onSave={course_id => mutate("/events/" + event.id + "/course", { method: "PUT", body: { course_id, expected_version: event.version } }, "课程关联已保存。")} /></DeskSheet> : null}
+          {editor?.type === 'event' ? <DeskSheet title="编辑事项" busy={busy} onClose={() => requestLeave(cancelEditor)}><EventEditForm key={event.id} event={event} busy={busy} onDirtyChange={setEditorDirty} onCancel={cancelEditor} onSave={(fields) => mutate(`/events/${event.id}`, { method: 'PATCH', body: { ...fields, expected_version: event.version } }, '事项内容已保存。')} /></DeskSheet> : null}
         </section>
 
-        <div className="personal-detail-grid"><section className="personal-section"><div className="personal-section-heading"><h2>截止时间</h2><button type="button" className="personal-text-button" disabled={busy || terminal} onClick={() => openEditor('deadline')}><Plus size={15} />添加截止时间</button></div>
-          {!event.deadlines.length ? <p className="personal-meta">尚未填写截止时间，可保留多个不同用途的日期。</p> : <ul className="personal-deadline-list">{event.deadlines.map((deadline) => <li className="personal-deadline" key={deadline.id}>
+        <div className="personal-detail-grid"><section className="personal-section"><div className="personal-section-heading"><h2>时间</h2><button type="button" className="personal-text-button" disabled={busy || terminal} onClick={() => openEditor('deadline')}><Plus size={15} />添加截止时间</button></div>
+          {!event.deadlines.length ? <p className="personal-meta">日期尚不明确，确定后再添加。</p> : <ul className="personal-deadline-list">{event.deadlines.map((deadline) => <li className="personal-deadline" key={deadline.id}>
             <div className="personal-section-heading"><strong>{deadline.label}</strong><button type="button" className="personal-text-button" aria-label={`修改截止时间：${deadline.label}`} disabled={busy || terminal} onClick={() => openEditor('deadline', deadline)}>修改</button></div>
-            <p className="personal-date-value">{deadline.value.replace('T', ' ') || '日期未知'}{deadline.end_value ? ` — ${deadline.end_value.replace('T', ' ')}` : ''}</p><p className="personal-meta">{({ date: '仅日期 · 具体时刻未说明', minute: '精确到分钟', range: `范围 · ${deadline.range_precision === 'date' ? '全天日期' : '精确时间'}`, unknown: '未知日期' })[deadline.precision]} · {deadline.timezone || '跟随系统时区'} · {deadline.confirmed_by_user && !deadline.uncertain ? '已由你确认' : '待确认 · 不安排提醒'}</p>
+            <p className="personal-date-value">{deadline.value.replace('T', ' ') || '日期未知'}{deadline.end_value ? ` — ${deadline.end_value.replace('T', ' ')}` : ''}</p><details className="desk-disclosure"><summary>日期说明与提醒</summary><p className="personal-meta">{({ date: '仅日期 · 具体时刻未说明', minute: '精确到分钟', range: `范围 · ${deadline.range_precision === 'date' ? '全天日期' : '精确时间'}`, unknown: '未知日期' })[deadline.precision]} · {deadline.timezone || '跟随系统时区'} · {deadline.confirmed_by_user && !deadline.uncertain ? '已由你确认' : '待确认 · 不安排提醒'}</p>
             <p className="personal-meta">{event.priority?.deadlines[deadline.id]?.relative_label || '需要确认日期'}</p>
             {deadline.confirmed_by_user && !deadline.uncertain && deadline.precision !== 'unknown' ? <IcsExport deadlineId={deadline.id} future={false} includeTerminal={terminal} /> : null}
             {deadline.original_text ? <p className="personal-meta">原文日期表述：{deadline.original_text}</p> : null}
+</details>
             <EvidenceLinks evidence={event.evidence} fieldPath={`deadlines.${deadline.id}.value`} onView={setSelectedEvidence} />
           </li>)}</ul>}
-          {editor?.type === 'deadline' ? <DeadlineForm key={editor.value?.id || 'new'} deadline={editor.value} evidence={event.evidence.find((value) => value.field_path === `deadlines.${editor.value?.id}.value` && value.raw_snapshot_id === (editor.value?.source_snapshot_id || event.raw_snapshot_id))} original={deadlineSource(editor.value).original_text} blocks={deadlineSource(editor.value).blocks} busy={busy} onDirtyChange={setEditorDirty} onCancel={cancelEditor}
-            onSave={(fields) => mutate(`/events/${event.id}/deadlines${editor.value ? `/${editor.value.id}` : ''}`, { method: editor.value ? 'PUT' : 'POST', body: { ...fields, expected_version: event.version } }, '截止时间和依据已保存。')} /> : null}
+          {editor?.type === 'deadline' ? <DeskSheet title="编辑时间" busy={busy} onClose={() => requestLeave(cancelEditor)}><DeadlineForm key={editor.value?.id || 'new'} deadline={editor.value} evidence={event.evidence.find((value) => value.field_path === `deadlines.${editor.value?.id}.value` && value.raw_snapshot_id === (editor.value?.source_snapshot_id || event.raw_snapshot_id))} original={deadlineSource(editor.value).original_text} blocks={deadlineSource(editor.value).blocks} busy={busy} onDirtyChange={setEditorDirty} onCancel={cancelEditor}
+            onSave={(fields) => mutate(`/events/${event.id}/deadlines${editor.value ? `/${editor.value.id}` : ''}`, { method: editor.value ? 'PUT' : 'POST', body: { ...fields, expected_version: event.version } }, '截止时间和依据已保存。')} /></DeskSheet> : null}
         </section>
 
-        <section className="personal-section"><div className="personal-section-heading"><h2>任务</h2><button type="button" className="personal-text-button" disabled={busy || terminal || waitingParticipation} onClick={() => openEditor('task')}><Plus size={15} />添加任务</button></div>
+        <section className="personal-section"><div className="personal-section-heading"><h2>我要做什么</h2><button type="button" className="personal-text-button" disabled={busy || terminal || waitingParticipation} onClick={() => openEditor('task')}><Plus size={15} />添加任务</button></div>
           {waitingParticipation ? <p className="personal-meta">先在「我的决定」中确认参加 / 执行，再创建任务。取消通知不生成行动任务。</p> : null}
-          <p className="personal-meta">{event.tasks.filter((task) => task.status === 'done').length}/{event.tasks.length} 个任务完成</p>
-          {!event.tasks.length ? <p className="personal-meta">把需要做的事情拆成几个步骤。</p> : <ol className="personal-task-list">{event.tasks.map((task) => <li key={task.id} className={task.status === 'done' ? 'personal-task done' : 'personal-task'}>
+          {event.tasks.length ? <p className="personal-meta">{event.tasks.filter((task) => task.status === 'done').length}/{event.tasks.length} 个任务完成</p> : null}
+          {!event.tasks.length ? <p className="personal-meta">暂无需要执行的任务。</p> : <ol className="personal-task-list">{event.tasks.map((task) => <li key={task.id} className={task.status === 'done' ? 'personal-task done' : 'personal-task'}>
             <label className="personal-task-title"><input type="checkbox" checked={task.status === 'done'} disabled={busy || terminal} aria-label={`完成任务：${task.title}`} onChange={(changeEvent) => {
               const completed = changeEvent.target.checked;
               requestLeave(() => mutate(`/events/${event.id}/tasks/${task.id}`, { method: 'PATCH', body: { expected_version: event.version, status: completed ? 'done' : 'todo' } }, completed ? '任务已完成。' : '任务已恢复。'));
             }} /><span>{task.title}</span></label>
             <div className="personal-task-meta"><span className="personal-meta">{ORIGIN[task.origin]}{task.deadline_id ? ` · ${event.deadlines.find((value) => value.id === task.deadline_id)?.label || '关联截止时间'}` : ''}</span><EvidenceLinks evidence={event.evidence} fieldPath={`tasks.${task.id}.title`} onView={setSelectedEvidence} /></div>
           </li>)}</ol>}
-          {editor?.type === 'task' ? <TaskForm deadlines={event.deadlines} original={event.snapshot.original_text} blocks={event.snapshot.blocks} busy={busy} onDirtyChange={setEditorDirty} onCancel={cancelEditor} onSave={(fields) => mutate(`/events/${event.id}/tasks`, { method: 'POST', body: { ...fields, expected_version: event.version } }, '任务和依据已保存。')} /> : null}
+          {editor?.type === 'task' ? <DeskSheet title="添加行动" busy={busy} onClose={() => requestLeave(cancelEditor)}><TaskForm deadlines={event.deadlines} original={event.snapshot.original_text} blocks={event.snapshot.blocks} busy={busy} onDirtyChange={setEditorDirty} onCancel={cancelEditor} onSave={(fields) => mutate(`/events/${event.id}/tasks`, { method: 'POST', body: { ...fields, expected_version: event.version } }, '任务和依据已保存。')} /></DeskSheet> : null}
         </section></div>
-        <EventContext event={event} busy={busy} terminal={terminal} onView={setSelectedEvidence} onParticipation={participation => requestLeave(() => mutate(`/events/${event.id}/participation`, { method: 'POST', body: { expected_version: event.version, participation } }, participation === 'yes' ? '已参加并创建任务。' : '已忽略，未创建任务。'))} />
-        <OriginalNotice key={originalSource.id} snapshot={originalSource} selectedEvidence={selectedEvidence} onClear={() => setSelectedEvidence(null)} />
+        <details className="personal-section desk-disclosure"><summary>参与决定与提取信息</summary><EventContext event={event} busy={busy} terminal={terminal} onView={setSelectedEvidence} onParticipation={participation => requestLeave(() => mutate(`/events/${event.id}/participation`, { method: 'POST', body: { expected_version: event.version, participation } }, participation === 'yes' ? '已参加并创建任务。' : '已忽略，未创建任务。'))} /></details>
+        <details className="personal-section desk-disclosure" open={Boolean(selectedEvidence)}><summary>原始通知与引用依据</summary><OriginalNotice key={originalSource.id} snapshot={originalSource} selectedEvidence={selectedEvidence} onClear={() => setSelectedEvidence(null)} /></details>
         <details className="personal-section personal-history"><summary>处理记录</summary><ol>{event.decisions.map((decision) => <li key={decision.id}><strong>{decision.action === 'deadline_source_updated' ? '确认来源日期变更' : DECISIONS[decision.action] || '更新事项'}</strong><span>{displayTimestamp(decision.created_at)}（系统本地时间）</span></li>)}</ol></details>
       </> : null}
       {mode === 'detail' && !loading && !event && !error ? <p>没有找到事项，请返回列表。</p> : null}

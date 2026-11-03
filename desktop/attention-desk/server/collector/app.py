@@ -94,12 +94,20 @@ class CollectorBoundary:
                 raise CollectorError('request_rejected', '请求地址无法验证，请使用电脑显示的二维码。', 403)
             if method not in {'GET', 'POST'}:
                 raise CollectorError('method_not_allowed', '此收集入口不支持该操作。', 405)
+            if path=='/notes-connection':
+                if method!='GET':raise CollectorError('method_not_allowed','请使用配置页读取连接。',405)
+                origin=headers.get(b'origin',b'').decode('latin-1')
+                if origin and origin!=self.origin:raise CollectorError('request_rejected','请求来源无法验证。',403)
+                self.rates.check(('notes_setup',client),30)
             if path.startswith('/api/'):
                 origin = headers.get(b'origin', b'').decode('latin-1')
                 if origin and origin != self.origin:
                     raise CollectorError('request_rejected', '请求来源无法验证。', 403)
                 self.rates.check(('read', client), 100)
-                if path not in {'/api/pair/validate', '/api/pair/confirm'}:
+                notes_upload=path=='/api/notes' and method=='POST'
+                if notes_upload:
+                    scope.setdefault('state',{})['collector_session']=self.authority.notes_session(headers.get(b'x-eric-notes-key',b'').decode('latin-1'))
+                elif path not in {'/api/pair/validate', '/api/pair/confirm'}:
                     request = Request(scope)
                     session = self.authority.session(request.cookies.get(COOKIE), diagnose=method == 'GET' and path == '/api/session')
                     scope.setdefault('state', {})['collector_session'] = session
@@ -109,12 +117,12 @@ class CollectorBoundary:
                     if path != '/api/pair/validate':
                         self.rates.check(('write', client), 12)
                         self.rates.check(('global_write',), 24)
-                    expected = 'multipart/form-data' if path == '/api/file' else 'application/json'
+                    expected = 'multipart/form-data' if path in {'/api/file','/api/notes'} else 'application/json'
                     actual = headers.get(b'content-type', b'').decode('latin-1').split(';')[0].strip().lower()
                     if actual != expected:
                         raise CollectorError('content_type', '发送格式不支持，请使用收集页重新发送。', 415)
             if method == 'POST':
-                limit = 60_000_000 if path == '/api/file' else 450_000
+                limit = 60_000_000 if path in {'/api/file','/api/notes'} else 450_000
                 length = headers.get(b'content-length', b'')
                 if length.isdigit() and int(length) > limit:
                     raise CollectorError('file_too_large', '本次上传超过安全上限，请拆分文件。', 413)
@@ -186,7 +194,7 @@ def mobile_assets(dist):
         raise CollectorError('collector_not_built', '手机页面尚未准备好，请重新启动工作台。', 503)
 
 
-def create_app(service, authority, origin, app_root, *, allow_loopback_fixture=False):
+def create_app(service, authority, origin, app_root, *, allow_loopback_fixture=False,notes_setup=None):
     origin = public_base_url(origin, allow_loopback_fixture=allow_loopback_fixture)
     entry, assets = mobile_assets(Path(app_root) / 'dist')
     application = FastAPI(docs_url=None, redoc_url=None, openapi_url=None, debug=False)
@@ -213,8 +221,15 @@ def create_app(service, authority, origin, app_root, *, allow_loopback_fixture=F
         return RedirectResponse('/collect')
 
     @application.get('/collect')
+    @application.get('/notes-setup')
     async def page():
         return FileResponse(entry, media_type='text/html')
+
+    @application.get('/notes-connection')
+    def notes_connection(request:Request):
+        value=notes_setup(request.query_params.get('setup')) if notes_setup else None
+        if not value:raise CollectorError('notes_setup_expired','配置码已过期或无效，请在电脑重新点击“配置笔记分享”。',403)
+        return JSONResponse(value,headers=HEADERS)
 
     @application.get('/pair')
     async def landing(request: Request):
@@ -289,22 +304,29 @@ def create_app(service, authority, origin, app_root, *, allow_loopback_fixture=F
         return await service.bridge(service.submit(request.state.collector_session.owner, 'url', payload.model_dump()))
 
     @application.post('/api/file', status_code=202)
+    @application.post('/api/notes', status_code=202)
     async def files(request: Request):
         temporary, inputs = [], []
         try:
             async with request.form(max_files=10, max_fields=6, max_part_size=450000) as form:
-                allowed = {'files', 'submission_id', 'source_name', 'source_time', 'text', 'confirm_large', 'again'}
+                notes=request.url.path=='/api/notes'
+                allowed = {'file','files','shared_at','submission_id'} if notes else {'files', 'submission_id', 'source_name', 'source_time', 'text', 'confirm_large', 'again'}
                 if set(form) - allowed:
                     raise CollectorError('invalid_input', '发送字段不支持，请重新打开收集页。')
-                payload = FileInput(submission_id=str(form.get('submission_id', '')), text=str(form.get('text', '')), source_name=str(form.get('source_name', '')),
-                                    source_time=str(form.get('source_time', '')) or None, again=form.get('again') == 'true', confirm_large=form.get('confirm_large') == 'true')
-                for upload in form.getlist('files'):
+                payload = FileInput(submission_id=str(form.get('submission_id') or uuid4()) if notes else str(form.get('submission_id', '')),
+                                    text='' if notes else str(form.get('text', '')),
+                                    source_name='Apple Notes 课堂笔记' if notes else str(form.get('source_name', '')),
+                                    source_time=(str(form.get('shared_at','')) if notes else str(form.get('source_time',''))) or None,
+                                    again=False if notes else form.get('again') == 'true', confirm_large=False if notes else form.get('confirm_large') == 'true')
+                uploads=form.getlist('files') or (form.getlist('file') if notes else [])
+                if notes and len(uploads)>5:raise CollectorError('file_limit','一次最多分享5份笔记。',413)
+                for upload in uploads:
                     if not isinstance(upload, UploadFile):
                         raise CollectorError('invalid_file', '请选择有效文件。')
                     name = filename(upload.filename or '')
                     ext = extension(name)
-                    if ext not in {'png', 'jpg', 'jpeg', 'pdf', 'docx', 'txt'}:
-                        raise CollectorError('unsupported_file', '支持 PNG/JPG/JPEG、PDF/DOCX/TXT。HEIC 请先另存为 JPEG，或上传截图。')
+                    if notes and ext not in {'pdf','png','jpg','jpeg','heic'}:
+                        raise CollectorError('notes_format','请让分享捷径把笔记制成PDF，或直接分享PDF/图片。')
                     if (upload.size or 0) > MAX_BYTES:
                         raise CollectorError('file_too_large', '单个文件超过 50 MB，请拆分。', 413)
                     if (upload.size or 0) > SOFT_BYTES and not payload.confirm_large:
@@ -318,11 +340,13 @@ def create_app(service, authority, origin, app_root, *, allow_loopback_fixture=F
                             if size > MAX_BYTES:
                                 raise CollectorError('file_too_large', '单个文件超过 50 MB，已停止。', 413)
                             stream.write(chunk)
-                    await asyncio.to_thread(validate_file, path, ext, upload.content_type or '')
                     inputs.append((name, upload.content_type or '', path))
                 if not inputs:
                     raise CollectorError('invalid_file', '请选择至少一个文件。')
-                return await service.bridge(service.submit(request.state.collector_session.owner, 'file', payload.model_dump(), inputs))
+                value=payload.model_dump()
+                if notes:value['purpose']='lecture_note'
+                result=await service.bridge(service.submit(request.state.collector_session.owner, 'file', value, inputs))
+                return {**result,'saved':True,'message':'笔记原件已保存，正在自动整理。'} if notes else result
         except DocumentError as error:
             message = '文件类型或内容无法安全处理，请核对文件格式。'
             raise CollectorError(error.code, message, 400)

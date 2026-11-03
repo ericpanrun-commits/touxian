@@ -1,0 +1,18 @@
+version: 1
+revision: 1
+wechat:
+  enabled: false
+  allowed_chats:
+    - "26车辆2班（公告群）"
+  timezone: Asia/Shanghai
+  scan_interval_minutes: 15
+  quiet_hours: {start: '00:00', end: '06:00'}
+  catch_up_at: '06:00'
+  core_reconcile_at: '23:00'
+  idle_seconds: 120
+  focus_mode: idle_only
+  resume_delay_seconds: 20
+  bootstrap_hours: 24
+  context_followup: {enabled: true, delay_seconds: 120, max_per_batch: 1}
+  budget: {http_daily: 30, tokens_daily: 100000, vision_daily: 5, concurrency: 1, batches_per_cycle: 4}
+  priority_chats: []

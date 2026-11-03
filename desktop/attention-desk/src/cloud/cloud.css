@@ -1,0 +1,64 @@
+body:has(.cloud-shell){min-width:320px;margin:0;background:var(--paper);color:var(--ink)}
+.cloud-shell{min-height:100dvh;background:var(--paper);color:var(--ink)}
+.cloud-shell .cloud-page-title{font-size:30px;line-height:1.2;letter-spacing:-.025em;margin:5px 0 24px;outline-offset:8px}
+.cloud-auth{min-height:100dvh;display:grid;place-items:center;padding:28px 20px}
+.cloud-login-panel{width:min(100%,430px)}
+.cloud-login-panel h1{font-size:34px;letter-spacing:-.025em;margin:0 0 16px}
+.cloud-login-panel .personal-intro{margin-bottom:26px}
+.cloud-password{display:flex;align-items:flex-end;gap:6px}.cloud-password>.personal-field{flex:1;min-width:0}.cloud-password button{min-height:44px;min-width:44px}
+.cloud-password input{min-width:0;flex:1}.cloud-password button{flex-shrink:0}
+.cloud-shell :is(input,textarea){caret-color:var(--blue)}
+.cloud-shell .cloud-phone-navigation{display:none}
+.cloud-connection:empty{display:none}.cloud-connection,.cloud-feedback,.cloud-offline-note{padding:12px 0;margin:0 0 12px;color:var(--muted);line-height:1.6}
+.cloud-feedback{color:var(--green)}
+.cloud-date{font-size:14px;color:var(--muted);margin:-8px 0 24px}
+.cloud-day-layout{display:grid;grid-template-columns:1fr 1fr;gap:22px}
+.cloud-shell .cloud-next{display:flex;justify-content:space-between;align-items:center;gap:20px;padding-block:24px}
+.cloud-next h2{margin:0;font-size:21px}.cloud-next p{margin:8px 0 0}.cloud-next button{flex-shrink:0}
+.cloud-agenda,.cloud-link-list,.cloud-task-list,.cloud-deadlines,.cloud-files{list-style:none;margin:0;padding:0}
+.cloud-agenda li{display:flex;gap:20px;padding:15px 0;border-bottom:1px solid var(--line-soft)}
+.cloud-agenda li:last-child,.cloud-link-list li:last-child{border-bottom:0}
+.cloud-agenda-time{font-variant-numeric:tabular-nums;color:var(--ink);font-size:14px;min-width:48px}
+.cloud-agenda small,.cloud-link-list small,.cloud-files small,.cloud-task-list small,.cloud-deadlines small{display:block;color:var(--muted);font-size:12px;font-weight:400;line-height:1.6;margin-top:5px}
+.cloud-agenda button,.cloud-link-list li>button,.cloud-deadlines button{appearance:none;background:none;border:0;padding:0;color:inherit;font:inherit;text-align:left;min-width:0}
+.cloud-agenda button{flex:1}.cloud-agenda strong{font-weight:600}
+.cloud-link-list li{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:17px 0;border-bottom:1px solid var(--line-soft);overflow-wrap:anywhere}
+.cloud-link-list li>button{display:flex;align-items:center;justify-content:space-between;gap:18px;width:100%;min-height:44px}
+.cloud-link-list li>.personal-text-button{width:auto;flex-shrink:0;color:var(--blue)}
+.cloud-link-list li svg{flex-shrink:0;color:var(--muted)}
+.cloud-link-list button:hover strong,.cloud-agenda button:hover strong{text-decoration:underline;text-underline-offset:4px}
+.cloud-link-list strong,.cloud-receipt strong{font-size:16px;font-weight:600}
+.cloud-task-list li{padding:13px 0;border-bottom:1px solid var(--line-soft)}
+.cloud-task-list label{display:flex;gap:12px;align-items:flex-start;min-height:32px;cursor:pointer}
+.cloud-task-list input[type=checkbox]{width:19px;height:19px;min-width:19px;accent-color:var(--blue);margin-top:3px}
+.cloud-task-list label:has(input:disabled){cursor:wait}
+.cloud-deadlines li{padding:14px 0}
+.cloud-empty{padding:18px 0;line-height:1.75}
+.cloud-reading{max-width:80ch;line-height:1.8}
+.cloud-reading h3{margin-top:30px}
+.cloud-page-picker{display:flex;align-items:end;gap:12px;margin-top:22px}.cloud-page-picker input{max-width:180px}
+.cloud-facts{margin:0}.cloud-facts>div{display:grid;grid-template-columns:140px 1fr;gap:18px;padding:14px 0;border-bottom:1px solid var(--line-soft)}
+.cloud-facts dt{color:var(--muted)}.cloud-facts dd{margin:0}
+.cloud-files li{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 0;border-bottom:1px solid var(--line-soft);overflow-wrap:anywhere}
+.cloud-files button{flex-shrink:0}.cloud-capture{max-width:76ch}
+.cloud-shell .cloud-back{margin:0 0 20px;min-height:36px}
+.cloud-pagination{align-items:center;margin-top:22px;flex-wrap:wrap}.cloud-pagination span{font-variant-numeric:tabular-nums;color:var(--muted)}
+.cloud-skip-link{position:fixed;top:8px;left:10px;z-index:100;background:var(--panel);color:var(--blue);padding:12px;transform:translateY(-160%)}.cloud-skip-link:focus{transform:translateY(0)}
+@media(max-width:1100px){.cloud-day-layout{grid-template-columns:1fr}}
+@media(max-width:760px){
+ .cloud-shell .cloud-page-title{font-size:28px;margin-bottom:22px}
+ .cloud-shell .cloud-wide-navigation,.cloud-shell .cloud-navigation .desk-navigation-bottom{display:none}
+ .cloud-shell .cloud-phone-navigation{display:flex;width:100%;height:56px}
+ .cloud-shell .cloud-phone-navigation>button{width:20%;min-height:52px}
+ .cloud-shell .desk-toolbar .desk-theme{display:none}
+ .cloud-shell .desk-toolbar .button{min-height:42px}
+ .cloud-shell .personal-content{padding-inline:18px}
+ .cloud-auth{padding:20px 16px}.cloud-login-panel{padding:25px!important}
+ .cloud-day-layout{display:block}.cloud-next h2{font-size:19px}
+ .cloud-shell .cloud-next{align-items:flex-start;flex-direction:column;gap:16px}
+ .cloud-reading{max-width:none}.cloud-facts>div{grid-template-columns:1fr;gap:5px}
+ .cloud-page-picker{align-items:stretch;flex-direction:column}.cloud-page-picker input{max-width:none}
+ .cloud-shell .personal-form :is(input,textarea,select){font-size:16px}
+ .cloud-connection{font-size:13px}.cloud-task-list label{min-height:44px}
+}
+@media(prefers-reduced-motion:reduce){.cloud-shell *{scroll-behavior:auto!important}}

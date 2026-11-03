@@ -26,7 +26,10 @@ def discover(port=8473):
         if result.returncode:
             raise ValueError('network_inspection')
         data = json.loads(result.stdout.decode('utf-8-sig'))
+        if not isinstance(data, dict) or not isinstance(data.get('interfaces'), list):
+            raise ValueError('network_inspection')
         data['interfaces'] = [entry for entry in data['interfaces'] if lan_address(entry['address'])]
+        data['inspection_failed'] = False
         try:
             firewall = subprocess.run([*command, '-FirewallOnly'], capture_output=True, timeout=4, creationflags=subprocess.CREATE_NO_WINDOW)
             if firewall.returncode == 0:
@@ -34,8 +37,9 @@ def discover(port=8473):
         except (OSError, ValueError, KeyError, subprocess.TimeoutExpired):
             pass  # Inaccessible/slow diagnostics must not hide a valid current LAN.
         return data
-    except (OSError, ValueError, TypeError, subprocess.TimeoutExpired):
-        return {'interfaces': [], 'firewall': {'checked': False}, 'message': '暂时无法检查网络，请使用普通 Windows 用户启动工作台后重试。'}
+    except (OSError, ValueError, TypeError, KeyError, subprocess.TimeoutExpired):
+        return {'interfaces': [], 'firewall': {'checked': False}, 'inspection_failed': True,
+                'message': '暂时无法检查网络，请使用普通 Windows 用户启动工作台后重试。'}
 
 
 def select_interface(data, selected=None):

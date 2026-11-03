@@ -10,7 +10,8 @@ MAX_PAGES = 200
 MAX_TEXT = 1_000_000
 MAX_PIXELS = 30_000_000
 MIMES = {'pdf': 'application/pdf', 'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-         'txt': 'text/plain', 'png': 'image/png', 'jpg': 'image/jpeg', 'jpeg': 'image/jpeg'}
+         'txt': 'text/plain', 'png': 'image/png', 'jpg': 'image/jpeg', 'jpeg': 'image/jpeg', 'webp': 'image/webp'}
+IMAGE_EXTENSIONS = frozenset({'png', 'jpg', 'jpeg', 'webp'})
 Image.MAX_IMAGE_PIXELS = MAX_PIXELS
 
 
@@ -49,7 +50,7 @@ def check_docx(path):
 
 def validate_file(path, ext, declared_mime=None):
     if ext not in MIMES:
-        raise DocumentError('unsupported', '仅支持 PDF、DOCX、TXT、PNG、JPG / JPEG，原文件未执行。')
+        raise DocumentError('unsupported', '仅支持 PDF、DOCX、TXT、PNG、JPG / JPEG、WebP，原文件未执行。')
     mime = (declared_mime or '').split(';')[0].strip().lower()
     if mime not in {'', 'application/octet-stream', 'binary/octet-stream', MIMES[ext], *({'application/zip'} if ext == 'docx' else set())}:
         raise DocumentError('mime_mismatch', '文件类型与扩展名不一致，未解析。')
@@ -58,14 +59,17 @@ def validate_file(path, ext, declared_mime=None):
         raise DocumentError('mime_mismatch', '文件内容不是 PDF，原文件保留。')
     if ext == 'docx':
         check_docx(path)
-    if ext in {'png', 'jpg', 'jpeg'}:
+    if ext in IMAGE_EXTENSIONS:
         expected = b'\x89PNG\r\n\x1a\n' if ext == 'png' else b'\xff\xd8\xff'
-        if not head.startswith(expected):
+        valid_header = (head.startswith(b'RIFF') and head[8:12] == b'WEBP') if ext == 'webp' else head.startswith(expected)
+        if not valid_header:
             raise DocumentError('mime_mismatch', '图片内容与格式不符，未解析。')
         try:
             with warnings.catch_warnings():
                 warnings.simplefilter('error', Image.DecompressionBombWarning)
                 with Image.open(path) as image:
+                    if getattr(image, 'n_frames', 1) != 1:
+                        raise DocumentError('animated_image', '动态图原件已保留；课堂笔记请使用静态图片。')
                     if image.width * image.height > MAX_PIXELS:
                         raise DocumentError('image_too_large', '图片像素超过 3,000 万上限，原图保留。')
                     image.verify()

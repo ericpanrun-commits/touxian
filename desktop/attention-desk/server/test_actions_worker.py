@@ -29,7 +29,7 @@ from server.official_parsers import parse_article
 from server import test_bark_notifications as bark_fixtures
 from server.test_official_information import TODAY, document, listing, seed, source
 
-MIGRATION=Path(__file__).resolve().parents[1]/'supabase/migrations/20261015042812_zqu_actions_state.sql'
+MIGRATION,=(Path(__file__).resolve().parents[1]/'supabase/migrations').glob('*_zqu_actions_state.sql')
 config=bark_fixtures.config
 store=bark_fixtures.store
 
@@ -130,9 +130,15 @@ def test_database_trust_anchor_is_the_official_public_supabase_root():
     assert 'PRIVATE KEY' not in pem
     assert hashlib.sha256(ssl.PEM_cert_to_DER_cert(pem)).hexdigest()==(
         '807025ad50d4ed219d2c9c7d299c004f824eb00cf7f65afef607d07b72e6cafa')
+    # Some managed Windows runtimes preload a platform CA even in a fresh
+    # context. Verify this bundle adds exactly the pinned root, independently
+    # of that runtime policy; do not relax verification or change the bundle.
+    platform_roots=set(ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT).get_ca_certs(binary_form=True))
     context=ssl.create_default_context(cafile=str(SUPABASE_CA))
     assert context.check_hostname and context.verify_mode==ssl.CERT_REQUIRED
-    assert len(context.get_ca_certs())==1
+    added_roots=set(context.get_ca_certs(binary_form=True))-platform_roots
+    assert {hashlib.sha256(root).hexdigest() for root in added_roots}=={
+        '807025ad50d4ed219d2c9c7d299c004f824eb00cf7f65afef607d07b72e6cafa'}
 
 
 def test_bounded_cloud_batches_rotate_through_overdue_sources():

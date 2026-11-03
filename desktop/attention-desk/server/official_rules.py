@@ -11,7 +11,18 @@ from pathlib import Path
 
 def load_profile():
     path = Path(os.environ.get('ATTENTION_OFFICIAL_PROFILE') or Path(__file__).with_name('config') / 'official_profile.json')
-    return json.loads(path.read_text(encoding='utf-8'))
+    profile = json.loads(path.read_text(encoding='utf-8'))
+    # Shared confirmed user facts override suggestions; classification rules remain here.
+    from .personal_store import default_database_path
+    from .user_context import UserContextStore
+    shared = UserContextStore(default_database_path().parent)
+    if shared.path.exists():
+        context = shared.read()
+        for key in ('school','college','major','entry_year'):
+            value = getattr(context,key)
+            if key in context.confirmed_fields and value:
+                profile[key] = value
+    return profile
 
 
 def text_hash(text):

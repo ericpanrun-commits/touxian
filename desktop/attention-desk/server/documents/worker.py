@@ -15,7 +15,17 @@ def main():
         if ext.startswith('render:'):
             render_pdf(path, int(ext.split(':')[1]), destination)
             return
-        result = parse_document(path, ext, workdir)
+        if ext.startswith('school-render:'):
+            render_pdf(path, int(ext.split(':')[1]), destination, max_pages=2000)
+            return
+        if ext == 'school-catalog':
+            from ..school.pdf_pages import catalog
+            result = catalog(path)
+        elif ext.startswith('school-page:'):
+            from ..school.pdf_pages import parse_page
+            result = parse_page(path, int(ext.split(':')[1]), workdir)
+        else:
+            result = parse_document(path, ext, workdir)
     except DocumentError as e:
         result = {'error': {'code': e.code, 'message': str(e)}}
     except Exception:

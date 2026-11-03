@@ -17,7 +17,7 @@ from uuid import uuid4
 from .personal_models import CollectionInput, DeadlineInput, EvidenceInput, TaskInput
 
 MIGRATIONS = Path(__file__).with_name("migrations")
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 26
 TERMINAL = {"done", "cancelled"}
 
 
@@ -76,6 +76,30 @@ class PersonalStore:
 
     def initialize(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        # Use the SQLite backup API before upgrading an existing database, including WAL.
+        # Never overwrite a prior backup or modify an unknown newer schema.
+        if self.path.exists() and self.path.stat().st_size:
+            probe = sqlite3.connect(self.path.resolve().as_uri() + '?mode=ro', uri=True)
+            try:
+                exists = probe.execute("SELECT 1 FROM sqlite_master WHERE name='schema_migrations'").fetchone()
+                current_version = probe.execute('SELECT COALESCE(MAX(version),0) FROM schema_migrations').fetchone()[0] if exists else 0
+                if 0 < current_version < SCHEMA_VERSION:
+                    backup = self.path.with_name(self.path.name + f'.before-v{SCHEMA_VERSION}.backup')
+                    if backup.exists():
+                        backup = backup.with_name(backup.name + '.' + uuid4().hex)
+                    if not backup.exists():
+                        temporary = backup.with_name(backup.name + '.' + uuid4().hex + '.tmp')
+                        try:
+                            destination = sqlite3.connect(temporary)
+                            try:
+                                probe.backup(destination)
+                            finally:
+                                destination.close()
+                            temporary.replace(backup)
+                        finally:
+                            temporary.unlink(missing_ok=True)
+            finally:
+                probe.close()
         # WAL is persistent; transactions themselves use fresh, thread-owned connections.
         connection = sqlite3.connect(self.path, timeout=5)
         try:
@@ -157,6 +181,9 @@ class PersonalStore:
     @staticmethod
     def _detail(connection, event_id: str) -> dict:
         event = dict(PersonalStore._event(connection, event_id))
+        event.setdefault("course_id",None)  # Historical-schema migration fixtures remain readable.
+        from .courses import course_public
+        event["course"] = course_public(connection,event["course_id"])
         from .source_metadata import snapshot_with_metadata
         event["snapshot"] = snapshot_with_metadata(connection, connection.execute("SELECT * FROM raw_snapshot WHERE id = ?", (event["raw_snapshot_id"],)).fetchone())
         event["source"] = dict(connection.execute("SELECT s.* FROM source s JOIN raw_item r ON r.source_id = s.id WHERE r.id = ?", (event["raw_item_id"],)).fetchone())
@@ -166,6 +193,8 @@ class PersonalStore:
         event["tasks"] = [dict(row) for row in connection.execute("SELECT * FROM task WHERE event_id = ? ORDER BY sort_order, created_at, id", (event_id,))]
         for task in event["tasks"]:
             task["order"] = task.pop("sort_order")
+            task["course_id"] = event["course_id"]
+            task["course"] = event["course"]
         event["evidence"] = [dict(row) for row in connection.execute("SELECT * FROM evidence WHERE event_id = ? ORDER BY created_at, id", (event_id,))]
         for evidence in event['evidence']:
             evidence['bounding_box'] = json.loads(evidence.pop('bounding_box_json') or 'null')
@@ -203,12 +232,16 @@ class PersonalStore:
         where,args = ('',[]) if status in {None,'all'} else (" WHERE e.status NOT IN ('done','cancelled')",[]) if status=='active' else (' WHERE e.status=?',[status])
         with self.connection() as connection:
             total = connection.execute("SELECT COUNT(*) FROM event e"+where,args).fetchone()[0]
-            rows = connection.execute("""SELECT e.*,
+            rows = connection.execute("""SELECT e.*,c.name AS course_name,
                 (SELECT COUNT(*) FROM task WHERE event_id = e.id) AS task_count,
                 (SELECT COUNT(*) FROM task WHERE event_id = e.id AND status = 'done') AS completed_task_count,
                 (SELECT COUNT(*) FROM deadline WHERE event_id = e.id) AS deadline_count
-                FROM event e"""+where+" ORDER BY e.updated_at DESC,e.id LIMIT ? OFFSET ?", (*args,limit,offset))
-            return {"items": [dict(row) for row in rows], "total": total, "limit": limit, "offset": offset}
+                FROM event e LEFT JOIN course c ON c.id=e.course_id"""+where+" ORDER BY e.updated_at DESC,e.id LIMIT ? OFFSET ?", (*args,limit,offset))
+            items=[dict(row) for row in rows]
+            for item in items:
+                item["course"]={"id":item["course_id"],"name":item.pop("course_name")} if item["course_id"] else None
+                item.pop("course_name",None)
+            return {"items":items, "total": total, "limit": limit, "offset": offset}
 
     def create_collection(self, payload: CollectionInput, submission_id: str | None = None) -> dict:
         fingerprint = hashlib.sha256(encode(payload.model_dump()).encode("utf-8")).hexdigest()
@@ -239,6 +272,17 @@ class PersonalStore:
             self._audit(connection, event_id, "event_edited", event_id, {name: event[name] for name in fields}, fields)
             self._touch(connection, event_id)
             return self._detail(connection, event_id)
+
+    def set_course(self,event_id: str,expected_version: int,course_id: str | None) -> dict:
+        from .courses import course_public
+        with self.connection(write=True) as c:
+            event=self._event(c,event_id,expected_version,editable=True)
+            course_public(c,course_id)
+            if event["course_id"]!=course_id:
+                c.execute("UPDATE event SET course_id=? WHERE id=?",(course_id,event_id))
+                self._audit(c,event_id,"event_course_changed",event_id,{"course_id":event["course_id"]},{"course_id":course_id})
+                self._touch(c,event_id)
+            return self._detail(c,event_id)
 
     def change_status(self, event_id: str, expected_version: int, status: str, confirm_incomplete: bool = False) -> dict:
         with self.connection(write=True) as connection:

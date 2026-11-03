@@ -1,3 +1,4 @@
+from contextlib import nullcontext
 """Content-addressed originals and immutable document snapshots in the shared DB."""
 import hashlib
 import json
@@ -51,17 +52,25 @@ class AttachmentStore:
     def path(self, att):
         if not att.get('local_path'): raise PersonalError('文件尚未下载。','not_downloaded',409)
         path = Path(att['local_path']).resolve()
-        if not path.is_relative_to(self.root.resolve()) or not path.is_file():
+        if not path.is_relative_to(self.root.resolve()):
+            from ..school.library import registered_path
+            return registered_path(self.personal,att,path)
+        if not path.is_file():
             raise PersonalError('原文件暂时无法读取。','file_unavailable',404)
         return path
 
-    def preserve(self, temporary, ext):
+    def preserve(self, temporary, ext, *, max_bytes=MAX_BYTES):
         path = Path(temporary)
         size = path.stat().st_size
-        if size > MAX_BYTES: raise DocumentError('file_too_large','文件超过 50 MB 上限，请拆分后收集。')
+        if size > max_bytes: raise DocumentError('file_too_large',f'文件超过 {max_bytes//1_000_000} MB 上限，原输入尚未接收。')
         with path.open('rb') as source: digest = hashlib.file_digest(source,'sha256').hexdigest()
         target = self.root / digest[:2] / (digest + '.' + (ext if ext.isalnum() and len(ext)<10 else 'bin'))
         target.parent.mkdir(exist_ok=True)
+        if not target.exists():
+            existing = sorted(target.parent.glob(digest + '.*'))
+            if existing:
+                try: os.link(existing[0], target)
+                except FileExistsError: pass
         if not target.exists():
             # Finish/sync before publishing a hard link; readers never see partial bytes.
             pending=target.with_name(identifier()+'.pending')
@@ -89,11 +98,11 @@ class AttachmentStore:
             c.execute("UPDATE attachment SET local_path=?,sha256=?,size=?,mime_type=?,extension=?,downloaded_at=?,parse_status='downloaded',parse_error='',version=? WHERE id=?",(path,digest,size,mime,ext,now(),version,att_id))
             return dict(c.execute('SELECT * FROM attachment WHERE id=?',(att_id,)).fetchone())
 
-    def collect(self, files, body, title, source_time=None, submission_id=None, *, source_id='manual_file', source_kind='manual_file', source_name='文件与截图', raw_kind=None):
+    def collect(self, files, body, title, source_time=None, submission_id=None, *, source_id='manual_file', source_kind='manual_file', source_name='文件与截图', raw_kind=None, connection=None, max_bytes=MAX_BYTES):
         if len(files)>10: raise PersonalError('每次最多收集 10 个文件。')
-        saved = [(filename(name),mime,*self.preserve(path,extension(filename(name)))) for name,mime,path in files]
+        saved = [(filename(name),mime,*self.preserve(path,extension(filename(name)),max_bytes=max_bytes)) for name,mime,path in files]
         fingerprint = hashlib.sha256(encode({'files':[(r[0],r[3]) for r in saved],'body':body,'title':title,'source_time':source_time}).encode()).hexdigest()
-        with self.personal.connection(write=True) as c:
+        with (nullcontext(connection) if connection is not None else self.personal.connection(write=True)) as c:
             if submission_id:
                 old = c.execute('SELECT * FROM raw_item WHERE submission_id=?',(submission_id,)).fetchone()
                 if old:

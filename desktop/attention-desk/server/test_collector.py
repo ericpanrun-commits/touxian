@@ -27,7 +27,7 @@ from server.extraction_service import ExtractionService
 from server.extraction_errors import ExtractionFailure
 from server.personal_store import PersonalStore
 from server.review_store import ReviewStore
-from server.test_extraction_review import FixtureProvider, TestSettings, candidate, confirmation
+from server.test_extraction_review import FixtureProvider, TestSettings, candidate, confirmation, finish
 from server.test_documents import text_pdf, screenshot, review_payload
 
 ORIGIN = 'http://192.168.40.2:8473'
@@ -64,11 +64,11 @@ async def done(r, receipt):
     deadline=time.monotonic()+25
     while time.monotonic()<deadline:
         result=await r.service.status(r.service.receipts[receipt['id']].owner,receipt['id'])
-        if result['state'] in {'needs_review','failed'}: return result
+        if result['state'] in {'completed','needs_review','failed','needs_manual_content','recovery_needed'}: return result
         await asyncio.sleep(.05)
     raise AssertionError('processing did not finish')
 
-def payload(**extra): return dict(submission_id=str(uuid4()),text=TEXT,**extra)
+def payload(**extra): return {'submission_id':str(uuid4()),'text':TEXT,**extra}
 def count(store,table):
     with store.connection() as c: return c.execute(f'SELECT COUNT(*) FROM {table}').fetchone()[0]
 
@@ -256,9 +256,12 @@ def test_text_shared_extraction_human_confirmation_restart_and_dedup(tmp_path):
             assert result['saved']; assert (await done(r,result))['state']=='needs_review'
             assert count(r.store,'raw_item')==1 and count(r.store,'event')==0
             assert (await r.client.post('/api/text',json=p)).json()['duplicate']
-            p['submission_id']=str(uuid4()); assert (await r.client.post('/api/text',json=p)).json()['id']==result['id']
+            p['submission_id']=str(uuid4()); repeated=(await r.client.post('/api/text',json=p)).json(); assert repeated['duplicate'] and repeated['submission_id']==result['submission_id']
             raw=ReviewStore(r.store).list(source_id='mobile')['items'][0]
             assert raw['source_name']=='来自手机'
+            bundle=ReviewStore(r.store).get(raw['raw_snapshot_id'])
+            assert r.provider.calls==0
+            await r.extraction.start(raw['raw_snapshot_id']); await finish(r.extraction)
             bundle=ReviewStore(r.store).get(raw['raw_snapshot_id'])
             event=ReviewStore(r.store).confirm(raw['raw_snapshot_id'],confirmation(bundle,candidate(TEXT)))['events'][0]
             assert len(event['tasks'])==len(event['deadlines'])==1 and event['evidence']
@@ -266,7 +269,7 @@ def test_text_shared_extraction_human_confirmation_restart_and_dedup(tmp_path):
             assert reopened.get_event(event['id'])['evidence']==event['evidence']
             p.update(submission_id=str(uuid4()),again=True)
             new=(await r.client.post('/api/text',json=p)).json();assert new['id']!=result['id']
-            await done(r,new);assert count(r.store,'raw_item')==2
+            await done(r,new);assert count(r.store,'raw_item')==1 and r.provider.calls==1
             p['text']='changed'; assert (await r.client.post('/api/text',json=p)).status_code==409
     asyncio.run(run())
 
@@ -276,7 +279,7 @@ def test_concurrent_duplicates_create_one_raw_item(tmp_path):
             p=payload()
             values=await asyncio.gather(*(r.service.submit(next(iter(r.authority.sessions)),'text',p) for _ in range(6)))
             assert len({x['id'] for x in values})==1 and count(r.store,'raw_item')==1
-            await done(r,values[0]);assert r.provider.calls==1
+            await done(r,values[0]);assert r.provider.calls==0
     asyncio.run(run())
 
 def test_lan_thread_bridge_uses_desktop_loop_and_job_survives_disconnect(tmp_path):
@@ -291,7 +294,7 @@ def test_lan_thread_bridge_uses_desktop_loop_and_job_survives_disconnect(tmp_pat
                     assert received.status_code==202
                     return received.json()
             result=await asyncio.to_thread(phone)
-            assert (await done(r,result))['state']=='needs_review' and r.provider.calls==1
+            assert (await done(r,result))['state']=='needs_review' and r.provider.calls==0
             assert count(r.store,'raw_item')==1 and count(r.store,'event')==0
     asyncio.run(run())
 
@@ -299,7 +302,7 @@ def test_private_receipts_and_rotation(tmp_path):
     async def run():
         async with rig(tmp_path) as r:
             result=(await r.client.post('/api/text',json=payload())).json(); await done(r,result)
-            assert set(result)=={'id','state','phase','saved','duplicate','warning'}
+            assert set(result)=={'id','submission_id','state','phase','saved','duplicate','warning'}
             token=r.authority.regenerate()
             assert (await r.client.get('/api/session')).status_code==200
             assert (await r.client.get('/api/submissions/'+result['id'])).status_code==200
@@ -317,7 +320,10 @@ def test_provider_failure_retains_original(tmp_path,kind):
         async with rig(tmp_path,failure=ExtractionFailure('provider_unavailable','测试错误，不应传到手机')) as r:
             if kind=='text': response=await r.client.post('/api/text',json=payload())
             else: response=await r.client.post('/api/file',data={'submission_id':str(uuid4())},files=[('files',('notice.txt',TEXT.encode(),'text/plain'))])
-            result=await done(r,response.json());assert result['state']=='failed' and result['saved']
+            result=await done(r,response.json());assert result['saved'] and r.provider.calls==0
+            with r.store.connection() as c: sid=c.execute('SELECT inbox_snapshot_id FROM raw_item').fetchone()[0]
+            await r.extraction.start(sid); await finish(r.extraction)
+            assert ReviewStore(r.store).get(sid)['extraction']['status']=='failed'
             assert '测试错误' not in json.dumps(result,ensure_ascii=False)
             assert count(r.store,'raw_item')==1 and count(r.store,'event')==0
             if kind=='file':
@@ -325,18 +331,18 @@ def test_provider_failure_retains_original(tmp_path,kind):
                 assert Path(attachment['local_path']).read_bytes()==TEXT.encode()
     asyncio.run(run())
 
-def test_duplicate_alias_map_and_receipt_lifetime_are_bounded(tmp_path):
+def test_receipt_survives_cache_expiry_and_restart(tmp_path):
     async def run():
         async with rig(tmp_path) as r:
-            owner=next(iter(r.authority.sessions))
-            result=await r.service.submit(owner,'text',payload());await done(r,result)
-            r.service.requests={(owner,str(uuid4())):result['id'] for _ in range(2048)}
-            with pytest.raises(CollectorError) as error:await r.service.submit(owner,'text',payload())
-            assert error.value.status==429 and len(r.service.requests)==2048 and count(r.store,'raw_item')==1
-            stamp=r.service.receipts[result['id']].created
-            r.service.clock=lambda:stamp+3601
-            with pytest.raises(CollectorError):await r.service.status(owner,result['id'])
-            assert not r.service.requests and not r.service.receipts and count(r.store,'raw_item')==1
+            owner=next(iter(r.authority.sessions)); p=payload()
+            result=await r.service.submit(owner,'text',p);await done(r,result)
+            r.service.receipts.clear();r.service.requests.clear()
+            assert (await r.service.status(owner,result['id']))['saved']
+            await r.service.close()
+            reopened=SubmissionService(r.store,r.docs,r.extraction)
+            again=await reopened.submit(owner,'text',p)
+            assert again['id']==result['id'] and again['duplicate'] and count(r.store,'raw_item')==1
+            await reopened.close()
     asyncio.run(run())
 
 @pytest.mark.parametrize('kind',['text','image'])
@@ -350,7 +356,9 @@ def test_mobile_formal_confirmation_evidence_and_service_restart(tmp_path,kind):
             await done(r,response.json())
             sid=ReviewStore(r.store).list(source_id='mobile')['items'][0]['raw_snapshot_id']
             raw=ReviewStore(r.store).get(sid)
-            if kind=='text': check=confirmation(raw,candidate(TEXT))
+            if kind=='text':
+                await r.extraction.start(sid);await finish(r.extraction);raw=ReviewStore(r.store).get(sid)
+                check=confirmation(raw,candidate(TEXT))
             else:
                 block=next(b for b in raw['snapshot']['blocks'] if b['source_type']=='image_ocr')
                 check=review_payload(raw,block,block['text'],value='2026-10-12')
@@ -387,11 +395,14 @@ def test_supported_files_use_existing_parsers_blocks_and_latest_mobile_queue(tmp
     asyncio.run(run())
 
 @pytest.mark.parametrize('name,mime,body',[('a.exe','application/octet-stream',b'MZ00'),('a.zip','application/zip',b'PK00'),('a.heic','image/heic',b'foo'),('a.jpg','image/jpeg',b'not an image'),('a.txt','application/pdf',b'hello'),('a.pdf','application/pdf',b'not pdf'),('a.docx','application/vnd.openxmlformats-officedocument.wordprocessingml.document',b'PK00')])
-def test_bad_file_type_or_content_never_saved(tmp_path,name,mime,body):
+def test_unsupported_or_corrupt_files_saved_before_parse(tmp_path,name,mime,body):
     async def run():
         async with rig(tmp_path) as r:
             response=await r.client.post('/api/file',data={'submission_id':str(uuid4())},files=[('files',(name,body,mime))])
-            assert response.status_code in {400,422} and count(r.store,'raw_item')==0
+            assert response.status_code==202 and count(r.store,'raw_item')==1
+            result=await done(r,response.json());assert result['saved'] and result['state'] in {'needs_review','failed'}
+            with r.store.connection() as c: a=dict(c.execute('SELECT * FROM attachment').fetchone())
+            assert Path(a['local_path']).read_bytes()==body and a['parse_status'] in {'unsupported','failed'}
             assert not list(r.docs.files.work.glob('*.mobile-upload'))
     asyncio.run(run())
 
@@ -401,7 +412,7 @@ def test_corrupt_pdf_after_safe_signature_retains_original(tmp_path):
             body=b'%PDF-1.7\nmalformed'
             response=await r.client.post('/api/file',data={'submission_id':str(uuid4())},files=[('files',('broken.pdf',body,'application/pdf'))])
             assert response.status_code==202,response.text
-            result=await done(r,response.json());assert result['state']=='failed' and result['saved']
+            result=await done(r,response.json());assert result['state'] in {'failed','needs_review'} and result['saved']
             with r.store.connection() as c: attachment=dict(c.execute('SELECT * FROM attachment').fetchone())
             assert Path(attachment['local_path']).read_bytes()==body and count(r.store,'event')==0
     asyncio.run(run())
@@ -502,7 +513,7 @@ def test_url_success_source_provenance_and_failure_keeps_link(tmp_path):
             r.service.fetcher=SimpleNamespace(fetch=lambda *a: (_ for _ in ()).throw(CollectorError('url_unavailable','not for phone')))
             p.update(submission_id=str(uuid4()),url='https://safe.example/login')
             response=await r.client.post('/api/url',json=p);result=await done(r,response.json())
-            assert result['state']=='failed' and result['saved'] and '正文无法自动获取' in result['phase']
+            assert result['state']=='needs_manual_content' and result['saved'] and '正文无法自动获取' in result['phase']
             with r.store.connection() as c: assert c.execute('SELECT original_text FROM raw_snapshot ORDER BY created_at DESC LIMIT 1').fetchone()[0]==p['url']
     asyncio.run(run())
 

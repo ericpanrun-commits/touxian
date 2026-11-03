@@ -405,6 +405,8 @@ class LongExtraction:
         with self.personal.connection(write=True) as c:
             c.execute('UPDATE ai_extraction SET status=?,analysis_state=?,completed_at=?,raw_output=?,parsed_output=?,validation_json=?,error_json=?,token_usage_json=?,latency_ms=?,progress_json=? WHERE id=?',
                 (status,state,now(),raw,encode(parsed) if parsed is not None else None,encode(validation) if validation else None,encode(error) if error else None,encode(usage),int((time.monotonic()-started)*1000),encode(progress),job))
+            from .inbox_cost import record_cost
+            record_cost(c, job)
             c.execute("UPDATE raw_review SET version=version+1,updated_at=? WHERE extraction_id=? AND status='pending'",(now(),job))
 
     async def cancel(self, snapshot_id):
@@ -440,4 +442,6 @@ class LongExtraction:
                 c.execute('UPDATE ai_extraction SET status=?,analysis_state=?,completed_at=?,parsed_output=?,validation_json=?,error_json=?,progress_json=?,token_usage_json=? WHERE id=?',
                     ('needs_review' if parsed is not None else 'failed','partial' if parsed is not None else 'failed',now(),encode(parsed) if parsed is not None else None,encode(validation) if validation else None,encode(error),encode(progress),encode(usage),job['id']))
                 c.execute("UPDATE ai_chunk_extraction SET status='failed',error_json=?,completed_at=? WHERE extraction_id=? AND status='running'",(encode(error),now(),job['id']))
+                from .inbox_cost import record_cost
+                record_cost(c, job['id'])
                 c.execute("UPDATE raw_review SET version=version+1,updated_at=? WHERE extraction_id=? AND status='pending'",(now(),job['id']))

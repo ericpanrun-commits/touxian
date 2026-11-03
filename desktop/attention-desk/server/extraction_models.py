@@ -41,7 +41,9 @@ class DeadlineCandidate(StrictModel):
     role: str = Field(min_length=1, max_length=180)
     original_text: str = Field(min_length=1, max_length=1000)
     normalized_date: str | None = Field(max_length=40)
-    precision: Literal["date", "minute", "unknown"]
+    precision: Literal["date", "minute", "range", "unknown"]
+    end_value: str | None = None
+    range_precision: Literal['date','minute'] | None = None
     related_action_ids: list[str] = Field(max_length=40)
     evidence_ids: list[str] = Field(max_length=20)
     uncertain: bool
@@ -130,7 +132,9 @@ class ReviewDeadline(StrictModel):
     selected: bool = True
     role: str = Field(min_length=1, max_length=180)
     value: str = Field(max_length=40)
-    precision: Literal["date", "minute"]
+    precision: Literal["date", "minute", "range", "unknown"]
+    end_value: str | None = None
+    range_precision: Literal['date','minute'] | None = None
     original_text: str = Field(default="", max_length=1000)
     evidence: list[EvidenceInput] = Field(default_factory=list, max_length=100)
     confirmed_by_user: bool = False
@@ -139,7 +143,18 @@ class ReviewDeadline(StrictModel):
     @model_validator(mode="after")
     def date_valid(self):
         if self.selected:
-            self.value = normalize_time(self.value, self.precision)
+            if self.precision == 'unknown':
+                raise ValueError('未知日期请先核对，或取消选择')
+            unit = self.range_precision if self.precision == 'range' else self.precision
+            if unit not in {'date','minute'}:
+                raise ValueError('请确认范围日期的精度')
+            self.value = normalize_time(self.value, unit)
+            if self.precision == 'range':
+                self.end_value = normalize_time(self.end_value or '', unit)
+                if self.end_value < self.value:
+                    raise ValueError('结束时间不能早于开始时间')
+            elif self.end_value or self.range_precision:
+                raise ValueError('只有范围日期可以填写结束值')
             if not self.confirmed_by_user:
                 raise ValueError("请核对并确认选中的截止时间")
         return self
@@ -155,6 +170,7 @@ class ReviewAction(StrictModel):
 
 
 class ReviewEvent(StrictModel):
+    course_id: str | None = Field(default=None,min_length=1,max_length=36)
     id: str = Field(min_length=1, max_length=64)
     selected: bool = True
     title: str = Field(min_length=1, max_length=200)
