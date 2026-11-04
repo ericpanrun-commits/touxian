@@ -8,7 +8,7 @@
 
 目标：既有Supabase项目mantuehuzptactymjpqg，工作区50e5a3ac-dd15-4f0a-a93c-ace4b735d16d。API：https://mantuehuzptactymjpqg.supabase.co/functions/v1/eric-app-api。
 
-主表：public.eric_app_records，kind限定raw_item/inbox_item/inbox/raw_review；原eric_app_changes及eric_app_workers只记录对应变更和发布元信息。原ID和去重机制保留，不新建表或服务。
+主表：public.eric_app_records，kind限定raw_item/inbox_item/inbox/raw_review；原eric_app_changes及eric_app_workers记录对应变更和发布epoch/generation/时间。连接登记还会更新现有public.eric_app_processors行的last_seen_at，仅为处理器活跃时间，不改凭据或撤销状态，不新增处理器。原ID和去重机制保留，不新建表或服务。
 
 正文仅为“校纪校规考试安排（计划）”“晚自习学习要求”的脱敏节选；course为空并保持原状，来源/原消息/快照ID和发布时间保留。具体8条记录如下：
 
@@ -26,6 +26,8 @@
 明确不申请：全量积压或后来新采集Raw/附件同步、任何附件或资源登记、其他来源数据发布、DeepSeek或其他付费模型请求、领取/执行云端命令、创建或确认Matter/Task、修改课程关联、变更RLS/设备/账号配置。
 
 执行约束：后台全量同步继续暂停；复用原客户端/接口，仅受控发送必要publisher元信息和固定8条载荷，不能调用默认全量publish。发布前再次核对原消息证据、全部字段/哈希和远端目标ID；任何内容变化、意外旧记录或并发冲突均停止，不擅自扩大范围或覆盖。
+
+原发布协议使用worker/hello登记发布epoch，再以generation=1一次提交8条固定记录；会接续该工作区原发布epoch。执行前须确认没有其他发布正在进行，避免干扰现有发布者。该协议已在无网络、无真实凭据的实际API19入口离线预检；现有生产暂停开关仍阻止所有写请求，离线预检不是执行入口或授权。
 
 验收：按原ID核对实际回执及远端去重，再通过已授权owner会话核对Eric OS API与Inbox“全部来源”的脱敏节选。失败先查已有回执，不盲目重复请求。
 

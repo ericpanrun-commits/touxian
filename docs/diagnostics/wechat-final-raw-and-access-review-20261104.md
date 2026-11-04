@@ -1,6 +1,6 @@
 # 微信两条Raw与八条投影：最终只读审查
 
-审查时间：2026-11-04 16:04:57（北京时间）。本次只准备申请，不执行上传。
+审查时间：2026-11-04 16:10:36（北京时间）。本次只准备申请，不执行上传。
 
 固定范围：2条既有Raw、8条现有记录投影、0附件。bundle_hash：`908e472419f0d680b01a0fda841aba970e51342cddac39df80ae6a78a675e60b`。
 
@@ -135,7 +135,7 @@
 
 ## 写入与Matter / Task副作用
 
-正式数据库的eric_app_publish_records、begin_publish及两个记录触发器已只读核对：本批只会写eric_app_records、eric_app_changes和eric_app_workers，并使用原revision序列。没有event/task投影，没有Matter/Task表写入，没有确认动作或分析作业派发。
+正式数据库的eric_app_publish_records、begin_publish及两个记录触发器已只读核对；实际API19的worker/hello入口亦已核对。未来若获授权，本批业务载荷写eric_app_records，eric_app_changes记变更，eric_app_workers记发布epoch/generation/时间，并使用原revision序列。worker/hello还会更新既有eric_app_processors行的last_seen_at；这是此前三表说明中遗漏的元信息写入，现已补全。不会新增处理器、修改其凭据或撤销状态，也不会写登录设备/会话/RLS。没有event/task投影，没有Matter/Task表写入，没有确认动作或分析作业派发。
 
 本结论以未来仅发布这份固定批次为前提：不调用worker/claim、commands、capture-results、receipts、resources/files等路径，不启动默认全量publish。现有CloudSync默认publish会先处理所有资源，不能用于本批。本轮未调用任何写入路径。
 
@@ -164,6 +164,7 @@
 - 现网GET核查：匿名Inbox/Raw、伪造owner JWT、处理器密钥冒充owner会话、伪造文件票据及错误处理器密钥均401；现有处理器只读目录200，返回kind/id/source_hash而非正文。
 - 当前实际下载的API19代码合同测试33项通过，涵盖身份、独立处理器、工作区读取边界与设备撤销等路径；离线8条脱敏读模型、此前383项Python回归通过。
 - 本次采集时间兼容修复后，针对性20项Python测试及当前8条API19离线读模型检查通过。现有本机Inbox的“全部来源→详情→原始通知/来源块”两条样本均能展示，脱敏标识和正文匹配，页面异常0；这是本地离线响应预演，不替代正式云端端到端验收。
+- 当前固定8条载荷另经下载的API19发布入口离线预检：原发布RPC收到相同的kind/id/payload/source_hash；无效或撤销处理器、无效epoch/generation被拒绝，陈旧发布及结果未知返回错误且无自动重试。核对了worker/hello的处理器活跃时间副作用。数据库RPC响应为隔离夹具，未执行真实SQL，不据此声称正式去重/提交成功。
 - 这五个本人会话如持有效JWT，可经现有API读取该owner工作区已发布内容；目前没有群级或单条Raw读取白名单。服务端service_role、数据库管理权限及原处理器保留其已有权限，本次不扩大权限。
 - 设备revoked_at生效后API拒绝访问，同一已撤销session不能通过重新登记恢复。仅Supabase登出可能让已签发JWT继续有效至到期；现有API不额外以auth.sessions行存在性执行即时登出检查。这是需要保留的现有会话边界，不能宣称所有登出方式均即时失效。[Supabase说明](https://supabase.com/docs/guides/auth/signout)
 - 过去24小时已查到的owner认证审计事件为1次login、4次token_refreshed和4次token_revoked，浏览器类型与登记会话一致；token_revoked可来自刷新轮换，不能直接当作设备撤销或入侵。日志时间窗2026-11-03 15:30至2026-11-04 15:30，不作为全历史无异常的绝对证明。

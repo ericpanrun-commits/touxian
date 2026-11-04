@@ -64,6 +64,7 @@
 | 两条脱敏Raw及Inbox/Review显示 | public.eric_app_records，原raw_item/inbox_item/inbox/raw_review四种kind，沿用原记录ID，计划8条投影 |
 | 同步变更索引 | 原public.eric_app_changes；仅记录对应投影的变更元信息 |
 | 原worker连通与发布进度 | 原public.eric_app_workers；不新建处理器或队列 |
+| 既有处理器的活跃时间 | 原worker/hello还更新public.eric_app_processors.last_seen_at；不改凭据/撤销状态、不新增处理器，不涉及登录会话或权限 |
 | 附件资源、分片与文件 | 本批不写eric_app_resources、eric_app_resource_parts，不向eric-app-private桶传文件；无文档/预览/缩略图发布 |
 
 2026-11-04 14:53正式库只读复核：上述相关表RLS开启；anon和authenticated不能直接SELECT eric_app_records，该表没有客户端放行策略；私有桶仍非公开，5台有效设备、1个有效处理器。

@@ -43,8 +43,9 @@ def main():
     assert not any(r['anon_execute'] or r['authenticated_execute'] for r in acl['rpcs'])
     assert len(bundle['records'])==8 and not bundle['resources'] and bundle['upload_authorized'] is False
     contract=read(folder/'minimized-read-model-contract.json')
+    publish_contract=read(evidence/'minimized-publish-contract.json')
     browser=read(ROOT.parents[2]/'p0-notification-evidence-20261104/inbox-minimized-preview.json')
-    for result in (contract,browser):
+    for result in (contract,publish_contract,browser):
         assert result['PASS'] and result['bundle_hash']==bundle['bundle_hash']
         assert result['cloud_writes']==0 and result['model_requests']==0
     assert browser['offline_api_responses'] and not browser['cloud_end_to_end_verified']
@@ -95,7 +96,7 @@ def main():
         if s['kind'] in ('inbox','raw_review'):
             lines.append('嵌套快照仅含选定文字、来源消息ID与时间、脱敏来源块；attachments/attachment_jobs/analysis为空，database_identity/sender/chat_name不导出。Review的draft/extraction为空，confirmed_event_ids/wechat_candidates/source_update.events/source_update.proposals为空。全部字段路径见projection-field-summaries.json，完整值见八条载荷JSON。')
     lines += ['', '## 写入与Matter / Task副作用', '',
-        '正式数据库的eric_app_publish_records、begin_publish及两个记录触发器已只读核对：本批只会写eric_app_records、eric_app_changes和eric_app_workers，并使用原revision序列。没有event/task投影，没有Matter/Task表写入，没有确认动作或分析作业派发。',
+        '正式数据库的eric_app_publish_records、begin_publish及两个记录触发器已只读核对；实际API19的worker/hello入口亦已核对。未来若获授权，本批业务载荷写eric_app_records，eric_app_changes记变更，eric_app_workers记发布epoch/generation/时间，并使用原revision序列。worker/hello还会更新既有eric_app_processors行的last_seen_at；这是此前三表说明中遗漏的元信息写入，现已补全。不会新增处理器、修改其凭据或撤销状态，也不会写登录设备/会话/RLS。没有event/task投影，没有Matter/Task表写入，没有确认动作或分析作业派发。',
         '', '本结论以未来仅发布这份固定批次为前提：不调用worker/claim、commands、capture-results、receipts、resources/files等路径，不启动默认全量publish。现有CloudSync默认publish会先处理所有资源，不能用于本批。本轮未调用任何写入路径。',
         '', '核查时这8个kind/id在远端均不存在。原发布函数会保留已有Inbox视觉字段，因此正式执行前必须重新检查目标ID；若出现意外已有内容、哈希变化或并发发布，则停止并报告，不合并未知原文。',
         '', '## 登录身份与读取范围', '',
@@ -113,6 +114,7 @@ def main():
         '- 现网GET核查：匿名Inbox/Raw、伪造owner JWT、处理器密钥冒充owner会话、伪造文件票据及错误处理器密钥均401；现有处理器只读目录200，返回kind/id/source_hash而非正文。',
         '- 当前实际下载的API19代码合同测试33项通过，涵盖身份、独立处理器、工作区读取边界与设备撤销等路径；离线8条脱敏读模型、此前383项Python回归通过。',
         '- 本次采集时间兼容修复后，针对性20项Python测试及当前8条API19离线读模型检查通过。现有本机Inbox的“全部来源→详情→原始通知/来源块”两条样本均能展示，脱敏标识和正文匹配，页面异常0；这是本地离线响应预演，不替代正式云端端到端验收。',
+        '- 当前固定8条载荷另经下载的API19发布入口离线预检：原发布RPC收到相同的kind/id/payload/source_hash；无效或撤销处理器、无效epoch/generation被拒绝，陈旧发布及结果未知返回错误且无自动重试。核对了worker/hello的处理器活跃时间副作用。数据库RPC响应为隔离夹具，未执行真实SQL，不据此声称正式去重/提交成功。',
         '- 这五个本人会话如持有效JWT，可经现有API读取该owner工作区已发布内容；目前没有群级或单条Raw读取白名单。服务端service_role、数据库管理权限及原处理器保留其已有权限，本次不扩大权限。',
         '- 设备revoked_at生效后API拒绝访问，同一已撤销session不能通过重新登记恢复。仅Supabase登出可能让已签发JWT继续有效至到期；现有API不额外以auth.sessions行存在性执行即时登出检查。这是需要保留的现有会话边界，不能宣称所有登出方式均即时失效。[Supabase说明](https://supabase.com/docs/guides/auth/signout)',
         '- 过去24小时已查到的owner认证审计事件为1次login、4次token_refreshed和4次token_revoked，浏览器类型与登记会话一致；token_revoked可来自刷新轮换，不能直接当作设备撤销或入侵。日志时间窗2026-11-03 15:30至2026-11-04 15:30，不作为全历史无异常的绝对证明。',
@@ -139,12 +141,13 @@ def main():
         '拟申请范围：一次性发布两条已审阅脱敏Raw的8条现有读模型投影，附件、图片、OCR、文件元信息均为0。',
         '',f'固定载荷SHA256（bundle_hash）：`{bundle["bundle_hash"]}`。',
         '', '目标：既有Supabase项目mantuehuzptactymjpqg，工作区50e5a3ac-dd15-4f0a-a93c-ace4b735d16d。API：https://mantuehuzptactymjpqg.supabase.co/functions/v1/eric-app-api。',
-        '', '主表：public.eric_app_records，kind限定raw_item/inbox_item/inbox/raw_review；原eric_app_changes及eric_app_workers只记录对应变更和发布元信息。原ID和去重机制保留，不新建表或服务。',
+        '', '主表：public.eric_app_records，kind限定raw_item/inbox_item/inbox/raw_review；原eric_app_changes及eric_app_workers记录对应变更和发布epoch/generation/时间。连接登记还会更新现有public.eric_app_processors行的last_seen_at，仅为处理器活跃时间，不改凭据或撤销状态，不新增处理器。原ID和去重机制保留，不新建表或服务。',
         '', '正文仅为“校纪校规考试安排（计划）”“晚自习学习要求”的脱敏节选；course为空并保持原状，来源/原消息/快照ID和发布时间保留。具体8条记录如下：','']
     for s in summaries:draft.append(f'- {s["kind"]} / {s["id"]}；source_hash={s["source_hash"]}')
     draft += ['', '读取边界：现有owner已验证账号及本人确认保留的5个未撤销登录会话，无新增读者或分享链接；RLS不变，无按群隔离，服务端已有管理权限不变。会话撤销/登出边界见最终审查报告。',
         '', '明确不申请：全量积压或后来新采集Raw/附件同步、任何附件或资源登记、其他来源数据发布、DeepSeek或其他付费模型请求、领取/执行云端命令、创建或确认Matter/Task、修改课程关联、变更RLS/设备/账号配置。',
         '', '执行约束：后台全量同步继续暂停；复用原客户端/接口，仅受控发送必要publisher元信息和固定8条载荷，不能调用默认全量publish。发布前再次核对原消息证据、全部字段/哈希和远端目标ID；任何内容变化、意外旧记录或并发冲突均停止，不擅自扩大范围或覆盖。',
+        '', '原发布协议使用worker/hello登记发布epoch，再以generation=1一次提交8条固定记录；会接续该工作区原发布epoch。执行前须确认没有其他发布正在进行，避免干扰现有发布者。该协议已在无网络、无真实凭据的实际API19入口离线预检；现有生产暂停开关仍阻止所有写请求，离线预检不是执行入口或授权。',
         '', '验收：按原ID核对实际回执及远端去重，再通过已授权owner会话核对Eric OS API与Inbox“全部来源”的脱敏节选。失败先查已有回执，不盲目重复请求。',
         '', '风险与恢复：正式上传后，符合上述读取边界的会话及服务端管理权限可以访问文字副本；代码回滚不会撤回已上传内容。当前尚无上传，8个目标记录亦不存在。本地原文、来源ID和游标不改。',
         '', '**草案状态：未提交执行、未获得上传授权。本轮仅准备该申请，禁止根据这份文件自动上传。**']
@@ -154,6 +157,7 @@ def main():
         'live_get_access_checks_passed':live['PASS'],'target_record_conflicts':0,
         'creates_matter':False,'creates_task':False,'upload_authorized':False,'draft_prepared':True,
         'local_browser_preview_passed':True,'current_targeted_tests_passed':20,
+        'offline_publish_contract_passed':True,
         'cloud_end_to_end_verified':False,
         'local_service_checked_at':local['at'],'local_healthy_sources':len(sources),
         'hold_cloud_uploads':True,'pause_paid_ai':True,

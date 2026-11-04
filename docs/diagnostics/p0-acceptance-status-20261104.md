@@ -30,7 +30,7 @@
 | 复用现有链路、不改Schema/新建系统 | 使用原SQLite、Collector、同步记录表和现有API；本地预览构造无数据库或服务。未修改Schema、RLS、设备/读取权限、UI或Preview |
 | 只准备必要文字、去除PII及附件 | 仅2条学校事务节选；保留真实“计划”和“不强制”限定，不猜测课程或精确截止时间。完整8条投影排除发送者、微信数据库身份、群名、其他消息、草稿/模型输出和附件，383项回归与离线读模型通过 |
 | 来源、时间、课程与去重保留 | 2条样本保留原来源/Raw/消息/快照ID、源发布时间与可靠性；原已确认课程关联为空并保持空，去重键与整体bundle_hash稳定。原文哈希/截取位置仅在本地证据中保留 |
-| 云端表与权限先展示 | 已展示eric_app_records的8投影、变更索引与原worker元信息，资源/附件表不写；正式库复核11表RLS开启、客户端无直接读写或26个RPC执行权限。5个本人会话经有效登录和设备校验后可读，无按群隔离，服务端已有管理权限保留；实际匿名/伪造/越权GET均拒绝 |
+| 云端表与权限先展示 | 已展示eric_app_records的8投影、eric_app_changes变更索引、eric_app_workers发布元信息，以及worker/hello更新既有eric_app_processors.last_seen_at的副作用，资源/附件表不写；正式库复核11表RLS开启、客户端无直接读写或26个RPC执行权限。5个本人会话经有效登录和设备校验后可读，无按群隔离，服务端已有管理权限保留；实际匿名/伪造/越权GET均拒绝 |
 | 写前说明、可回滚、授权分离 | 本地恢复前说明影响并做checkpoint-043741；正式上传和付费请求持久化分别暂停。回滚不得覆盖旧库、倒退游标或通过旧版本无控制地重启上传。当前所有脱敏预览均upload_authorized=false |
 
 ## 当前真正剩余的验收
@@ -49,5 +49,6 @@
 - 完整8条现有读模型预览与字段/证据约束：提交7c3b11e；原任务重新运行后的只读复核报告f222795。
 - 当前精确载荷：wechat-minimized-projection-preview.json；bundle_hash=908e472419f0d680b01a0fda841aba970e51342cddac39df80ae6a78a675e60b；resources=[]、upload_authorized=false。
 - 此前完整隔离测试：complete-projection-test-results.xml，383 passed；本次补回采集时间后针对性测试captured-at-compatibility-tests.xml，20 passed。当前API19离线读模型及本机Inbox两条脱敏详情均通过；生产写入/云写入/模型请求均0，不宣称正式云端验收已完成。
+- 固定8条载荷的原API19发布入口离线预检：minimized-publish-contract.json。请求体原样交给原RPC，验证处理器身份和无效发布标识拒绝、陈旧发布冲突及未知结果不自动重试，并补齐处理器活跃时间元信息写入范围。RPC响应为夹具；没有真实数据库提交或网络请求，不替代正式去重/上传验证。
 
 所有Git提交仅在本地，没有把私人清单、载荷或原文推送到外部；用户既有未提交的同步配置及UI改动保留。
