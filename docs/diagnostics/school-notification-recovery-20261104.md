@@ -1,6 +1,6 @@
 # Attention Desk P0 采集恢复记录（2026-11-04）
 
-本记录对应既有 `D:/Eric OS/docs/diagnostics/school-notification-audit-20261104.md`。当前状态：**代码与真实隔离验收完成，正式启用等待明确的云端传输授权；整个目标尚未验收完成。** 没有把隔离库中的成功写成正式恢复。
+本记录对应既有 `D:/Eric OS/docs/diagnostics/school-notification-audit-20261104.md`。当前状态：**微信修复与真实隔离验收完成，正式采集启用仍等待明确的云端传输授权；官网只读健康接口已发布 API19 并真实验证，本机真实故障合并告警已获 OS 接受。整个目标尚未完成。** 没有把隔离库中的成功写成正式恢复。
 
 ## 根因与真实版本验证
 
@@ -45,7 +45,7 @@
 
 ## 已提交代码
 
-代码提交：`28e50bc`（仅本次 12 个文件，本地提交，未推送）。
+代码提交：`28e50bc`（首轮 12 个文件）、`d3e75a3`（免费恢复/独立来源健康）、`1f8d3d3`（真实健康告警验收脚本）；均为本地提交，未推送。另有本报告的文档提交。
 
 - `server/wechat_collect/db_adapter.py`：候选证书可隔离验证，正式默认路径保留；新版证书需真实证据及核心摘要。
 - `analysis.py`、新增 `recovery.py`：历史 job、历史输入、收到过响应、未知结果、已替代/取消输入不进入隐式付费请求。停更超过一天后的补采 scan 另加预算审批标记，防止恢复采集时顺带大量请求。保留已完成 Vision 转写后继续文本分析与显式重开媒体预览的原路径。
@@ -55,6 +55,15 @@
 - `scripts/wechat_compatibility_probe.py`、`wechat_recovery_acceptance.py`、`wechat_backlog_plan.py`、`wechat_recovery_checkpoint.py`：可复核的只读/隔离验证与备份入口，不负责模拟消息。
 
 没有修改现有未提交的 UI、两个同步模块或 Preview 文件；未触及 IELTS / Life Ledger。
+
+第二轮修复补充：
+
+- 空扫仍允许已持久化消息继续免费的本地过滤/分批；保持空扫零 DeepSeek 请求。避免一次分批异常在游标推进后永远卡住原文。
+- 被审批保护、已替代、未来退避中的旧 job 不再占住请求批次名额，新消息可进入原处理流程。保护在选择及正式请求预留前均重查；没有为通过测试而重置旧状态。
+- 在既有群扫描日志保留采集成功，并用 `staging_errors`、`latest_error_stage`、`pending_staging_messages` 区分后续暂存失败。待分析 job 只统计当前 extraction，不把已被替代的 job 重复计数。
+- 同步状态逐来源按自己的已确认 source_hash 判断；其他来源的积压不会把已确认同步的来源标为 pending。
+- `supabase/functions/eric-app-api/official_health*.ts`、`handler.ts`、`index.ts` 及固定依赖锁：现有 API 新增受既有 worker 身份/撤销规则保护的 `GET /worker/official-health`。只读事务读取官网源状态及数量，不读取/返回通知正文，不更改 Schema 或权限。依赖固定为 postgres 3.4.7，连接池上限 1、TLS 校验开启、禁用 prepared statements、SQL 超时 5 秒、每工作区缓存 60 秒。
+- `prepare_official_health_package.py`：实际 API18 的 handler/store/vision 与本地分支存在此前差异，发布包因此基于下载的 API18，仅覆盖本次入口与新 GET，保留其他模块原样。没有将本地其他未发布的 Vision/重试改动带入正式环境。
 
 ## 健康监控契约与边界
 
@@ -66,7 +75,11 @@
 
 旧记录没有每群失败历史，只保留最后群状态；过渡期明确标注 `legacy_global_lower_bound`，不伪造历史精确群级计数。启用后新失败记录为 `per_source_journal`。
 
-云端同步观察/凭证失败不会阻止微信健康判断与告警。官网生产采集由既有云 worker 管理，本地旧镜像明确标为 `external_observation_required`。本次已只读读取 29 个云官网来源独立状态（例如教务通知连续 11 次 http_error）；**尚未把云官网健康持续接入本机告警，也未修复官网到 Eric Raw 的缺失适配**。学习通目前仅有手动学习记录入口，不伪称具备自动通知扫描。
+云端同步观察/凭证失败不会阻止微信健康判断与告警。官网生产采集由既有云 worker 管理，新 GET 从实际云状态提供 29 个官网来源独立结果。SQL 按 worker 验证后的 workspace 过滤 Eric 投影，只返回来源/时间/状态/计数，不把 45 个缺失映射称作已经存在传输队列中的积压；无原文快照的历史占位 Raw 不被误算成待同步 Inbox。
+
+本机持续监控代码通过独立任务每 5 分钟 GET 官网状态，单次最多 10 秒；失败每分钟观察一次，连续 3 次后可合并告警。15 分钟前的快照标 unknown/stale_observation，保留 last_known 状态，不假装当前健康。官网逐来源过期阈值至少 12 小时或该来源轮询间隔的 3 倍，以容纳现有有限时批次轮转；连续失败至少 3 次不等待这一时间。微信仍为 45 个有效采集分钟，告警仍遵守夜间与持久去重规则。
+
+**API19 已实际发布；本机常驻监控尚未随原服务启动，需要获准重启后加载。** 一次性真实健康检查和真实合并告警已完成，详见下文。官网到 Eric Raw 的缺失内容适配仍未实施；学习通仍只有手动学习记录入口，不伪称具备自动通知扫描。
 
 ## 验证结果
 
@@ -78,14 +91,24 @@
 | 原处理流程 | 原过滤与分批通过：seen/new=301，filtered=51；原快照/候选占位保留。模型处理及最终确认未执行 |
 | 数据完整性 | 隔离库 FK 错误 0；Matter 11、Task 23、课程10、Review13 全内容哈希前后相同 |
 | 原本机停更被识别 | 正式只读数据五群均 failed；旧历史计数口径明确，不凭进程正常判成功 |
-| 离线回归 | 完整微信+启动器+云投影套件 326 passed；随后最后新增的观察隔离用例随 9 项健康测试通过。报告为 `pytest-final-results.xml`、`pytest-health-final.xml` |
+| 离线回归 | 第二轮完整微信+启动器+云投影套件 **334 passed**；实际 API18 最小覆盖包及健康读模型 **37 项通过**，Deno 2.6.4 冻结依赖类型检查通过。Python 报告 `pytest-p0-expanded-results.xml`；此前的 326 项与单独健康回归也保留 |
 | 调度不变 | 保留原 15 分钟、00:00–06:00 静默与 06:00 catch-up；相应原离线测试通过 |
 | 新 Raw 正式入库与云同步 | **待正式启用，未通过** |
 | 同一新 ID 的 Eric OS API 原文 | **待正式启用与用户认证验证，未通过** |
 | Inbox 全部来源实显 | **既有本机真实样本通过**（见下）；新补采数据和云端页面仍待正式启用，未通过 |
-| 正式告警投递 | **未启用/未发送**；单元测试不代替实际 OS 或手机投递 |
+| 正式告警投递 | **真实故障的一次合并本机告警通过 OS 接受，重复检查无新 claim**；常驻循环待原服务加载，横幅实显和用户是否读到仍 Unknown，未发送 Bark |
 
 真实隔离验收：`artifacts/p0-20261104/real-capture-acceptance.json`。隔离库仅在被 Git 忽略的 artifacts 内，未被当作正式库。全部验证使用真实授权群消息；离线回归中的合成消息仅在各测试临时库。
+
+### 官网健康 API 与真实告警
+
+API19 发布前已保存实际 API18 源码与回滚包。发布后从 Supabase 再次读取源码，确认 Store、Vision、文件、视图及 deno.json 与 API18 原文一致；只新增两个健康模块并挂接入口/worker GET。使用现有独立 worker 身份真实 GET 返回 200/29 来源；匿名为 401，原公开 `/health` 仍为 200。这里的通过依据是来源数据及身份隔离，未只看 200。
+
+11:38 云端采样：1 disabled、14 stale、6 partial、8 healthy_idle；教务通知为 partial、连续 11 次 http_error，需告警。45 个 source-item 关联无 Eric Raw，实际待补 Inbox 投影关联 0。计数明确以 source-item 关联为单位，同一条多来源通知仍保留原 ID，不靠重复入库凑数。查询计划实测约 0.49 秒，未新增索引或迁移。
+
+11:44 一次性调用同一个 CollectionHealthMonitor，正式 SQLite 使用只读连接，既有授权群及官网状态均来自真实数据。先 dry-run 确认 25 个异常来源，再经已有 WindowsNotifier 合并为 **一条**真实故障提醒。结果 `os_accepted`，不是虚构测试故障。去重文件在现有本机数据目录 `collection-health-alerts.json`；随后再次执行同一路径，`new_delivery_claim=false`，未重复发送。没有创建第二个 Collector、常驻进程或计划任务；没有推进游标、写业务表或调用模型。Windows 已接受不等于横幅实际显示或用户已阅读。
+
+证据：`official-health-live.json`、`api19-source-verification.json`、`official-api-deployment.json`、`official-source-readonly-rows.json`、`official-source-query-plan.json`、`collection-health-live-dryrun.json`、`collection-health-live-notification.json`、`collection-health-live-repeat.json`，均位于 `artifacts/p0-20261104/`。
 
 ### 既有本机 Inbox 的浏览器基线
 
@@ -101,10 +124,16 @@
 
 正式启用方案：验证任务身份和无在途模型请求，停止原 `AttentionDesk-Local` 任务，原子替换候选证书，启动同一任务。Collector 将把真实群原文、来源 ID/时间及原链路保存的相关附件写入现有 SQLite，并由现有 worker 同步到既有私有 Supabase Project `mantuehuzptactymjpqg`，API 为 `https://mantuehuzptactymjpqg.supabase.co/functions/v1/eric-app-api`。用户/工作区、访问控制、去重和调度配置不改。会有短暂本机服务中断；云端内容发送不能通过代码回滚撤回。补采/旧作业不隐式付费，不自动确认 Matter/Task。
 
-**自动审批拒绝了上述启用动作，命令未执行。** 理由：虽有概括恢复授权，但缺少对这批敏感 Raw 发往该具体云端目的地的明确授权，并存在正式服务中断及不可逆数据扩散风险。没有通过其他命令绕过拒绝。生效证书仍为 4.1.15.13，正式服务仍运行旧进程。本次源码修改没有在正式进程载入；没有重启、替换生效证书、写正式 Raw、部署前端/Preview、改变生产配置或发送新 Bark/Windows 通知。
+**自动审批拒绝了上述微信启用动作，命令未执行。** 理由：虽有概括恢复授权，但缺少对这批敏感 Raw 发往该具体云端目的地的明确授权，并存在正式服务中断及不可逆数据扩散风险。没有通过其他命令绕过拒绝。复查时原进程仍为 PID26188，生效证书 4.1.15.13，真实微信 4.2.0.9；没有重启 Collector、替换生效证书、推进正式游标或发送补采 Raw。
+
+本轮确实涉及 Production 的两个独立动作：向既有 Eric API 发布上述只读健康 GET（API18→19），以及依据真实故障发送一次本机 Windows 合并告警并记录去重 claim。已先说明各自范围；它们没有执行被拒绝的微信启用或 Raw 传输。没有修改数据库 Schema、访问权限、云端 Secret/生产环境配置值、UI/Preview，也未发 Bark。API19 正式读路径已验证；常驻本机健康任务仍需原服务获准重启。
+
+正式表与采集表对照启用前 checkpoint：event=11、task=23、course=10、review_artifact=13、raw_item=660、raw_snapshot=734、wechat_message=390、wechat_llm_attempt=59，八表完整内容哈希均未改变。证据 `followup-final-evidence.json`。一次本机通知只写告警去重文件并复用 Windows 通知身份，不写上述业务表。
 
 启用前完整 SQLite 备份、旧证书及配置位于 `artifacts/p0-20261104/checkpoint-025809/`，清单 `artifacts/p0-20261104/checkpoint.json`。备份是在正式库只读连接上通过 SQLite backup API 取得，包含 WAL 已提交内容。
 
-代码回滚：`git revert 28e50bc`；仅涉及上述提交，不包含用户此前未提交改动。尚未启用时无需动数据库或服务。若日后启用，需要受控停原任务、将 checkpoint 内旧报告原子恢复并启动同一任务；保留新采集历史与原 ID，不还原旧库覆盖新数据、不删除消息、不倒退游标。云端同步过的原文不会因回滚代码消失。
+本地代码回滚：依次 `git revert 1f8d3d3`、`git revert d3e75a3`、`git revert 28e50bc`，不包含用户此前未提交的 UI/同步改动。本机 Collector 尚未启用这些代码，无需为代码回滚还原数据库。API 回滚需将 `artifacts/p0-20261104/api18-rollback-package.json` 中原 7 文件重新部署到同一 eric-app-api（会生成新的版本号，恢复 API18 行为），不触碰 Schema/Secret/记录；本地 git revert 不会自动回滚已部署 API。已发 Windows 提醒不能靠代码回滚撤回，去重记录应保留以避免重发。
 
-后续必须完成：明确启用与既有云端传输授权；正式新 Raw/去重验收；按原 ID 与原文哈希对照云记录和经过授权的 API；新 Raw 在 Inbox 全部来源的真实渲染；实际健康检查启用与故障识别；云官网独立来源健康的持续接入；付费积压在批准范围内有界执行，或记录用户不批准的决定。目标保持 active。
+若日后启用 Collector，需要受控停原任务、将 checkpoint 内旧报告原子恢复并启动同一任务；保留新采集历史与原 ID，不还原旧库覆盖新数据、不删除消息、不倒退游标。云端同步过的原文不会因回滚代码消失。
+
+后续必须完成：明确微信启用与既有云端传输授权；正式新 Raw/去重验收；按原 ID 与原文哈希对照云记录和经过授权的 API；新 Raw 在 Inbox 全部来源的真实渲染；原服务加载持续健康任务；付费积压在批准范围内有界执行，或记录用户不批准的决定。目标保持 active。
