@@ -158,3 +158,23 @@ def test_sync_observation_failure_cannot_silence_collection_health(personal):
     assert result['sources'][0]['alert_required']
     assert result['sync']['state'] == 'unknown'
     assert result['sync']['latest_error'] == 'sync_observation_failed'
+
+
+def test_one_sources_pending_sync_does_not_mark_another_acknowledged_source_pending(personal, monkeypatch):
+    from server.cloud_sync.projection import CloudProjection
+    doc, store = configured(personal)
+    doc.wechat.priority_chats.append(ChatConfig(id='second', name='第二授权群'))
+    doc.wechat.allowed_chats.append('第二授权群')
+    store.configure(doc, enforce_allowlist=True)
+    with personal.connection(write=True) as c:
+        c.execute("INSERT INTO raw_item(id,source_id,kind,submission_hash,created_at) VALUES ('raw-one','wechat:health','wechat_batch','unit-one','2026-11-04T00:00:00Z')")
+        c.execute("INSERT INTO raw_item(id,source_id,kind,submission_hash,created_at) VALUES ('raw-two','wechat:second','wechat_batch','unit-two','2026-11-04T00:00:00Z')")
+    monkeypatch.setattr(CloudProjection, 'records', lambda self: [
+        {'kind':'raw_item','id':'raw-one','source_hash':'one'},
+        {'kind':'raw_item','id':'raw-two','source_hash':'two'}])
+    cloud = SimpleNamespace(settings=SimpleNamespace(read=lambda: {'enabled':True}),
+        hashes={('raw_item','raw-one'):'one'}, state={'connected':True,'last_error':None})
+    result = CollectionHealthMonitor(SimpleNamespace(personal=personal, document=doc), cloud_sync=cloud).snapshot()
+    assert result['sync']['state'] == 'pending'
+    assert result['sources'][0]['sync_state'] == 'synchronized'
+    assert result['sources'][1]['sync_state'] == 'pending'

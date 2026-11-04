@@ -273,7 +273,9 @@ class MediaPipeline:
             for group in related_groups([r for r in ready if r['id'] not in bound_files]):
                 await self._prepare(group,at)
             with self.personal.connection() as c:
-                jobs=[r[0] for r in c.execute("SELECT DISTINCT j.id FROM wechat_analysis_job j JOIN wechat_media_analysis a ON a.batch_id=j.batch_id WHERE j.status IN ('pending','retry','budget_deferred') ORDER BY j.created_at LIMIT 2")]
+                from .recovery import eligible_job_ids
+                candidates=c.execute("SELECT DISTINCT j.* FROM wechat_analysis_job j JOIN wechat_media_analysis a ON a.batch_id=j.batch_id WHERE j.status IN ('pending','retry','budget_deferred') ORDER BY j.created_at,j.id")
+                jobs=eligible_job_ids(c,candidates,at=at,limit=2)
             for job in jobs:await self.service.analysis.run_one(job)
             self._observe()
 

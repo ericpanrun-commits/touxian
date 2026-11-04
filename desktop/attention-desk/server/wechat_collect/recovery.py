@@ -40,6 +40,23 @@ def dispatch_hold(connection, job, at):
     return None
 
 
+def eligible_job_ids(connection, jobs, *, at, limit):
+    """Select bounded runnable work without letting held history occupy the head.
+
+    This is read-only. run_one/reserve must still recheck immediately before a
+    provider request, since the review or source can change after selection.
+    """
+    selected = []
+    for job in jobs:
+        if job['next_attempt_at'] and job['status'] != 'budget_deferred' and at < datetime.fromisoformat(job['next_attempt_at']):
+            continue
+        if not dispatch_hold(connection, job, at):
+            selected.append(job['id'])
+            if len(selected) >= limit:
+                break
+    return selected
+
+
 def backlog_plan(personal, *, at):
     rows = []
     with personal.connection() as c:

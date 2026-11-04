@@ -68,7 +68,7 @@ export async function commandInput(store: CloudStore,workspace: string,device: s
   return {id:uuid(value.id),device_id:device,resource_key,method:value.method,path,body:value.body,expected_revision:expected};
 }
 
-export function createHandler(options: {base:string;secret:string;visionSecret?:string;origins?:string[];fetcher?:typeof fetch;clock?:()=>Date}) {
+export function createHandler(options: {base:string;secret:string;visionSecret?:string;origins?:string[];fetcher?:typeof fetch;clock?:()=>Date;officialHealth?:(workspace:string)=>Promise<any>}) {
   const store=new CloudStore(options),origins=new Set(options.origins||[]);
   function json(value: any,status=200): Response {return Response.json(value,{status,headers:{'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer'}});}
   async function route(req: Request,url: URL,path: string): Promise<Response> {
@@ -164,6 +164,10 @@ export function createHandler(options: {base:string;secret:string;visionSecret?:
   async function workerRoute(req: Request,url: URL,path: string): Promise<Response> {
     if(path.startsWith('/worker/vision/')) return visionRoute(store,req,url,path,options.visionSecret||'',json);
     const principal=await store.worker(req),workspace=principal.workspace.id;
+    if(path==='/worker/official-health'&&req.method==='GET') {
+      if(!options.officialHealth)throw new AppFault(503,'source_health_not_configured','官网健康状态暂时无法读取。');
+      return json(await options.officialHealth(workspace));
+    }
     if(path==='/worker/hello'&&req.method==='POST') {const body=await boundedJson(req,2000);await store.rpc('begin_publish',{p_workspace:workspace,p_epoch:uuid(body.epoch)});await store.db('eric_app_processors?id=eq.'+principal.device.id,'PATCH',{last_seen_at:store.clock().toISOString()});return json({workspace_id:workspace,part_bytes:PART_BYTES,record_catalogue:true});}
     if(path==='/worker/resources'&&req.method==='GET') {const {offset}=paging(url);return json({items:await store.db('eric_app_resources?workspace_id=eq.'+workspace+'&complete=eq.true&select=id,sha256,bytes&order=id.asc&limit=500&offset='+offset),offset,limit:500});}
     if(path==='/worker/records'&&req.method==='GET') {const {offset}=paging(url);return json({items:await store.db('eric_app_records?workspace_id=eq.'+workspace+'&deleted=eq.false&source_epoch=not.is.null&select=kind,id,source_hash&order=kind.asc,id.asc&limit=500&offset='+offset),offset,limit:500});}

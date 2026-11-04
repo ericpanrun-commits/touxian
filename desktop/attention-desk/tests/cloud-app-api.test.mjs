@@ -2,8 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {build} from 'esbuild';
 import {fileURLToPath} from 'node:url';
+import {resolve} from 'node:path';
 
-async function moduleAt(path){const compiled=await build({entryPoints:[fileURLToPath(new URL(path,import.meta.url))],bundle:true,write:false,format:'esm',platform:'neutral',target:'es2022'});return import('data:text/javascript;base64,'+Buffer.from(compiled.outputFiles[0].contents).toString('base64'));}
+async function moduleAt(path){const entry=process.env.ERIC_API_TEST_ROOT?resolve(process.env.ERIC_API_TEST_ROOT,path.split('/').at(-1)):fileURLToPath(new URL(path,import.meta.url));const compiled=await build({entryPoints:[entry],bundle:true,write:false,format:'esm',platform:'neutral',target:'es2022'});return import('data:text/javascript;base64,'+Buffer.from(compiled.outputFiles[0].contents).toString('base64'));}
 const {createHandler,captureInput,commandInput}=await moduleAt('../supabase/functions/eric-app-api/handler.ts');
 const {CloudStore,hash}=await moduleAt('../supabase/functions/eric-app-api/store.ts');
 const {byteRange,fileResponse,verifyResource}=await moduleAt('../supabase/functions/eric-app-api/files.ts');
@@ -63,7 +64,7 @@ test('Canonical textbook catalogue reads filter courses and preserve owned recor
   const foreign=await r.request('/school/textbooks/foreign-book');assert.equal(foreign.status,404);
 });
 
-function rig(){
+function rig(options={}){
   const tables={eric_app_workspaces:[{id:W,owner_id:OWNER,timezone:'Asia/Shanghai'}],eric_app_devices:[{id:DEVICE,workspace_id:W,user_id:OWNER,session_id:SESSION,revoked_at:null}],eric_app_processors:[],eric_app_records:[],eric_app_resources:[],eric_app_resource_parts:[],eric_app_captures:[],eric_app_changes:[],eric_app_workers:[]};
   const objects=new Map(),calls=[],rpc={},faults={auth:null},clock={now:NOW};
   rpc.eric_app_inbox_page=body=>Response.json({items:[],total:0,offset:body.p_offset,limit:body.p_limit});
@@ -108,7 +109,7 @@ function rig(){
     throw new Error('Unexpected external request '+url.pathname);
   };
   const store=new CloudStore({base:BASE,secret:SECRET,fetcher,clock:()=>clock.now});
-  const handler=createHandler({base:BASE,secret:SECRET,fetcher,origins:[ORIGIN],clock:()=>clock.now});
+  const handler=createHandler({base:BASE,secret:SECRET,fetcher,origins:[ORIGIN],clock:()=>clock.now,...options});
   async function request(path,method='GET',body,headers=auth){return handler(new Request(ROOT+path,{method,headers:{...headers,...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify(body)}:{})}));}
   function record(kind,id,payload,revision=1){tables.eric_app_records.push({workspace_id:W,kind,id,payload,revision,deleted:false,updated_at:NOW.toISOString()});}
   return {tables,objects,calls,rpc,faults,clock,store,handler,request,record};
@@ -227,6 +228,22 @@ test('Restart catalogue exposes only this processor workspace source hashes, nev
   assert.ok(r.calls.some(path=>path.includes('select=kind%2Cid%2Csource_hash')||path.includes('select=kind,id,source_hash')));
   assert.equal((await r.request('/worker/records')).status,401);
 });
+test('Official source health is read-only and bound to an active processor workspace',async()=>{
+  const read=[],r=rig({officialHealth:async workspace=>{read.push(workspace);return {owner:'cloud',sources:[]};}});
+  const key='ework_'+'a'.repeat(43),headers={'X-Eric-Worker-Key':key};
+  assert.equal((await r.request('/worker/official-health')).status,401);
+  assert.equal((await r.request('/worker/official-health','GET',undefined,headers)).status,401);
+  assert.deepEqual(read,[]);
+  r.tables.eric_app_processors.push({id:DEVICE,workspace_id:W,key_hash:await hash(key),revoked_at:null});
+  const reply=await r.request('/worker/official-health','GET',undefined,headers);
+  assert.equal(reply.status,200);assert.deepEqual(read,[W]);
+  assert.equal(reply.headers.get('Cache-Control'),'private, no-store');
+  assert.equal((await r.request('/worker/official-health','POST',{},headers)).status,404);
+  r.tables.eric_app_processors[0].revoked_at=NOW.toISOString();
+  assert.equal((await r.request('/worker/official-health','GET',undefined,headers)).status,401);
+  assert.deepEqual(read,[W]);
+});
+
 test('An owner account and an active independently revocable device are both required',async()=>{
   const r=rig();r.tables.eric_app_workspaces=[];assert.equal((await r.request('/courses')).status,403);
   r.tables.eric_app_workspaces=[{id:W,owner_id:OWNER}];r.tables.eric_app_devices[0].revoked_at=NOW.toISOString();assert.equal((await r.request('/courses')).status,401);

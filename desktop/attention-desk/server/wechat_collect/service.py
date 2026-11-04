@@ -242,6 +242,7 @@ class WeChatService:
 
     async def _scan_target(self,target,row,override):
         counts={}
+        captured=False
         database=getattr(self.adapter,'is_database',False)
         if hasattr(self.adapter,'last_metrics'): self.adapter.last_metrics={}
         try:
@@ -259,6 +260,7 @@ class WeChatService:
                                                 policy=self.policy,override=override,cancelled=lambda:self.stop.is_set())
             self._safe_to_read(override)
             result,messages,counts=self.repository.capture(row['id'],chat,observation)
+            captured=True
             if not messages:
                 state='no_change' if result.complete else 'partial'
                 self.repository.record_group_scan(target.id,row['id'],state,counts,metrics=getattr(self.adapter,'last_metrics',{}))
@@ -288,6 +290,8 @@ class WeChatService:
             code=exc.code if isinstance(exc,PersonalError) else 'storage_error' if isinstance(exc,sqlite3.DatabaseError) else 'adapter_error'
             state='deferred' if code in {'quiet','quiet_boundary','waiting_idle','disabled','uia_not_verified'} else 'error'
             counts['errors']=int(state=='error')
+            if captured:
+                counts['staging_errors']=1
             self.repository.record_group_scan(target.id,row['id'],state,counts,error=code,metrics=getattr(self.adapter,'last_metrics',{}))
             return state,counts,code
 
@@ -376,17 +380,20 @@ class WeChatService:
                     c.execute('UPDATE wechat_scan SET stats_json=? WHERE id=?',(json.dumps(stats),scan_id))
 
     async def process_queue(self):
-        if getattr(self.adapter,'is_database',False) and (self.policy.quiet() or self.lock.locked() or self.last_result=='no_change'):
-            return  # A DB no-change cycle makes zero DeepSeek requests, including retries.
+        database=getattr(self.adapter,'is_database',False)
+        if database and (self.policy.quiet() or self.lock.locked()):
+            return
         automatic_allowed=self.policy.authorize(operation='llm',maximum_seconds=60).allowed
         if not automatic_allowed:
             with self.personal.connection() as c:
                 manual=c.execute('SELECT 1 FROM wechat_scan WHERE override_expires_at>? LIMIT 1',(self.clock().isoformat(),)).fetchone()
             if not manual or not self.document.wechat.enabled:
                 return
-        self.analysis.recover_responses()
         if automatic_allowed:
             self._recover_staging()
+        if database and self.last_result=='no_change':
+            return  # Local staging may resume; no HTTP/LLM work on an empty scan.
+        self.analysis.recover_responses()
         scope=[]
         scoped=''
         if getattr(self.adapter,'is_database',False) and self.changed_chat_ids is not None:
@@ -405,10 +412,10 @@ class WeChatService:
                     continue
             self.analysis.enqueue(batch['id'],self.context.read())
         with self.personal.connection() as c:
-            jobs=[(r[0],r[1]) for r in c.execute("SELECT j.id,b.chat_id FROM wechat_analysis_job j JOIN wechat_batch b ON b.id=j.batch_id JOIN wechat_chat ch ON ch.id=b.chat_id WHERE ch.enabled=1 AND j.status IN ('pending','budget_deferred','retry')"+scoped+" ORDER BY j.created_at LIMIT ?",(*scope,self.document.wechat.budget.batches_per_cycle))]
-        for job,chat_id in jobs:
-            if getattr(self.adapter,'is_database',False) and self.changed_chat_ids is not None and chat_id not in self.changed_chat_ids:
-                continue
+            from .recovery import eligible_job_ids
+            candidates=c.execute("SELECT j.* FROM wechat_analysis_job j JOIN wechat_batch b ON b.id=j.batch_id JOIN wechat_chat ch ON ch.id=b.chat_id WHERE ch.enabled=1 AND j.status IN ('pending','budget_deferred','retry')"+scoped+" ORDER BY j.created_at,j.id",scope)
+            jobs=eligible_job_ids(c,candidates,at=self.clock(),limit=self.document.wechat.budget.batches_per_cycle)
+        for job in jobs:
             await self.analysis.run_one(job)
 
     async def _followup(self,batch,override=None):

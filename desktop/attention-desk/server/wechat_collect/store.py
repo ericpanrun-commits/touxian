@@ -53,6 +53,10 @@ class WeChatStore:
                 stamp = now()
                 c.execute('INSERT INTO wechat_chat_scan(id,scan_id,chat_id,status,reason,created_at,completed_at,stats_json) VALUES (?,?,?,?,?,?,?,?)',
                           (identifier(),scan_id,chat_id,status,error,stamp,stamp,encode(counts)))
+            else:
+                # Retain capture success independently of a later staging error.
+                c.execute('UPDATE wechat_chat_scan SET stats_json=? WHERE scan_id=? AND chat_id=?',
+                          (encode(counts),scan_id,chat_id))
             c.execute('INSERT INTO wechat_group_state(chat_id,last_scan_id,last_scan_at,last_status,last_error,messages_new,messages_filtered,metadata_queries,message_body_queries,unauthorized_message_bodies_read,messages_sent) VALUES (?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(chat_id) DO UPDATE SET last_scan_id=excluded.last_scan_id,last_scan_at=excluded.last_scan_at,last_status=excluded.last_status,last_error=excluded.last_error,messages_new=excluded.messages_new,messages_filtered=excluded.messages_filtered,metadata_queries=excluded.metadata_queries,message_body_queries=excluded.message_body_queries,unauthorized_message_bodies_read=excluded.unauthorized_message_bodies_read,messages_sent=excluded.messages_sent',
                       (chat_id,scan_id,now(),status,error,counts.get('messages_new',0),counts.get('messages_filtered',0),metrics.get('metadata_queries',0),metrics.get('message_body_queries',0),metrics.get('unauthorized_message_bodies_read',0),metrics.get('messages_sent',0)))
 
