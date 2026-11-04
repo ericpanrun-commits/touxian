@@ -147,6 +147,7 @@ class WeChatService:
         return await self.save_settings(SettingsDocument.model_validate(document),payload.expected_revision)
 
     def status(self):
+        from .health import wechat_health
         permission=self.policy.authorize()
         status='running' if self.lock.locked() else permission.reason if not permission.allowed else self.last_result
         chats=self.repository.chats()
@@ -157,7 +158,7 @@ class WeChatService:
         last=scans[0] if scans else None
         readable=True if last and last['status'] in {'changed','no_change'} else False if last and last['status']=='error' else None
         database_state='readable' if readable is True else 'unavailable' if readable is False else 'not_checked'
-        return {'status':status,'capability':'database' if verified else 'not_tested','go_level':'GO' if verified else 'NO_GO','runtime_verified':verified,
+        return {'health':wechat_health(self.personal,self.document,self.clock()),'status':status,'capability':'database' if verified else 'not_tested','go_level':'GO' if verified else 'NO_GO','runtime_verified':verified,
                 'capability_reason':'本机只读数据库选择性读取已验证。' if verified else '本机数据库读取尚未通过验证。',
                 'wechat_available':readable,'database_state':database_state,'availability_checked_at':last['completed_at'] if last else None,
                 'collector_alive':bool(self.task and not self.task.done()),'last_heartbeat':self.last_tick.isoformat() if self.last_tick else None,
@@ -207,6 +208,13 @@ class WeChatService:
                 config=self.document.wechat
                 self.policy.require(override=override)
                 database=getattr(self.adapter,'is_database',False)
+                if database:
+                    with self.personal.connection() as c:
+                        last_ok=c.execute("SELECT MAX(completed_at) FROM wechat_scan WHERE status IN ('changed','no_change')").fetchone()[0]
+                    if last_ok and self.clock()-datetime.fromisoformat(last_ok)>=timedelta(hours=24):
+                        # Capture the outage safely; analysis of a large historical
+                        # catch-up must be cost-reviewed independently of recovery.
+                        stats['recovery_requires_approval']=1
                 self.changed_chat_ids=set()
                 errors=[]
                 chats=sorted((ch for ch in config.priority_chats if ch.enabled and (not database or config.allows(ch))),key=lambda ch:({'high':0,'medium':1,'low':2}[ch.priority],not ch.core))

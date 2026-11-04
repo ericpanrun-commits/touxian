@@ -19,19 +19,30 @@ class ReadOnlyWeChatDBAdapter:
     is_real = True
     is_database = True
 
-    def __init__(self, *, data_directory=None, python=None, runner=None):
+    def __init__(self, *, data_directory=None, python=None, runner=None, report_path=None):
         self.data_directory = Path(data_directory) if data_directory else None
         self.python = Path(python) if python else ROOT / 'artifacts' / 'wechat-db0' / 'venv' / 'Scripts' / 'python.exe'
         self.runner = runner or subprocess.run
+        self.report_path = Path(report_path) if report_path else ROOT / 'artifacts/wechat-db0/results/report.json'
         self.last_metrics = {}
 
     @property
     def certified(self):
         try:
-            report = json.loads((ROOT / 'artifacts/wechat-db0/results/report.json').read_text(encoding='utf-8'))
-            return (report['DB_READ'] == 'PASS' and report['commit'] == COMMIT
+            report = json.loads(self.report_path.read_text(encoding='utf-8'))
+            baseline = (report['DB_READ'] == 'PASS' and report['commit'] == COMMIT
                     and report.get('sender_prefix_mismatches') == 0 and report.get('count') == 20
                     and report.get('unauthorized_message_bodies_read') == 0 and self.python.is_file())
+            if report.get('wechat_version') == '4.1.15.13' and 'groups' not in report:
+                return baseline  # Preserve the original certificate for rollback.
+            return (baseline and bool(report.get('groups'))
+                    and all(group.get('PASS') is True for group in report['groups'])
+                    and report.get('stable_ids_unique') is True
+                    and report.get('stable_ids_repeatable') is True
+                    and report.get('chronological_output') is True
+                    and all(report.get('source_files', {}).get(name) == hashlib.sha256(
+                        (ROOT / 'server/wechat_collect' / name).read_bytes()).hexdigest()
+                        for name in ('db_reader.py', 'replica_db_core.py', 'sender.py', 'db_media.py')))
         except (KeyError, OSError, ValueError):
             return False
 
@@ -58,7 +69,7 @@ class ReadOnlyWeChatDBAdapter:
                    'selected_chatroom': selected, 'allowed_chatrooms': room_grants,
                    'expected_account_scope': expected_scope,
                    'cursor': cursor, 'workdir': str(ROOT / 'artifacts' / 'wechat-db-runtime'),
-                   'verified_version': json.loads((ROOT / 'artifacts/wechat-db0/results/report.json').read_text(encoding='utf-8'))['wechat_version']}
+                   'verified_version': json.loads(self.report_path.read_text(encoding='utf-8'))['wechat_version']}
         try:
             completed = self.runner([str(self.python), '-m', 'server.wechat_collect.db_worker'],
                                     input=json.dumps(request, ensure_ascii=False), text=True, encoding='utf-8',
@@ -88,7 +99,7 @@ class ReadOnlyWeChatDBAdapter:
         if cancelled():
             raise PersonalError('搜索已取消。','cancelled',409)
         request={'query':query,'offset':offset,'chatroom_id':chatroom_id,'workdir':str(ROOT/'artifacts/wechat-db-search'),
-                 'verified_version':json.loads((ROOT/'artifacts/wechat-db0/results/report.json').read_text(encoding='utf-8'))['wechat_version']}
+                 'verified_version':json.loads(self.report_path.read_text(encoding='utf-8'))['wechat_version']}
         try:
             result=self.runner([str(self.python),'-m','server.wechat_collect.group_search_worker'],input=json.dumps(request,ensure_ascii=False),text=True,encoding='utf-8',stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,cwd=str(ROOT),timeout=55,creationflags=subprocess.CREATE_NO_WINDOW if os.name=='nt' else 0)
             value=json.loads(result.stdout)

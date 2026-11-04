@@ -152,9 +152,14 @@ async def application_lifespan(application: FastAPI):
     await wechat_bark.start()
     await wechat.start()
     await reminders.start()
+    from .wechat_collect.health import CollectionHealthMonitor
+    collection_health = CollectionHealthMonitor(wechat, cloud_sync, official)
+    application.state.collection_health = collection_health
+    await collection_health.start()
     try:
         yield
     finally:
+        await collection_health.close()
         await cloud_sync.close()
         await wechat_bark.close()
         await wechat.close()
@@ -1232,13 +1237,16 @@ def health(check_integrations: bool = True) -> dict[str, Any]:
     from server.desktop_runtime import health_identity
     desktop = health_identity(APP_ROOT)
     storage = {"initialized": hasattr(app.state, "personal_store"), "schema_version": SCHEMA_VERSION}
+    monitor = getattr(app.state, 'collection_health', None)
+    collection = {"collection_health": monitor.latest} if monitor else {}
     if not check_integrations:
         # Launcher readiness must not wait for optional local exporters or mail CLIs.
-        return {"status": "ok", "personal_storage": storage, **desktop}
+        return {"status": "ok", "personal_storage": storage, **desktop, **collection}
     mail = mail_digest.mail_status()
     return {
         "status": "ok",
         "personal_storage": storage,
+        **collection,
         **desktop,
         "sample_available": SAMPLE_PATH.exists(),
         "skill_available": SKILL_SCRIPT.exists(),

@@ -376,6 +376,10 @@ class AnalysisQueue:
             job=c.execute('SELECT status FROM wechat_analysis_job WHERE id=?',(job_id,)).fetchone()
             if not job or job['status'] not in {'pending','retry','budget_deferred'} or c.execute("SELECT 1 FROM wechat_llm_attempt WHERE status='running' LIMIT 1").fetchone():
                 raise PersonalError('已有微信分析进行中。','analysis_busy',409)
+            from .recovery import dispatch_hold
+            current=c.execute('SELECT * FROM wechat_analysis_job WHERE id=?',(job_id,)).fetchone()
+            if dispatch_hold(c,current,at):
+                raise PersonalError('历史、已收响应或结果未知的作业需先核对恢复计划。','recovery_approval_required',409)
             attempts=c.execute('SELECT * FROM wechat_llm_attempt WHERE started_at>=? AND started_at<?',(start,end)).fetchall()
             spent=sum(json.loads(a['token_usage_json'] or '{}').get('total_tokens',a['reserved_tokens']) for a in attempts)
             if len(attempts)>=limits.http_daily or spent+estimate>limits.tokens_daily or kind=='vision' and sum(a['kind']=='vision' for a in attempts)>=limits.vision_daily:
@@ -398,6 +402,9 @@ class AnalysisQueue:
                 if not row or row['status'] not in {'pending','budget_deferred','retry'}:
                     return False
                 job=dict(row)
+                from .recovery import dispatch_hold
+                if dispatch_hold(c,job,self.clock()):
+                    return False
                 # Re-evaluate a budget deferral against the actual ledger: a
                 # recovered usage receipt or raised limit may make room today.
                 if job['next_attempt_at'] and job['status']!='budget_deferred' and self.clock()<datetime.fromisoformat(job['next_attempt_at']):
@@ -515,15 +522,23 @@ class AnalysisQueue:
                     if job['status']=='parsed':
                         path.unlink(missing_ok=True)
                         continue
+                    saved_job=saved.get('job') or {}
+                    if any(saved_job.get(key)!=job[key] for key in ('id','snapshot_id','input_key','extraction_id')):
+                        continue
                     if saved.get('kind')=='vision':
                         # Apply outside the read transaction; nested writes would deadlock.
                         vision_saved=saved
                     else:
                         vision_saved=None
                     batch=dict(c.execute('SELECT * FROM wechat_batch WHERE id=?',(job['batch_id'],)).fetchone())
+                    review=c.execute('SELECT status,extraction_id FROM raw_review WHERE raw_snapshot_id=?',(job['snapshot_id'],)).fetchone()
+                    if (batch['superseded_by'] or batch['status'] in {'ignored','superseded','archived'}
+                            or not review or review['status']!='pending' or review['extraction_id']!=job['extraction_id']):
+                        continue
                     batch['primary_ids']=[r[0] for r in c.execute("SELECT message_id FROM wechat_batch_message WHERE batch_id=? AND role='primary'",(batch['id'],))]
                     snapshot=snapshot_with_metadata(c,c.execute('SELECT * FROM raw_snapshot WHERE id=?',(job['snapshot_id'],)).fetchone())
-                    attempt=c.execute('SELECT id FROM wechat_llm_attempt WHERE job_id=? ORDER BY attempt_number DESC LIMIT 1',(job['id'],)).fetchone()
+                    attempts=c.execute('SELECT id FROM wechat_llm_attempt WHERE job_id=? ORDER BY attempt_number DESC',(job['id'],)).fetchall()
+                    attempt=next((a for a in attempts if a['id']==saved.get('attempt_id')),None) if saved.get('attempt_id') else attempts[0] if len(attempts)==1 else None
                 if not attempt:
                     continue
                 if saved.get('usage'):
