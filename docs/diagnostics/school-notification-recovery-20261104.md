@@ -1,6 +1,6 @@
 # Attention Desk P0 采集恢复记录（2026-11-04）
 
-本记录对应既有 `D:/Eric OS/docs/diagnostics/school-notification-audit-20261104.md`。最新状态：**阶段一本地正式恢复已完成，五来源真实入库、去重、原15分钟周期和常驻健康监控通过；阶段二云端内容传输及DeepSeek付费重试独立保持暂停。** 最新授权边界、正式验收和待同步清单见 [本地恢复与云端审阅报告](wechat-local-restoration-and-sync-review-20261104.md)。下文保留早期修复依据；其中“尚未正式启用”的旧验收状态以新报告为准。
+本记录对应既有 `D:/Eric OS/docs/diagnostics/school-notification-audit-20261104.md`。最新状态：**阶段一本地正式恢复持续正常；用户已明确批准的2条脱敏Raw、8投影、0附件，经平台复审后于23:16完成真实云端发布、幂等、本人API及正式Inbox验收。** 见 [正式云端验收](wechat-cloud-acceptance-20261104.md)。后台全量上传与DeepSeek付费重试仍独立暂停，持续增量只准备方案。下文保留早期修复依据，“尚未正式启用/未上传”不代表当前已验收批次。
 
 ## 根因与真实版本验证
 

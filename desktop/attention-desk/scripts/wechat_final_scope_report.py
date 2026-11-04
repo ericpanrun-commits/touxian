@@ -31,6 +31,8 @@ def paths(value,prefix=''):
 
 def main():
     folder=ROOT/'artifacts/p0-20261104';evidence=folder/'final-scope-review'
+    if (folder/'limited-upload/execution-receipt.json').exists():
+        raise SystemExit('This pre-upload review is frozen after execution; use wechat-cloud-acceptance-20261104.md.')
     samples=read(folder/'wechat-minimized-text-samples.json');bundle=read(folder/'wechat-minimized-projection-preview.json')
     regenerated=minimized_projection_preview(ReadOnlyStore(default_database_path()),samples)
     assert regenerated==bundle, 'reviewed bundle changed'
