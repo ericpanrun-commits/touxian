@@ -20,6 +20,7 @@ from ..notes_anywhere.settings import BASE
 from ..collector.safe_logs import record
 from .commands import CommandExecutor
 from .projection import CloudProjection
+from ..recovery_controls import cloud_uploads_held
 
 ENDPOINT=BASE+'/functions/v1/eric-app-api'
 PART_BYTES=4_000_000
@@ -100,9 +101,14 @@ class CloudSync:
     def _new_client():return httpx.AsyncClient(timeout=httpx.Timeout(90,connect=10),follow_redirects=False)
 
     async def request(self,method,path,body=None,content=None):
+        if cloud_uploads_held(self.personal.path) and (method.upper() not in {'GET','HEAD'} or body is not None or content is not None):
+            self.state['blocked_write_requests']=self.state.get('blocked_write_requests',0)+1
+            raise SyncError('cloud_uploads_held',409)
         if not self.config:raise SyncError('connection_not_configured')
         headers={'X-Eric-Worker-Key':self.config['worker_key']}
         if content is not None:headers['Content-Type']='application/octet-stream'
+        counter='read_requests' if method.upper() in {'GET','HEAD'} else 'write_requests'
+        self.state[counter]=self.state.get(counter,0)+1
         response=await self.client.request(method,ENDPOINT+path,headers=headers,
             **({'json':body} if content is None else {'content':content}))
         if response.status_code not in (200,201,202):
@@ -151,6 +157,18 @@ class CloudSync:
     async def sync_once(self):
         if self.lock.locked():return
         async with self.lock:
+            if cloud_uploads_held(self.personal.path):
+                self.state.update(uploads_held=True,phase='local_only',last_error=None)
+                self.config=self.settings.read()
+                if self.config and self.config.get('enabled'):
+                    if not getattr(self,'local_only_catalogued',False):
+                        await self.resource_catalogue()
+                        await self.record_catalogue()
+                        self.local_only_catalogued=True
+                    self.state['connected']=True
+                return
+            self.state['uploads_held']=False
+            self.local_only_catalogued=False
             # Local handoffs continue even while the Internet request below
             # fails. Their durable marker also covers commit-before-shutdown.
             if self.learning is not None:self.learning.resume_pending_note_links()

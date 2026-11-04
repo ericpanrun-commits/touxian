@@ -14,10 +14,13 @@ from ..extraction_errors import ExtractionFailure
 from ..personal_store import encode
 from ..source_metadata import snapshot_with_metadata
 from .analysis import build_messages, validate_output
+from ..recovery_controls import paid_ai_paused
 
 
 def dispatch_hold(connection, job, at):
     """A stale backlog or a received/unknown response needs deliberate recovery."""
+    if paid_ai_paused():
+        return 'paid_analysis_paused'
     batch = connection.execute('SELECT * FROM wechat_batch WHERE id=?', (job['batch_id'],)).fetchone()
     review = connection.execute('SELECT * FROM raw_review WHERE raw_snapshot_id=?', (job['snapshot_id'],)).fetchone()
     if (not batch or batch['superseded_by'] or batch['status'] in {'ignored', 'superseded', 'archived'}

@@ -5,6 +5,7 @@ import time
 from dataclasses import dataclass
 
 import httpx
+from ..recovery_controls import cloud_uploads_held
 
 
 MESSAGES = {
@@ -20,6 +21,7 @@ MESSAGES = {
     'delivery_unknown': '无法确认 Bark 是否接受通知；为避免重复，已停止自动重发。',
     'test_cooldown': '测试通知刚刚发送过，请稍后再试。',
     'client_error': 'Bark 发送组件暂时不可用。',
+    'cloud_uploads_held': '本地恢复期间对外推送暂停；本地健康提醒正常。',
 }
 
 
@@ -56,6 +58,8 @@ class BarkClient:
         return result
 
     def _once(self, payload):
+        if cloud_uploads_held():
+            return DeliveryResult(error='cloud_uploads_held')
         try:
             # No redirects: never forward credentials to a redirected destination.
             with httpx.Client(transport=self.transport, timeout=httpx.Timeout(8, connect=3, read=8, write=5, pool=3),

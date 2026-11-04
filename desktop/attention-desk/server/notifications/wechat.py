@@ -124,6 +124,9 @@ class WeChatBarkDispatcher:
             self.lock.release()
 
     def tick(self):
+        from ..recovery_controls import cloud_uploads_held
+        if cloud_uploads_held(self.personal.path):
+            return
         if not self.lock.acquire(blocking=False):
             return
         try:

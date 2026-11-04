@@ -14,6 +14,7 @@ import httpx
 from ..documents.policy import filename,validate_file
 from ..personal_store import PersonalError
 from .settings import BASE,ENDPOINT,MAX_BYTES
+from ..recovery_controls import cloud_uploads_held
 
 
 class NotesSyncError(Exception):
@@ -68,6 +69,8 @@ class AnywhereNotes:
         self.setup=None
 
     async def _request(self,config,method,path,body=None):
+        if cloud_uploads_held(self.personal.path) and (method.upper() not in {'GET','HEAD'} or body is not None):
+            raise NotesSyncError('cloud_uploads_held')
         response=await self.client.request(method,ENDPOINT+path,headers={'X-Eric-Sync-Key':config['sync_key']},json=body)
         if response.status_code not in {200,201,202}:raise NotesSyncError('cloud_unavailable')
         try:return response.json()
@@ -119,6 +122,10 @@ class AnywhereNotes:
         validate_file(target,'pdf','application/pdf')
 
     async def sync_once(self):
+        if cloud_uploads_held(self.personal.path):
+            self.state.update(uploads_held=True,last_error=None,message='本地恢复期间云端收发暂停；原件与队列保留。')
+            return self.public()
+        self.state['uploads_held']=False
         config=self.settings.read()
         self.state.update(configured=bool(config),enabled=bool(config and config.get('enabled')))
         if not config or not config.get('enabled'):return self.public()

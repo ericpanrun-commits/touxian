@@ -1,6 +1,6 @@
 # Attention Desk P0 采集恢复记录（2026-11-04）
 
-本记录对应既有 `D:/Eric OS/docs/diagnostics/school-notification-audit-20261104.md`。当前状态：**微信修复与真实隔离验收完成，正式采集启用仍等待明确的云端传输授权；官网只读健康接口已发布 API19 并真实验证，本机真实故障合并告警已获 OS 接受。整个目标尚未完成。** 没有把隔离库中的成功写成正式恢复。
+本记录对应既有 `D:/Eric OS/docs/diagnostics/school-notification-audit-20261104.md`。最新状态：**阶段一本地正式恢复已完成，五来源真实入库、去重、原15分钟周期和常驻健康监控通过；阶段二云端内容传输及DeepSeek付费重试独立保持暂停。** 最新授权边界、正式验收和待同步清单见 [本地恢复与云端审阅报告](wechat-local-restoration-and-sync-review-20261104.md)。下文保留早期修复依据；其中“尚未正式启用”的旧验收状态以新报告为准。
 
 ## 根因与真实版本验证
 
@@ -120,22 +120,12 @@ API19 发布前已保存实际 API18 源码与回滚包。发布后从 Supabase 
 
 证据在仓库外 `C:/Users/ericp/Desktop/reference/p0-notification-evidence-20261104/`：`inbox-baseline.json`、`inbox-all-baseline.png`、`inbox-original-baseline.png`。只检查桌面 Chromium；移动端、Production PWA 和 Preview 尚未验证。现有长文件名列表有溢出，但不影响本次原文读取，本任务没有修改 UI。
 
-## Production、审批及回滚
+## Production、授权边界及回滚（最新）
 
-正式启用方案：验证任务身份和无在途模型请求，停止原 `AttentionDesk-Local` 任务，原子替换候选证书，启动同一任务。Collector 将把真实群原文、来源 ID/时间及原链路保存的相关附件写入现有 SQLite，并由现有 worker 同步到既有私有 Supabase Project `mantuehuzptactymjpqg`，API 为 `https://mantuehuzptactymjpqg.supabase.co/functions/v1/eric-app-api`。用户/工作区、访问控制、去重和调度配置不改。会有短暂本机服务中断；云端内容发送不能通过代码回滚撤回。补采/旧作业不隐式付费，不自动确认 Matter/Task。
+用户已明确授权阶段一本地正式恢复，并要求云端 Raw/附件上传和付费重试继续单独暂停。本次先加入持久化云写入/付费AI暂停控制，通过367项隔离回归，再备份正式库、停止原任务、切换已验证证书并启动原AttentionDesk-Local。新PID43560，12:38补扫新增301条消息及82条批次Raw；免费原媒体管线另生成13条Raw，共95条。12:40重复扫描和12:45原周期扫描均no_change，正式消息691、Raw755，原有数据未改写，核心四表哈希和调用账本不变。常驻健康监控已实际加载。
 
-**自动审批拒绝了上述微信启用动作，命令未执行。** 理由：虽有概括恢复授权，但缺少对这批敏感 Raw 发往该具体云端目的地的明确授权，并存在正式服务中断及不可逆数据扩散风险。没有通过其他命令绕过拒绝。复查时原进程仍为 PID26188，生效证书 4.1.15.13，真实微信 4.2.0.9；没有重启 Collector、替换生效证书、推进正式游标或发送补采 Raw。
+此前自动审批拒绝的是将服务启用与未授权敏感内容云传输合并的操作，该命令未执行。用户本次将授权拆分后，本地恢复安全完成；没有重试或绕过被拒绝的云端传输，也不再以该拒绝阻塞本地修复。
 
-本轮确实涉及 Production 的两个独立动作：向既有 Eric API 发布上述只读健康 GET（API18→19），以及依据真实故障发送一次本机 Windows 合并告警并记录去重 claim。已先说明各自范围；它们没有执行被拒绝的微信启用或 Raw 传输。没有修改数据库 Schema、访问权限、云端 Secret/生产环境配置值、UI/Preview，也未发 Bark。API19 正式读路径已验证；常驻本机健康任务仍需原服务获准重启。
+阶段二仅完成只读盘点与实际权限核查：95条待同步Raw、131条附件关联记录、82份跨群内容去重附件，全部approved=false。现有全量publish不能直接恢复，需先确认来源/时间/字段、敏感数据最小化与读取边界，再基于精确批次单独申请上传。DeepSeek付费重试继续暂停。
 
-正式表与采集表对照启用前 checkpoint：event=11、task=23、course=10、review_artifact=13、raw_item=660、raw_snapshot=734、wechat_message=390、wechat_llm_attempt=59，八表完整内容哈希均未改变。证据 `followup-final-evidence.json`。一次本机通知只写告警去重文件并复用 Windows 通知身份，不写上述业务表。
-
-启用前完整 SQLite 备份、旧证书及配置位于 `artifacts/p0-20261104/checkpoint-025809/`，清单 `artifacts/p0-20261104/checkpoint.json`。备份是在正式库只读连接上通过 SQLite backup API 取得，包含 WAL 已提交内容。
-
-本地代码回滚：依次 `git revert 1f8d3d3`、`git revert d3e75a3`、`git revert 28e50bc`，不包含用户此前未提交的 UI/同步改动。本机 Collector 尚未启用这些代码，无需为代码回滚还原数据库。API 回滚需将 `artifacts/p0-20261104/api18-rollback-package.json` 中原 7 文件重新部署到同一 eric-app-api（会生成新的版本号，恢复 API18 行为），不触碰 Schema/Secret/记录；本地 git revert 不会自动回滚已部署 API。已发 Windows 提醒不能靠代码回滚撤回，去重记录应保留以避免重发。
-
-若日后启用 Collector，需要受控停原任务、将 checkpoint 内旧报告原子恢复并启动同一任务；保留新采集历史与原 ID，不还原旧库覆盖新数据、不删除消息、不倒退游标。云端同步过的原文不会因回滚代码消失。
-
-后续必须完成：明确微信启用与既有云端传输授权；正式新 Raw/去重验收；按原 ID 与原文哈希对照云记录和经过授权的 API；新 Raw 在 Inbox 全部来源的真实渲染；原服务加载持续健康任务；付费积压在批准范围内有界执行，或记录用户不批准的决定。完整目标尚未完成，后续执行等待明确授权。
-
-第三轮复查仍为 PID26188、证书 4.1.15.13、无 activation.json；没有收到启用/具体云端传输或付费重试的明确批准。此前两轮已完成不依赖该批准的修复、真实隔离验证、官网健康 API19 与一次真实告警验证。下一步关键动作仍受同一自动审批拒绝约束，不能将自动续跑当作批准，也不能以隔离成功替代正式新 Raw 的端到端验收；按连续三轮阻塞规则等待用户决定，不继续重复执行无关检查。
+最新备份位于 `desktop/attention-desk/artifacts/p0-20261104/checkpoint-043741/`。保留暂停文件、新消息和游标，不覆盖旧库或删除真实数据；旧代码可能忽略暂停文件，回滚时须先停止原任务，避免直接重启上传。API19只读健康接口及API18回滚包维持此前记录，不改Schema/Secret。详尽证据、测试和回滚边界见新报告。

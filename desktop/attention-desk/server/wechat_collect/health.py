@@ -224,14 +224,14 @@ class CollectionHealthMonitor:
                 records = [r for r in records if r['kind'] in {'raw_item','inbox_item','inbox'} and r['id'] in raw_sources]
                 pending = [r for r in records if worker.hashes.get((r['kind'],r['id'])) != r['source_hash']]
                 state = dict(worker.state)
-                health['sync'] = {'state': 'failed' if state.get('last_error') else
+                health['sync'] = {'state': 'held_local_only' if state.get('uploads_held') else 'failed' if state.get('last_error') else
                     'pending' if pending else 'synchronized' if state.get('connected') else 'unknown',
                     'pending_records': len(pending), 'latest_error': state.get('last_error'),
                     'evidence': 'per_record_source_hash_acknowledged_by_publish'}
                 for source in health['sources']:
                     source['pending_sync'] = sum(raw_sources[r['id']] == source['source_id'] for r in pending)
                     source_records = sum(raw_sources[r['id']] == source['source_id'] for r in records)
-                    source['sync_state'] = ('failed' if state.get('last_error') else 'pending') if source['pending_sync'] else 'synchronized' if source_records else 'not_collected'
+                    source['sync_state'] = 'held_local_only' if state.get('uploads_held') else ('failed' if state.get('last_error') else 'pending') if source['pending_sync'] else 'synchronized' if source_records else 'not_collected'
 
     def deliver(self, health):
         if health['quiet']:

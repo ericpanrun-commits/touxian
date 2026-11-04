@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from .config import WeChatConfig
+from ..recovery_controls import paid_ai_paused
 
 SHANGHAI = ZoneInfo('Asia/Shanghai')
 
@@ -40,6 +41,8 @@ class SchedulerPolicy:
         at = self.clock()
         local = at.astimezone(SHANGHAI)
         midnight = (local + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+        if operation in {'llm','vision'} and paid_ai_paused():
+            return Permission(False, 'paid_analysis_paused', at)
         if require_enabled and not self.config.enabled:
             return Permission(False, 'disabled', at)
         if override and override.expires_at > at:

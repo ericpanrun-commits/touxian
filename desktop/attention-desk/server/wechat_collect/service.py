@@ -383,14 +383,14 @@ class WeChatService:
         database=getattr(self.adapter,'is_database',False)
         if database and (self.policy.quiet() or self.lock.locked()):
             return
+        if self.policy.authorize(operation='scan').allowed:
+            self._recover_staging()
         automatic_allowed=self.policy.authorize(operation='llm',maximum_seconds=60).allowed
         if not automatic_allowed:
             with self.personal.connection() as c:
                 manual=c.execute('SELECT 1 FROM wechat_scan WHERE override_expires_at>? LIMIT 1',(self.clock().isoformat(),)).fetchone()
             if not manual or not self.document.wechat.enabled:
                 return
-        if automatic_allowed:
-            self._recover_staging()
         if database and self.last_result=='no_change':
             return  # Local staging may resume; no HTTP/LLM work on an empty scan.
         self.analysis.recover_responses()

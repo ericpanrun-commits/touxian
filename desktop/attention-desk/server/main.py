@@ -103,6 +103,8 @@ async def application_lifespan(application: FastAPI):
         raise RuntimeError('生产环境必须使用受保护的 server.cloud_app:app 入口。')
     personal_store = PersonalStore(default_database_path())
     personal_store.initialize()
+    from .recovery_controls import paid_ai_paused
+    paid_paused = paid_ai_paused(personal_store.path)
     from .learning.note_course import reconcile_timetable
     application.state.course_registration = reconcile_timetable(personal_store)
     application.state.personal_store = personal_store
@@ -122,22 +124,25 @@ async def application_lifespan(application: FastAPI):
     from .learning.analysis import LearningAnalysis
     learning.analysis_runner = LearningAnalysis(learning, extraction.settings)
     application.state.learning_service = learning
-    school.start_local_recovery()
+    if not paid_paused:
+        school.start_local_recovery()
     collector.service.learning = learning
     from .notes_anywhere.settings import NotesSettings
     from .notes_anywhere.service import AnywhereNotes
     anywhere = AnywhereNotes(personal_store,collector.service,NotesSettings(personal_store.path.with_name('notes-anywhere-settings.json')))
     application.state.notes_anywhere = anywhere
     collector.anywhere = anywhere
-    await collector.service.resume_notes()
+    if not paid_paused:
+        await collector.service.resume_notes()
     await anywhere.start()
     from .cloud_sync.service import CloudSync
     from .cloud_sync.settings import WorkerSettings
     cloud_sync = CloudSync(personal_store,collector.service,school,extraction,WorkerSettings(personal_store.path.with_name('cloud-worker-settings.json')),learning)
     application.state.cloud_sync = cloud_sync
     await cloud_sync.start()
-    await asyncio.to_thread(collector.resume_notes)
-    learning.resume_background()
+    if not paid_paused:
+        await asyncio.to_thread(collector.resume_notes)
+        learning.resume_background()
     official = OfficialSourceMonitor(personal_store)
     OFFICIAL = official
     application.state.official_monitor = official
@@ -785,6 +790,9 @@ def extract_answers(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 async def call_jev(endpoint: str, api_key: str, payload: dict[str, Any]) -> dict[str, Any]:
+    from .recovery_controls import paid_ai_paused
+    if paid_ai_paused():
+        raise RuntimeError('付费分析保持暂停。')
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     async with httpx.AsyncClient(timeout=45) as client:
         response = await client.post(endpoint, headers=headers, json=payload)
@@ -956,6 +964,9 @@ async def call_deepseek(
     last_error: Exception | None = None
     async with httpx.AsyncClient(timeout=90) as client:
         for attempt in range(DEEPSEEK_ATTEMPTS):
+            from .recovery_controls import paid_ai_paused
+            if paid_ai_paused():
+                raise RuntimeError('付费分析保持暂停。')
             try:
                 response = await client.post(endpoint, headers=headers, json=body)
                 if response.status_code >= 400:
@@ -1239,6 +1250,8 @@ def health(check_integrations: bool = True) -> dict[str, Any]:
     storage = {"initialized": hasattr(app.state, "personal_store"), "schema_version": SCHEMA_VERSION}
     monitor = getattr(app.state, 'collection_health', None)
     collection = {"collection_health": monitor.latest} if monitor else {}
+    from server.recovery_controls import controls
+    collection['recovery_controls'] = controls()
     if not check_integrations:
         # Launcher readiness must not wait for optional local exporters or mail CLIs.
         return {"status": "ok", "personal_storage": storage, **desktop, **collection}

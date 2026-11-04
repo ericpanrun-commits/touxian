@@ -7,6 +7,7 @@ import json
 import httpx
 
 from .extraction_errors import ExtractionFailure
+from .recovery_controls import paid_ai_paused
 
 
 def strict_json(raw):
@@ -35,6 +36,8 @@ class DeepSeekTransport:
         self.transport = transport
 
     async def request(self, body, config, api_key, *, attempts=1, before_attempt=None):
+        if paid_ai_paused():
+            raise ExtractionFailure('paid_analysis_paused','付费分析保持暂停；原文与待处理任务保留。',attempts=0)
         from .extraction_provider import ProviderResult
         key = api_key.get_secret_value()
         if not key:
@@ -48,6 +51,8 @@ class DeepSeekTransport:
         try:
             async with httpx.AsyncClient(timeout=config.timeout,transport=self.transport,follow_redirects=False) as client:
                 for index in range(max(1,min(2,attempts))):
+                    if paid_ai_paused():
+                        raise ExtractionFailure('paid_analysis_paused','付费分析保持暂停。',attempts=count)
                     if before_attempt:
                         before_attempt()
                     count += 1
