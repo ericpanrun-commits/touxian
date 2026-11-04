@@ -60,7 +60,36 @@ def eligible_job_ids(connection, jobs, *, at, limit):
     return selected
 
 
-def backlog_plan(personal, *, at):
+def request_plan(personal, batch, config, messages, *, allow_vision=False):
+    """Read-only cost stages, matching production's per-batch vision permission.
+
+    A successful vision response changes the text snapshot. Its later text
+    reservation cannot be presented as known before that response exists.
+    """
+    from .vision import pending_media, vision_body
+    with personal.connection() as c:
+        table=c.execute("SELECT 1 FROM sqlite_master WHERE name='wechat_media_analysis'").fetchone()
+        recovered=c.execute('SELECT vision_allowed FROM wechat_media_analysis WHERE batch_id=?',(batch['id'],)).fetchone() if table else None
+    media=pending_media(personal,batch['id']) if allow_vision or recovered and recovered[0] else []
+    current_text=len(encode(messages).encode())+config.max_output_tokens
+    result={'text_requests_max':1,'vision_requests_max':int(bool(media)),
+        'http_requests_max':1+int(bool(media)),'vision_images':len(media),
+        'current_text_reservation':current_text,'initial_reserved_tokens':current_text,
+        'post_vision_text_reservation_unknown':bool(media),'vision_preflight_error':None}
+    if media:
+        result['initial_reserved_tokens']=None
+        try:
+            body=vision_body(media,config,personal.path.parent/'files')
+            text_parts=[part for message in body['messages'] for part in message['content'] if part.get('type')=='text']
+            result['initial_reserved_tokens']=len(encode(text_parts).encode())+len(media)*4096+config.max_output_tokens
+        except ExtractionFailure as exc:
+            result['vision_preflight_error']=exc.code
+        except OSError:
+            result['vision_preflight_error']='vision_original_unavailable'
+    return result
+
+
+def backlog_plan(personal, *, at, allow_vision=False):
     rows = []
     with personal.connection() as c:
         jobs = c.execute("SELECT j.*,b.status AS batch_status,b.superseded_by,b.raw_item_id,ch.enabled,r.status AS review_status,r.extraction_id AS current_extraction FROM wechat_analysis_job j JOIN wechat_batch b ON b.id=j.batch_id JOIN wechat_chat ch ON ch.id=b.chat_id JOIN raw_review r ON r.raw_snapshot_id=j.snapshot_id WHERE j.status NOT IN ('parsed','filtered','superseded') ORDER BY j.created_at,j.id").fetchall()
@@ -122,14 +151,23 @@ def backlog_plan(personal, *, at):
                 messages = build_messages(batch, snapshot, json.loads(job['profile_json']))
                 item['model'] = config.model
                 item['max_output_tokens'] = config.max_output_tokens
-                # Match the existing conservative reservation, not a billing claim.
-                item['reserved_tokens_if_requested'] = len(encode(messages).encode()) + config.max_output_tokens
+                item['request_plan']=request_plan(personal,batch,config,messages,allow_vision=allow_vision)
+                # This is a reservation estimate, never a price or an authorization.
+                item['reserved_tokens_if_requested'] = (None if item['request_plan']['post_vision_text_reservation_unknown']
+                    or item['request_plan']['vision_preflight_error'] else item['request_plan']['initial_reserved_tokens'])
             rows.append(item)
     paid = [r for r in rows if r['decision'] == 'paid_request_requires_approval']
+    vision=sum(r['request_plan']['vision_requests_max'] for r in paid)
+    unknown=sum(r['request_plan']['post_vision_text_reservation_unknown'] or bool(r['request_plan']['vision_preflight_error']) for r in paid)
     return {'dry_run': True, 'generated_at': at.isoformat(), 'jobs': rows,
             'decisions': dict(Counter(r['decision'] for r in rows)),
-            'paid_plan': {'jobs': len(paid), 'http_requests': len(paid), 'vision_requests': 0,
-                'reserved_tokens': sum(r['reserved_tokens_if_requested'] for r in paid),
-                'max_output_tokens': sum(r['max_output_tokens'] for r in paid),
+            'paid_plan': {'jobs': len(paid), 'http_requests': len(paid)+vision,
+                'text_requests':len(paid),'vision_requests':vision,
+                'request_count_basis':'upper_bound_before_shared_vision_cache_reuse',
+                'reserved_tokens': None if unknown else sum(r['reserved_tokens_if_requested'] for r in paid),
+                'known_initial_reserved_tokens':sum(r['request_plan']['initial_reserved_tokens'] or 0 for r in paid),
+                'jobs_requiring_post_vision_budget_check':vision,
+                'vision_preflight_errors':sum(bool(r['request_plan']['vision_preflight_error']) for r in paid),
+                'max_output_tokens': sum(r['max_output_tokens']*r['request_plan']['http_requests_max'] for r in paid),
                 'currency_budget': None, 'approval_required': True},
             'performed_http_requests': 0, 'formal_records_created': 0}
