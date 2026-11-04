@@ -130,6 +130,9 @@ def test_all_four_existing_projections_exclude_hidden_identity_context_and_draft
     assert detail['original']==detail['review']['snapshot']
     assert detail['original']['original_text']==preview['samples'][0]['payload']['text']
     assert all(m['raw_text']==preview['samples'][0]['payload']['text'] for m in detail['original']['wechat']['messages'])
+    with personal.connection() as c:
+        captured=c.execute('SELECT captured_at FROM wechat_message WHERE id=?',(selection['messages'][0]['id'],)).fetchone()[0]
+    assert all(m['captured_at']==captured for m in detail['original']['wechat']['messages'])
     assert detail['review']['draft'] is detail['review']['extraction'] is None
     assert calls==[]
 

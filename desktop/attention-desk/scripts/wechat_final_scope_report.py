@@ -3,6 +3,7 @@ from datetime import datetime,timedelta,timezone
 import json
 from pathlib import Path
 import sys
+import xml.etree.ElementTree as ET
 
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
@@ -41,6 +42,21 @@ def main():
     assert not any(r['can_select'] or r['can_insert'] or r['can_update'] or r['can_delete'] for r in acl['direct_access'] if r['rolname'] in ('anon','authenticated'))
     assert not any(r['anon_execute'] or r['authenticated_execute'] for r in acl['rpcs'])
     assert len(bundle['records'])==8 and not bundle['resources'] and bundle['upload_authorized'] is False
+    contract=read(folder/'minimized-read-model-contract.json')
+    browser=read(ROOT.parents[2]/'p0-notification-evidence-20261104/inbox-minimized-preview.json')
+    for result in (contract,browser):
+        assert result['PASS'] and result['bundle_hash']==bundle['bundle_hash']
+        assert result['cloud_writes']==0 and result['model_requests']==0
+    assert browser['offline_api_responses'] and not browser['cloud_end_to_end_verified']
+    assert browser['production_mutations']==0 and not browser['errors'] and not browser['blocked_requests']
+    tests=ET.parse(folder/'captured-at-compatibility-tests.xml').getroot().find('testsuite')
+    assert int(tests.attrib['tests'])==20 and int(tests.attrib['errors'])==int(tests.attrib['failures'])==0
+    local=read(folder/'local-production-evidence.json')
+    controls=local['health']['recovery_controls']
+    sources=local['health']['collection_health']['sources']
+    assert controls['hold_cloud_uploads'] and controls['pause_paid_ai']
+    assert len(sources)==5 and all(s['collection_state'] in ('healthy','healthy_idle') and s['consecutive_failures']==0 for s in sources)
+    assert local['formal_domains_unchanged'] and local['llm_attempts_unchanged'] and local['foreign_key_errors']==0
     purposes={'raw_item':'原Raw索引、来源与快照关联','inbox_item':'Inbox全部来源列表卡片',
         'inbox':'Inbox详情、脱敏正文及来源区块','raw_review':'原快照的Review读取模型，不提交确认'}
     summaries=[]
@@ -64,6 +80,7 @@ def main():
         '', '## 两条完整脱敏Raw',
         '', '以下为完整拟同步业务Raw的脱敏副本。原Raw索引投影只含元信息，正文存入同一条Raw关联的Inbox/Review快照；原消息、原快照ID不变。本机未脱敏原文不进入本批载荷。']
     lines += ['', '本轮冻结前发现晚自习Raw的Review.version在15:04服务再次运行后由1变2、updated_at同步变化；旧预览哈希92642d99…因此被校验拦截。正文、来源、课程和权限未变。本报告与申请草案使用重新核对后的当前8条载荷；旧版预览保留在projection-before-final-review.json作对照，不再用于申请。']
+    lines += ['', '随后在现有Inbox页面预演时发现脱敏消息缺少captured_at，页面格式化日期时报Invalid time value。已仅在脱敏消息中补回原库采集时间，未修改UI、正文或读取权限。当前哈希因此从084bae10…更新为本报告顶部的908e4724…；旧载荷保留在projection-before-captured-at-compatibility.json，不再用于申请。']
     for index,raw in enumerate(raws,1):
         lines += ['',f'### Raw {index}：{raw["title"]}','','```json',json.dumps(raw,ensure_ascii=False,indent=2),'```']
     lines += ['', '## 八条投影字段摘要', '',
@@ -95,14 +112,26 @@ def main():
         f'- {len(acl["rls"])}张eric_app表RLS均开启，无客户端放行策略；anon/authenticated不能直接读写关键记录、资源、设备、工作区表，也不能执行{len(acl["rpcs"])}个eric_app RPC。Auth用户/会话表也未对这两种客户端角色开放。',
         '- 现网GET核查：匿名Inbox/Raw、伪造owner JWT、处理器密钥冒充owner会话、伪造文件票据及错误处理器密钥均401；现有处理器只读目录200，返回kind/id/source_hash而非正文。',
         '- 当前实际下载的API19代码合同测试33项通过，涵盖身份、独立处理器、工作区读取边界与设备撤销等路径；离线8条脱敏读模型、此前383项Python回归通过。',
+        '- 本次采集时间兼容修复后，针对性20项Python测试及当前8条API19离线读模型检查通过。现有本机Inbox的“全部来源→详情→原始通知/来源块”两条样本均能展示，脱敏标识和正文匹配，页面异常0；这是本地离线响应预演，不替代正式云端端到端验收。',
         '- 这五个本人会话如持有效JWT，可经现有API读取该owner工作区已发布内容；目前没有群级或单条Raw读取白名单。服务端service_role、数据库管理权限及原处理器保留其已有权限，本次不扩大权限。',
         '- 设备revoked_at生效后API拒绝访问，同一已撤销session不能通过重新登记恢复。仅Supabase登出可能让已签发JWT继续有效至到期；现有API不额外以auth.sessions行存在性执行即时登出检查。这是需要保留的现有会话边界，不能宣称所有登出方式均即时失效。[Supabase说明](https://supabase.com/docs/guides/auth/signout)',
         '- 过去24小时已查到的owner认证审计事件为1次login、4次token_refreshed和4次token_revoked，浏览器类型与登记会话一致；token_revoked可来自刷新轮换，不能直接当作设备撤销或入侵。日志时间窗2026-11-03 15:30至2026-11-04 15:30，不作为全历史无异常的绝对证明。',
         '', '**结论：本次审查范围内未发现匿名、跨账号或跨工作区读取本批内容的通道，五个读取会话亦已由本人确认。** 这是当前配置和本批载荷的范围结论，不等于对所有历史访问、所有终端或服务端管理人员作绝对安全保证。',
+        '', '## 本地页面预演证据', '',
+        '环境为http://127.0.0.1:8765、1440×1000、Playwright Chromium。Browser plugin not available，因此使用现有Playwright；不安装依赖、不改UI、不重新构建Preview。列表与详情响应来自当前固定8条投影经实际API19 Views生成的离线结果，其他网络仅允许本机GET/HEAD，所有写请求和外网请求均被拦截。',
+        '', '| 检查 | 结果 |', '| --- | --- |',
+        '| 页面身份与非空内容 | Eric Inbox · Attention Desk，两条详情均正常显示 |',
+        '| 框架错误层与控制台 | 无错误层，相关错误0 |',
+        '| 操作路径 | 提交来源切换到全部来源，分别打开两条详情，查看原始通知与来源区块 |',
+        '| 正文与脱敏标签 | 两条逐字匹配，仅脱敏节选，附件0 |',
+        '| 本次写入或收费 | 生产写入0、云写入0、模型请求0 |',
+        '', '证据在工作区p0-notification-evidence-20261104/inbox-minimized-preview.json与inbox-minimized-0.png、inbox-minimized-1.png。执行脚本为同目录inbox-minimized-preview.cjs。仅覆盖当前桌面Chromium两条详情，未替代手机、五个真实终端或正式云端验证。',
         '', '## 既有项目级提示', '',
         '安全检查的RLS Enabled No Policy在本链路中是客户端关闭直读、经服务端API访问的现有设计，不能为了消除提示而增加客户端读取策略。[说明](https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy)',
         '', '项目还报告public中的pg_net、四个其他业务SECURITY DEFINER RPC及泄露密码保护未开启等既有提示。已核对这四个RPC无eric_app直接引用或动态EXECUTE，且含auth.uid检查；本次未调用或改动它们，不把其他业务的项目级告警声称已修复。[扩展提示](https://supabase.com/docs/guides/database/database-linter?lint=0014_extension_in_public) / [函数提示](https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable) / [密码保护](https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection)',
-        '', '## 当前状态', '', '本地AttentionDesk-Local采集与健康监控继续运行，云写入与DeepSeek付费分析独立暂停。本轮没有上传Raw、附件或投影，没有创建Matter/Task，也没有改变账号、会话、RLS、设备或其他业务配置。独立上传授权申请已另存草案，upload_authorized=false，未执行。']
+        '', '## 当前状态', '',
+        f'本机只读复核时间：{civil(local["at"])}。五个来源均健康、连续失败0，最新一轮原15分钟周期扫描完成。正式event/task/course/review_artifact完整内容哈希未变，既有微信LLM调用账本仍{local["counts_after"]["wechat_llm_attempt"]}条，外键错误0。',
+        '', '本地AttentionDesk-Local采集与健康监控继续运行，云写入与DeepSeek付费分析独立暂停。本轮没有上传Raw、附件或投影，没有创建Matter/Task，也没有改变账号、会话、RLS、设备或其他业务配置。独立上传授权申请已另存草案，upload_authorized=false，未执行。']
     report=ROOT/'../../docs/diagnostics/wechat-final-raw-and-access-review-20261104.md'
     report.write_text('\n'.join(lines)+'\n',encoding='utf-8')
     draft=['# 独立云端上传授权申请（草案，未批准、未执行）','',
@@ -124,6 +153,10 @@ def main():
         'attachment_count':0,'owner_sessions':len(access['devices']),'all_sessions_user_confirmed':True,
         'live_get_access_checks_passed':live['PASS'],'target_record_conflicts':0,
         'creates_matter':False,'creates_task':False,'upload_authorized':False,'draft_prepared':True,
+        'local_browser_preview_passed':True,'current_targeted_tests_passed':20,
+        'cloud_end_to_end_verified':False,
+        'local_service_checked_at':local['at'],'local_healthy_sources':len(sources),
+        'hold_cloud_uploads':True,'pause_paid_ai':True,
         'bundle_hash':bundle['bundle_hash']}
     (evidence/'final-review-result.json').write_text(json.dumps(result,indent=2),encoding='utf-8')
     print(json.dumps(result))

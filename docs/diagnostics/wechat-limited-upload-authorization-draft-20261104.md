@@ -4,7 +4,7 @@
 
 拟申请范围：一次性发布两条已审阅脱敏Raw的8条现有读模型投影，附件、图片、OCR、文件元信息均为0。
 
-固定载荷SHA256（bundle_hash）：`084bae10b6154502cb45bf0cd51175c2f01ee48cdc07fe5c3040ccc03d367e48`。
+固定载荷SHA256（bundle_hash）：`908e472419f0d680b01a0fda841aba970e51342cddac39df80ae6a78a675e60b`。
 
 目标：既有Supabase项目mantuehuzptactymjpqg，工作区50e5a3ac-dd15-4f0a-a93c-ace4b735d16d。API：https://mantuehuzptactymjpqg.supabase.co/functions/v1/eric-app-api。
 
@@ -14,12 +14,12 @@
 
 - raw_item / d5fc2590-6e46-4a2e-8489-26094fd8e6c0；source_hash=73ba2a39e9dd5592f053a2edf4666fe972d0907d2e878ebc37e3f7f041a0bdc8
 - inbox_item / d5fc2590-6e46-4a2e-8489-26094fd8e6c0；source_hash=8f44e0c215d99e624fb24c05a567fba3bb674ffac9e97b7c78c44e134cc6936d
-- inbox / d5fc2590-6e46-4a2e-8489-26094fd8e6c0；source_hash=cd3f1c9865a939356778e49a80373d22d8cdfad0ccbcdb8aa5a87388ae3bcd06
-- raw_review / 5670fdb2-c494-401d-8108-85d99c46aa5c；source_hash=2158176d445f91be7d041203aaa16cf403e65356ce4dc2fb44ba7181b9e48154
+- inbox / d5fc2590-6e46-4a2e-8489-26094fd8e6c0；source_hash=8342637142eeb973ed8138d0bdc8d9554ea1b31196a24705d1b0fdfd71965945
+- raw_review / 5670fdb2-c494-401d-8108-85d99c46aa5c；source_hash=a4dd9320b12954c48d4aa5543a57a5d3824301b6fdde04ed3b21a4d88af3d743
 - raw_item / 1b26a8b3-cd55-4284-be7f-36cd20c26da2；source_hash=b88a3dd5fe8b2b91feda85ae7570ebbf640a10d1029e7590f85ce77e2a6f4cb8
 - inbox_item / 1b26a8b3-cd55-4284-be7f-36cd20c26da2；source_hash=66ffb66cddb2ec14e175127d7e92e5ef4f7248e89a1c140dc995a0a5f8c1b9e4
-- inbox / 1b26a8b3-cd55-4284-be7f-36cd20c26da2；source_hash=a05a1701222b6fe5b385d3b5d1f0f186d1ebfdfaf61d68438dbfec579a2149e1
-- raw_review / 91a3c166-c39f-4831-8930-06a683fcd662；source_hash=a48be19b526c0f180f75e3dc7bfd4b3b98a50be0c8886deffd50a9b9c15b859c
+- inbox / 1b26a8b3-cd55-4284-be7f-36cd20c26da2；source_hash=275de1c57dfbd6b022f3d369a78f37ccd17aef139dffb7b6706f0cf176a3f263
+- raw_review / 91a3c166-c39f-4831-8930-06a683fcd662；source_hash=ca495c9ebfc8ed46d06abdd7315c8fc14a8ae30c7ff0fca78fce8b45783a4586
 
 读取边界：现有owner已验证账号及本人确认保留的5个未撤销登录会话，无新增读者或分享链接；RLS不变，无按群隔离，服务端已有管理权限不变。会话撤销/登出边界见最终审查报告。
 

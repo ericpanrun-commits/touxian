@@ -68,7 +68,8 @@ def minimized_projection_preview(personal, preview):
                     'ordinal':len(blocks)*100,'text':text,'section':'脱敏节选','needs_review':True,'attachment_id':None})
                 messages.append({'snapshot_id':sid,'block_id':mapping['block_id'],'message_id':row['id'],
                     'content_revision':mapping['content_revision'],'raw_text':text,'message_type':'text',
-                    'source_time':row['source_time'],'time_reliability':row['time_reliability']})
+                    'source_time':row['source_time'],'time_reliability':row['time_reliability'],
+                    'captured_at':row['captured_at']})
             snapshot={'id':sid,'raw_item_id':raw_id,'original_text':value['text'],
                 'created_at':original['created_at'],'source_time':value['published_at'][0],
                 'source_timezone':original['source_timezone'],'hash':hashlib.sha256(value['text'].encode()).hexdigest(),

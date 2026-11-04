@@ -30,14 +30,16 @@ const store={
     const items=rows.filter(r=>r.kind==='inbox_item');return {items,total:items.length,offset:0,limit:20};
   }
 };
-const view=new Views(store,workspace),checks=[];
+const view=new Views(store,workspace),checks=[],responses={details:{}};
 const list=await view.read('/inbox',new URL('https://offline.invalid/inbox?scope=all&status=all'));
+responses.list=list;
 assert.equal(list.total,samples.proposed_raw_count);
 for(const sample of samples.samples){
   const p=sample.payload,id=p.id,snapshot=p.source_snapshot_id;
   const ordinary=await view.read('/inbox/'+id,new URL('https://offline.invalid/inbox/'+id));
   const advanced=await view.read('/inbox/'+id,new URL('https://offline.invalid/inbox/'+id+'?advanced=1'));
   const raw=await view.read('/raw/'+snapshot,new URL('https://offline.invalid/raw/'+snapshot));
+  responses.details[id]={ordinary,advanced,raw};
   assert(ordinary.title.startsWith('【脱敏节选】'));
   assert.equal(ordinary.original.original_text,p.text);
   assert.equal(advanced.debug.original_text,p.text);
@@ -47,6 +49,7 @@ for(const sample of samples.samples){
   const encoded=JSON.stringify({ordinary,advanced,raw});
   for(const key of ['database_identity','raw_sender_id','chat_name','local_excerpt_spans','local_evidence_sha256'])assert(!encoded.includes(key));
   assert.deepEqual(ordinary.original.wechat.messages.map(m=>m.message_id),p.source_message_ids);
+  assert(ordinary.original.wechat.messages.every(m=>Number.isFinite(new Date(m.captured_at).getTime())));
   assert.deepEqual(ordinary.course,p.course);
   checks.push({raw_item_id:id,snapshot_id:snapshot,normal_inbox:true,advanced_debug:true,raw_review:true,
     redacted_text_only:true,attachment_count:0});
@@ -55,4 +58,5 @@ const result={PASS:true,offline:true,api_read_model_version:19,record_count:bund
   raw_count:checks.length,attachment_count:0,network_requests:0,cloud_writes:0,model_requests:0,
   bundle_hash:bundle.bundle_hash,checks};
 await writeFile(join(folder,'minimized-read-model-contract.json'),JSON.stringify(result,null,2));
+await writeFile(join(folder,'minimized-owner-read-responses.json'),JSON.stringify({offline:true,bundle_hash:bundle.bundle_hash,...responses},null,2));
 console.log(JSON.stringify(result));
