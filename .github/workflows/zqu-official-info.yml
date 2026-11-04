@@ -8,10 +8,11 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'cycle: normal sync; acceptance: at most ONE labelled cloud pipeline push'
+        description: 'cycle: normal sync; archive: existing originals only; acceptance: at most ONE labelled cloud pipeline push'
         type: choice
         options:
           - cycle
+          - archive
           - acceptance
         default: cycle
         required: true
@@ -66,7 +67,7 @@ jobs:
           if os.environ['ZQU_RUN_MODE'] == 'acceptance' and os.environ['NOTIFICATION_DRY_RUN'] != 'false':
               raise SystemExit('Acceptance requires explicit dry_run=false after the first verified cycle.')
           required = ['SUPABASE_DB_URL', 'PRODUCTION_DATABASE_ID']
-          if os.environ['NOTIFICATION_DRY_RUN'] == 'false':
+          if os.environ['ZQU_RUN_MODE'] != 'archive' and os.environ['NOTIFICATION_DRY_RUN'] == 'false':
               required += ['BARK_DEVICE_KEY', 'BARK_SERVER_URL']
           missing = [name for name in required if not os.environ.get(name)]
           if missing:
@@ -75,4 +76,15 @@ jobs:
       - name: Install worker dependencies
         run: python -m pip install --disable-pip-version-check --no-cache-dir -r server/actions/requirements.lock.txt
       - name: Run one bounded official-information cycle
+        if: ${{ env.ZQU_RUN_MODE != 'archive' }}
         run: python -m server.actions.worker
+      - name: Archive saved official originals into Eric Inbox
+        # Independent of Bark policy/delivery and a partial or failed crawl.
+        # Dedicated archive checks never crawl or send Bark; the scheduled cadence stays unchanged.
+        if: ${{ always() && (env.ZQU_RUN_MODE == 'cycle' || env.ZQU_RUN_MODE == 'archive') }}
+        env:
+          ERIC_OFFICIAL_ARCHIVE_ENABLED: ${{ vars.ERIC_OFFICIAL_ARCHIVE_ENABLED == 'true' && 'true' || 'false' }}
+          ERIC_OFFICIAL_WORKSPACE_ID: ${{ vars.ERIC_OFFICIAL_WORKSPACE_ID }}
+          ERIC_OFFICIAL_OWNER_ID: ${{ vars.ERIC_OFFICIAL_OWNER_ID }}
+          ERIC_OFFICIAL_ARCHIVE_APPROVED_IDS: ${{ vars.ERIC_OFFICIAL_ARCHIVE_APPROVED_IDS }}
+        run: python -m server.actions.eric_archive
