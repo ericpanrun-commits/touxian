@@ -74,6 +74,10 @@
 
 用户审阅后，须将原8条投影限定到这2个原Raw ID和固定preview_hash，并核对每种投影的完整载荷：正文、快照、来源块、课程字段、Review与Inbox详情都必须一致脱敏，不能夹带原完整批次、附件或聚合facade。显示应标明“脱敏节选”。然后再单独提交准确批次、权限边界和0附件的正式上传授权申请；本批无需启动DeepSeek。
 
+后续本地技术预检已把这2条样本转换为完整8条现有投影，保存在wechat-minimized-projection-preview.json，仍为preview_only=true、upload_authorized=false。没有接入自动publish，也没有释放总暂停。8条记录统一以“【脱敏节选】”标明，除选择的文字与必要来源外，不携带数据库身份、发送者、群名、原草稿/分析、其他消息、来源附件或文档。原消息哈希、截取位置和样本哈希都在构造前重新核对；样本修改、来源不匹配或重复Raw选择会中止。
+
+使用与已核验API19一致的实际views.ts，在完全禁止网络的条件下检查了两条数据的Inbox全部来源、普通详情、advanced/debug内容及Raw Review；各入口只返回脱敏文字，资源为0。该验证覆盖完整8条载荷的本地兼容性与隐私边界，不代表已经上传或通过正式云端端到端验收。载荷bundle_hash为92642d9929450e056ecfb8872d35a31365d2d424069eb7f2c5ae659a1c333f8a，任何载荷变化都需重新审核。
+
 现有原ID/source_hash去重和失败恢复机制继续复用；重试不得切回未脱敏的默认全量投影。本地原文及其原始ID不被修改。正式上传及新内容的云端API/网页验收均未执行。
 
 ## 本轮发现的预算盘点修正
@@ -84,10 +88,10 @@
 
 若未来处理全部22个未调用作业，请求上限为22次文字+11次视觉，共33次；已知首阶段预约估算373,552 tokens，11个视觉后文字阶段还需再算。该预约值不是实际消耗或美元报价，完整货币预算尚未制定；本次没有申请或执行这些请求，也没有自动调整原日预算。账本仍59条、无新增计费。
 
-最终378项回归通过，覆盖原采集/去重/健康、云写入与付费暂停、两阶段预算、脱敏字段、原文证据约束、否定条件和既有课程关联保留。
+样本阶段378项回归通过；补齐完整8条投影后，最终383项回归通过。覆盖原采集/去重/健康、云写入与付费暂停、两阶段预算、脱敏字段、原文证据约束、否定条件、既有课程关联、隐藏字段排除及样本/证据篡改拦截。实际API19读模型离线验证另有独立结果。
 
 ## 本地交付文件
 
-脱敏样本及全部来源/去重依据：desktop/attention-desk/artifacts/p0-20261104/wechat-minimized-text-samples.json。预算修正及原历史作业对照：backlog-after-local-restore.json、backlog-original-versus-new-audit.json。测试：minimized-preview-test-results.xml。全部均为本地文件，没有上传到外部。
+脱敏样本及全部来源/去重依据：desktop/attention-desk/artifacts/p0-20261104/wechat-minimized-text-samples.json；完整载荷wechat-minimized-projection-preview.json；离线实际读模型验证minimized-read-model-contract.json；完整投影回归complete-projection-test-results.xml。预算修正及原历史作业对照：backlog-after-local-restore.json、backlog-original-versus-new-audit.json。样本阶段测试：minimized-preview-test-results.xml。全部均为本地文件，没有上传到外部。
 
 新增server/cloud_sync/minimization.py及只读样本脚本、相关隔离测试；仅调整既有recovery.py的dry-run估算，没有改变正式派发逻辑或生产开关，不需要为本轮预览重启服务。Git提交见交付消息。回滚本轮代码不会删除正式数据或释放持久化暂停；原本地恢复提交e623916继续有效。

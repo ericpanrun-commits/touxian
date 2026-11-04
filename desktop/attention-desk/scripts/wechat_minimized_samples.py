@@ -9,6 +9,7 @@ sys.path.insert(0,str(ROOT))
 from wechat_backlog_plan import ReadOnlyStore
 from server.personal_store import default_database_path
 from server.cloud_sync.minimization import selected_text_preview
+from server.cloud_sync.minimized_projection import minimized_projection_preview
 
 SELECTIONS=[
     {'raw_item_id':'d5fc2590-6e46-4a2e-8489-26094fd8e6c0','snapshot_id':'5670fdb2-c494-401d-8108-85d99c46aa5c',
@@ -26,11 +27,14 @@ SELECTIONS=[
 
 
 def main():
-    result=selected_text_preview(ReadOnlyStore(default_database_path()),SELECTIONS)
+    personal=ReadOnlyStore(default_database_path())
+    result=selected_text_preview(personal,SELECTIONS)
+    bundle=minimized_projection_preview(personal,result)
     result['generated_at']=datetime.now(timezone.utc).isoformat()
     result['plan']='First review batch only; excludes attachments, OCR, unrelated chat, sensitive affairs and unverified course mappings.'
     output=ROOT/'artifacts/p0-20261104/wechat-minimized-text-samples.json'
     output.write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding='utf-8')
+    output.with_name('wechat-minimized-projection-preview.json').write_text(json.dumps(bundle,ensure_ascii=False,indent=2),encoding='utf-8')
     print(json.dumps({key:result[key] for key in ('preview_only','upload_authorized','model_requests','attachment_count','selected_raw_count','proposed_raw_count','planned_record_count')}))
 
 

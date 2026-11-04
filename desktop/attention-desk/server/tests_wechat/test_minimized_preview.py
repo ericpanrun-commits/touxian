@@ -5,6 +5,9 @@ import json
 import pytest
 
 from server.cloud_sync.minimization import selected_text_preview,redact_text
+from server.cloud_sync.minimized_projection import minimized_projection_preview
+from server.personal_store import encode
+import hashlib
 from server.tests_wechat.test_pipeline import setup_service,scan
 from server.wechat_collect.models import Observation,ObservedMessage
 from server.courses import CourseStore
@@ -100,3 +103,62 @@ def test_contact_masking_handles_email_before_mentions_and_keeps_dates():
     for private in ('李同学','student','3921594236','qq.com','其他同学','wxid_private','138','example.test','secret'):
         assert private not in safe
     assert '2026年11月18日，不强制报名。' in safe
+
+
+def test_all_four_existing_projections_exclude_hidden_identity_context_and_drafts(personal):
+    selection,calls=sample(personal)
+    with personal.connection(write=True) as c:
+        c.execute('UPDATE raw_review SET draft_json=? WHERE raw_snapshot_id=?',
+            (json.dumps({'private':'hidden-draft-contact@example.test'}),selection['snapshot_id']))
+        c.execute('UPDATE raw_item SET inbox_classification_json=?,inbox_error_json=? WHERE id=?',
+            (json.dumps({'private':'hidden-classification'}),json.dumps({'message':'hidden-error'}),selection['raw_item_id']))
+    preview=selected_text_preview(personal,[selection])
+    first=minimized_projection_preview(personal,preview)
+    second=minimized_projection_preview(personal,preview)
+    assert first==second and first['record_count']==4
+    assert {r['kind'] for r in first['records']}=={'raw_item','inbox_item','inbox','raw_review'}
+    assert first['resources']==[] and first['upload_authorized'] is False
+    encoded=json.dumps(first,ensure_ascii=False)
+    for private in ('李老师','13800138000','student@example.test','其他闲聊','家庭信息',
+            'hidden-draft','hidden-classification','hidden-error','database_identity',
+            'local_excerpt_spans','local_evidence_sha256','raw_sender_id','chat_name','sender'):
+        assert private not in encoded
+    for record in first['records']:
+        assert record['payload'].get('title',record['payload'].get('title_hint','')).startswith('【脱敏节选】')
+    detail=next(r['payload'] for r in first['records'] if r['kind']=='inbox')
+    assert detail['attachments']==detail['school_documents']==detail['receipts']==[]
+    assert detail['original']==detail['review']['snapshot']
+    assert detail['original']['original_text']==preview['samples'][0]['payload']['text']
+    assert all(m['raw_text']==preview['samples'][0]['payload']['text'] for m in detail['original']['wechat']['messages'])
+    assert detail['review']['draft'] is detail['review']['extraction'] is None
+    assert calls==[]
+
+
+@pytest.mark.parametrize('rehash',[False,True])
+def test_payload_tampering_cannot_inject_unselected_text_even_with_a_new_hash(personal,rehash):
+    selection,_=sample(personal)
+    preview=selected_text_preview(personal,[selection])
+    preview['samples'][0]['payload']['text']+=' unselected-private-content'
+    if rehash:
+        preview['samples'][0]['preview_hash']=hashlib.sha256(encode(preview['samples'][0]['payload']).encode()).hexdigest()
+    with pytest.raises(ValueError,match='review_content_changed'):
+        minimized_projection_preview(personal,preview)
+
+
+def test_changed_original_or_duplicate_raw_invalidates_the_review_bundle(personal):
+    selection,_=sample(personal)
+    preview=selected_text_preview(personal,[selection,selection])
+    with pytest.raises(ValueError,match='duplicate_raw_selection'):
+        minimized_projection_preview(personal,preview)
+    preview=selected_text_preview(personal,[selection])
+    preview['samples'][0]['local_evidence'][0]['local_evidence_sha256']='0'*64
+    with pytest.raises(ValueError,match='original_evidence_changed'):
+        minimized_projection_preview(personal,preview)
+
+
+def test_preview_cannot_be_relabelled_as_upload_authorized(personal):
+    selection,_=sample(personal)
+    preview=selected_text_preview(personal,[selection])
+    preview['upload_authorized']=True
+    with pytest.raises(ValueError,match='not_an_unapproved_preview'):
+        minimized_projection_preview(personal,preview)
