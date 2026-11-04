@@ -2,6 +2,8 @@
 
 用户已选择准备必要通知的脱敏文本，附件保持0份。这仅授权本地准备和展示；正式云端上传、DeepSeek付费请求与重试仍未授权，两个持久化暂停开关保持开启。
 
+最终审查更新：用户已确认5条登记会话均由本人发起并可保留；已展示完整脱敏Raw、逐条8投影字段、登录身份/RLS/实际GET访问检查，并另存未批准的上传申请草案。晚自习Review版本1→2的元信息变化使旧载荷哈希92642d99…失效，当前冻结哈希为084bae10b6154502cb45bf0cd51175c2f01ee48cdc07fe5c3040ccc03d367e48，正文未改变。以 [最终Raw与访问审查](wechat-final-raw-and-access-review-20261104.md) 和 [独立授权申请草案](wechat-limited-upload-authorization-draft-20261104.md) 为当前依据；本次没有上传。
+
 ## 本地采集状态
 
 原AttentionDesk-Local初次恢复为PID43560。12:45至14:30已连续完成8轮原15分钟周期扫描，15:00周期扫描亦正常，无新增时为no_change。15:04原计划任务再次运行，新后台PID42536，启动补扫五来源均成功；15:09复核为healthy_idle、连续失败0，监控快照有更新，两个持久化暂停开关仍生效。本轮没有主动重启该任务，现有日志未证明此次再次运行的触发原因。原301条补采消息和95条新增Raw保留；历史Raw、快照、消息和调用账本未改写，Matter/Task/课程/Review完整哈希不变。后续实时验收数据见local-production-evidence.json及complete-projection-final-evidence.json。
