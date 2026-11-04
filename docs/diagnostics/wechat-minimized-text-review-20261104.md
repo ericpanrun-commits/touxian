@@ -4,7 +4,7 @@
 
 ## 本地采集状态
 
-原AttentionDesk-Local仍为PID43560，同一个服务持续运行。12:45至14:30已连续完成8轮原15分钟周期扫描，五来源均正常，无新增时为no_change。原301条补采消息和95条新增Raw保留；历史Raw、快照、消息和调用账本未改写，Matter/Task/课程/Review完整哈希不变。后续实时验收数据见local-production-evidence.json。
+原AttentionDesk-Local初次恢复为PID43560。12:45至14:30已连续完成8轮原15分钟周期扫描，15:00周期扫描亦正常，无新增时为no_change。15:04原计划任务再次运行，新后台PID42536，启动补扫五来源均成功；15:09复核为healthy_idle、连续失败0，监控快照有更新，两个持久化暂停开关仍生效。本轮没有主动重启该任务，现有日志未证明此次再次运行的触发原因。原301条补采消息和95条新增Raw保留；历史Raw、快照、消息和调用账本未改写，Matter/Task/课程/Review完整哈希不变。后续实时验收数据见local-production-evidence.json及complete-projection-final-evidence.json。
 
 没有为制作样本重启或暂停采集，没有新数据库、迁移、通知系统、模型请求或前端改动。样本只读原SQLite，未写回Raw、课程关联、已处理状态、任务或队列。
 
