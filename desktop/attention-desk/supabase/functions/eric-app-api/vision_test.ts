@@ -68,7 +68,8 @@ Deno.test('bearer fetch streams the capture image and manifest hides storage pat
   const content = await app(new Request(base + '/worker/vision/content?capture_id=' + CAPTURE, {headers}));
   assertEquals(content.status, 200);
   assertEquals(content.headers.get('content-type'), 'image/png');
-  assertEquals(content.headers.get('cache-control'), 'private, no-store');
+  assertEquals(content.headers.get('cache-control'), 'private, max-age=86400, immutable');
+  assertEquals(content.headers.get('etag'), '"' + SHA + '"');
   assertEquals(new Uint8Array(await content.arrayBuffer()), bytes);
   const manifest = await app(new Request(base + '/worker/vision/manifest?resource_id=' + encodeURIComponent(RESOURCE), {headers}));
   const described = await manifest.json();

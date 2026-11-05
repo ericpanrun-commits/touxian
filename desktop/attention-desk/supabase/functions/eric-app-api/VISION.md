@@ -22,7 +22,7 @@ Do not send a Storage `object_path`. The bucket `eric-app-private` stays private
 
 or `GET /worker/vision/content?resource_id=<capture:uuid:sha256>`
 
-Exactly one query parameter. The server loads the capture, picks that image (or the capture's first image), and streams the private parts. Response headers match the existing file route, including `Cache-Control: private, no-store`.
+Exactly one query parameter. The server loads the capture, picks that image (or the capture's first image), and streams the private parts. Response headers match the existing file route: `ETag` is the content sha256 and `Cache-Control` is `private, max-age=86400, immutable`. The worker whole-file guard does not apply to this route.
 
 `GET /worker/vision/manifest?capture_id=<uuid>` or `?resource_id=...` returns only `filename`, `mime`, `bytes`, `sha256`, and `part_count`.
 

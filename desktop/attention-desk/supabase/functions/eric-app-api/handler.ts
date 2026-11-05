@@ -184,7 +184,7 @@ export function createHandler(options: {base:string;secret:string;visionSecret?:
     const match=/^\/worker\/files\/([A-Za-z0-9_.:%-]+)\/(parts\/\d+|finish|manifest|content)$/.exec(path);
     if(match) {
       const id=identifier(decodeURIComponent(match[1]));
-      if(match[2]==='content'&&req.method==='GET')return fileResponse(store,req,workspace,id);
+      if(match[2]==='content'&&req.method==='GET')return fileResponse(store,req,workspace,id,true);
       if(match[2]==='manifest'&&req.method==='GET')return json((await readableResource(store,workspace,id)).resource);
       if(match[2].startsWith('parts/')&&req.method==='PUT') {await store.putPart(workspace,id,integer(Number(match[2].split('/')[1]),0,127),await boundedBytes(req,PART_BYTES));return json({saved:true});}
       // The trusted Windows publisher verifies the whole original and each ordered part locally.
@@ -207,8 +207,8 @@ export function createHandler(options: {base:string;secret:string;visionSecret?:
     if(allowed) {
       response.headers.set('Access-Control-Allow-Origin',origin!);response.headers.set('Vary','Origin');
       response.headers.set('Access-Control-Allow-Methods','GET,HEAD,POST,PUT,OPTIONS');
-      response.headers.set('Access-Control-Allow-Headers','authorization,apikey,content-type,x-client-info,idempotency-key,range');
-      response.headers.set('Access-Control-Expose-Headers','Content-Range,Accept-Ranges,Content-Length');response.headers.set('Access-Control-Max-Age','600');
+      response.headers.set('Access-Control-Allow-Headers','authorization,apikey,content-type,x-client-info,idempotency-key,range,if-none-match');
+      response.headers.set('Access-Control-Expose-Headers','Content-Range,Accept-Ranges,Content-Length,ETag');response.headers.set('Access-Control-Max-Age','600');
     }
     return response;
   };
