@@ -7,11 +7,14 @@ import hashlib
 import json
 import logging
 from pathlib import Path
+import tempfile
+import threading
 
 from .scheduler import SHANGHAI
 
 LOG = logging.getLogger(__name__)
 SUCCESS = {'complete', 'changed', 'no_change'}
+SNAPSHOT_TIMEOUT_SECONDS = 45
 
 
 def active_seconds(start, end):
@@ -103,7 +106,8 @@ class CollectionHealthMonitor:
     claimed across restarts. One aggregate notification per 15 minutes, and at
     most one per source per six hours; changing error strings cannot cause storms.
     """
-    def __init__(self, wechat, cloud_sync=None, official=None, *, notifier=None, clock=None):
+    def __init__(self, wechat, cloud_sync=None, official=None, *, notifier=None, clock=None,
+                 snapshot_timeout=SNAPSHOT_TIMEOUT_SECONDS):
         from ..reminders.windows import WindowsNotifier
         self.wechat, self.cloud_sync, self.official = wechat, cloud_sync, official
         self.personal = wechat.personal
@@ -119,6 +123,9 @@ class CollectionHealthMonitor:
         self.official_failures = 0
         self.observation_failures = 0
         self.last_observed_health = None
+        self.snapshot_timeout = snapshot_timeout
+        self.snapshot_handle = None
+        self.snapshot_overdue = False
         self.stop = asyncio.Event()
 
     def observe(self):
@@ -126,19 +133,74 @@ class CollectionHealthMonitor:
         try:
             health = self.snapshot()
         except Exception:
-            self.observation_failures += 1
-            LOG.error('collection_health snapshot_unavailable')
-            health = self._unavailable_snapshot()
-        else:
-            self.observation_failures = 0
-            self.last_observed_health = health
-            health['observation_state'] = 'observed'
+            return self._observation_failed('health_snapshot_unavailable')
+        return self._observation_succeeded(health)
+
+    def _observation_succeeded(self, health):
+        self.observation_failures = 0
+        self.last_observed_health = health
+        health['observation_state'] = 'observed'
+        health['observation_error'] = None
+        return self._observation_status(health)
+
+    def _observation_failed(self, reason):
+        self.observation_failures += 1
+        LOG.error('collection_health %s', reason)
+        return self._observation_status(self._unavailable_snapshot(reason))
+
+    def _observation_status(self, health):
         health['observation_failures'] = self.observation_failures
         health['observer'] = {'source_id': 'system:collection-health-observer',
             'name': '采集健康读取', 'alert_required': self.observation_failures >= 3 and not health['quiet']}
         return health
 
-    def _unavailable_snapshot(self):
+    def _begin_snapshot(self):
+        """A stuck read must not hold up the loop or prevent process shutdown."""
+        loop = asyncio.get_running_loop()
+        handle = loop.create_future()
+
+        def finish(result):
+            if not handle.done():
+                handle.set_result(result)
+
+        def read():
+            try:
+                result = (True, self.snapshot())
+            except BaseException:
+                result = (False, None)
+            try:
+                loop.call_soon_threadsafe(finish, result)
+            except RuntimeError:
+                pass  # The application may already have closed its event loop.
+
+        threading.Thread(target=read, name='collection-health-snapshot', daemon=True).start()
+        return handle
+
+    async def observe_bounded(self):
+        """Poll one outstanding read until it finishes; never overlap retries."""
+        if self.snapshot_handle is None:
+            try:
+                self.snapshot_handle = self._begin_snapshot()
+            except Exception:
+                return self._observation_failed('health_snapshot_unavailable')
+            self.snapshot_overdue = False
+        try:
+            ok, health = await asyncio.wait_for(asyncio.shield(self.snapshot_handle),
+                                                timeout=self.snapshot_timeout)
+        except TimeoutError:
+            self.snapshot_overdue = True
+            return self._observation_failed('health_snapshot_timeout')
+        self.snapshot_handle = None
+        overdue, self.snapshot_overdue = self.snapshot_overdue, False
+        if not ok:
+            return self._observation_failed('health_snapshot_unavailable')
+        if overdue:
+            # A late result describes an older point in time. Do not revive it
+            # as current health; the next tick can start a fresh read.
+            return self._observation_failed('health_snapshot_expired')
+        return self._observation_succeeded(health)
+
+    def _unavailable_snapshot(self, reason='health_snapshot_unavailable'):
         at = self.clock()
         previous = self.last_observed_health or {}
         sources = []
@@ -150,16 +212,17 @@ class CollectionHealthMonitor:
                 'last_scan_at': row.get('last_scan_at'),
                 'last_successful_scan_at': row.get('last_successful_scan_at'),
                 'last_notification_at': row.get('last_notification_at'),
-                'consecutive_failures': None, 'latest_error': 'health_snapshot_unavailable',
+                'consecutive_failures': None, 'latest_error': reason,
                 'latest_error_stage': 'observation', 'pending_analysis': None,
                 'analysis_errors': None, 'pending_sync': None, 'sync_state': 'unknown',
                 'alert_required': False})
         health = {'checked_at': at.isoformat(), 'quiet': at.astimezone(SHANGHAI).hour < 6,
-            'observation_state': 'observation_failed', 'last_successful_observation_at': previous.get('checked_at'),
+            'observation_state': 'observation_failed', 'observation_error': reason,
+            'last_successful_observation_at': previous.get('checked_at'),
             'sources': sources, 'pending_analysis': None, 'analysis_errors': None,
             'pending_staging_messages': None, 'collection_failed': None,
             'frontend_visibility': 'unverified',
-            'sync': {'state': 'unknown', 'pending_records': None, 'latest_error': 'health_snapshot_unavailable'}}
+            'sync': {'state': 'unknown', 'pending_records': None, 'latest_error': reason}}
         if self.official is not None:
             if not self.official.runtime.automatic_sync_allowed:
                 # The cloud observer is independent of the local SQLite read.
@@ -279,9 +342,13 @@ class CollectionHealthMonitor:
                         source['sync_state'] = 'held_local_only' if held else 'unknown'
                     return
                 from ..cloud_sync.projection import CloudProjection
-                # Own backup path: never race the sync worker's projection snapshot.
-                projection = CloudProjection(self.personal, self.personal.path.parent / 'collection-health-projection')
-                records = projection.records()
+                # Each read owns its temporary backup. A timed-out daemon read
+                # must never race a new monitor after service shutdown/restart.
+                root = self.personal.path.parent / 'collection-health-projection'
+                root.mkdir(parents=True, exist_ok=True)
+                with tempfile.TemporaryDirectory(prefix='read-', dir=root) as cache:
+                    projection = CloudProjection(self.personal, Path(cache))
+                    records = projection.records()
                 with self.personal.connection() as c:
                     raw_sources = {r['id']: r['source_id'] for r in c.execute("SELECT id,source_id FROM raw_item WHERE kind IN ('wechat','official_web','wechat_batch')")}
                 # source_id is authoritative; kind labels evolved historically.
@@ -353,11 +420,14 @@ class CollectionHealthMonitor:
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
+        if self.snapshot_handle is not None:
+            self.snapshot_handle.cancel()
+            self.snapshot_handle = None
 
     async def _run(self):
         while not self.stop.is_set():
             try:
-                self.latest = await asyncio.to_thread(self.observe)
+                self.latest = await self.observe_bounded()
                 await asyncio.to_thread(self.deliver, self.latest)
                 if self.official is not None and not self.official.runtime.automatic_sync_allowed:
                     elapsed = (self.clock() - self.official_last_attempt).total_seconds() if self.official_last_attempt else None

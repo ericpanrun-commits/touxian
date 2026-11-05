@@ -2,6 +2,7 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
+import threading
 from types import SimpleNamespace
 
 from server.wechat_collect.config import ChatConfig, SettingsDocument, WeChatConfig
@@ -169,6 +170,101 @@ def test_monitor_loop_publishes_unknown_and_alerts_if_observations_keep_failing(
     assert monitor.latest['observer']['alert_required'] and len(calls) == 1
 
 
+def test_hung_snapshot_is_polled_without_overlap_and_late_health_is_discarded(personal, monkeypatch):
+    doc, _ = configured(personal)
+    started, release = threading.Event(), threading.Event()
+    reads, notifications = [], []
+    monitor = CollectionHealthMonitor(SimpleNamespace(personal=personal, document=doc),
+        notifier=SimpleNamespace(send=lambda *a, **k: notifications.append(1) or 'os_accepted'),
+        clock=lambda: datetime.fromisoformat('2026-11-05T12:00:00+08:00'), snapshot_timeout=0.02)
+    good_snapshot = monitor.snapshot
+    original = monitor.observe()
+
+    def blocked():
+        reads.append(threading.current_thread().daemon)
+        started.set()
+        release.wait(5)
+        return good_snapshot()
+
+    monkeypatch.setattr(monitor, 'snapshot', blocked)
+
+    async def exercise():
+        handles = []
+        try:
+            for attempt in range(1, 4):
+                health = await monitor.observe_bounded()
+                handles.append(monitor.snapshot_handle)
+                assert health['observation_state'] == 'observation_failed'
+                assert health['observation_error'] == 'health_snapshot_timeout'
+                assert health['observation_failures'] == attempt
+                assert health['last_successful_observation_at'] == original['checked_at']
+                assert health['sources'][0]['collection_state'] == 'unknown'
+                monitor.deliver(health)
+            assert started.is_set() and reads == [True]
+            assert handles[0] is handles[1] is handles[2] and not handles[0].done()
+            assert health['observer']['alert_required'] and notifications == [1]
+            release.set()
+            await asyncio.wait_for(asyncio.shield(handles[0]), timeout=1)
+            late = await monitor.observe_bounded()
+            assert late['observation_error'] == 'health_snapshot_expired'
+            assert late['sources'][0]['collection_state'] == 'unknown'
+            monkeypatch.setattr(monitor, 'snapshot', good_snapshot)
+            recovered = await monitor.observe_bounded()
+            assert recovered['observation_state'] == 'observed'
+            assert recovered['observation_failures'] == 0
+            assert not recovered['observer']['alert_required']
+        finally:
+            release.set()
+
+    asyncio.run(exercise())
+
+
+def test_monitor_shutdown_does_not_wait_for_a_hung_snapshot(personal, monkeypatch):
+    doc, _ = configured(personal)
+    started, release, finished = threading.Event(), threading.Event(), threading.Event()
+    monitor = CollectionHealthMonitor(SimpleNamespace(personal=personal, document=doc), snapshot_timeout=30)
+
+    def blocked():
+        started.set()
+        release.wait(5)
+        finished.set()
+        return {}
+
+    monkeypatch.setattr(monitor, 'snapshot', blocked)
+
+    async def exercise():
+        await monitor.start()
+        assert await asyncio.to_thread(started.wait, 1)
+        handle = monitor.snapshot_handle
+        await asyncio.wait_for(monitor.close(), timeout=1)
+        assert handle.cancelled() and monitor.snapshot_handle is None
+
+    try:
+        asyncio.run(exercise())
+    finally:
+        release.set()
+        assert finished.wait(1)
+
+
+def test_snapshot_thread_start_failure_is_reported_and_alerted(personal, monkeypatch):
+    doc, _ = configured(personal)
+    calls = []
+    monitor = CollectionHealthMonitor(SimpleNamespace(personal=personal, document=doc),
+        notifier=SimpleNamespace(send=lambda *a, **k: calls.append(1) or 'os_accepted'),
+        clock=lambda: datetime.fromisoformat('2026-11-05T12:00:00+08:00'))
+    def unavailable():
+        raise OSError('synthetic thread creation failure')
+    monkeypatch.setattr(monitor, '_begin_snapshot', unavailable)
+    async def exercise():
+        for _ in range(3):
+            health = await monitor.observe_bounded()
+            monitor.deliver(health)
+        assert health['observation_error'] == 'health_snapshot_unavailable'
+        assert health['observer']['alert_required'] and calls == [1]
+        assert monitor.snapshot_handle is None
+    asyncio.run(exercise())
+
+
 def test_historical_pending_dispatch_cannot_spend(personal):
     service, current, calls = setup_service(personal, [Observation('test','unverified',
         (ObservedMessage('请按要求提交完整实验报告与登记材料'),), True, True)])
@@ -257,6 +353,72 @@ def test_sync_count_is_unknown_until_the_entire_remote_catalogue_is_loaded(perso
     cloud.state['uploads_held'] = False
     assert monitor.snapshot()['sync']['state'] == 'unknown'
     assert monitor.snapshot()['sources'][0]['pending_sync'] is None
+
+
+def test_health_projection_uses_isolated_temporary_backups(personal, monkeypatch):
+    from server.cloud_sync.projection import CloudProjection
+    doc, _ = configured(personal)
+    caches = []
+    def records(projection):
+        caches.append(projection.cache)
+        (projection.cache / 'temporary-marker').write_text('test', encoding='utf-8')
+        return []
+    monkeypatch.setattr(CloudProjection, 'records', records)
+    cloud = SimpleNamespace(settings=SimpleNamespace(read=lambda: {'enabled': True}),
+        hashes={}, workspace='fixture-workspace', state={'connected': True, 'last_error': None})
+    monitor = CollectionHealthMonitor(SimpleNamespace(personal=personal, document=doc), cloud_sync=cloud)
+    monitor.snapshot()
+    monitor.snapshot()
+    assert len(caches) == 2 and caches[0] != caches[1]
+    assert all(cache.parent == personal.path.parent / 'collection-health-projection' for cache in caches)
+    assert all(not cache.exists() for cache in caches)
+
+
+def test_health_projection_closes_real_temporary_backup(personal):
+    doc, _ = configured(personal)
+    cloud = SimpleNamespace(settings=SimpleNamespace(read=lambda: {'enabled': True}),
+        hashes={}, workspace='fixture-workspace', state={'connected': True, 'last_error': None})
+    monitor = CollectionHealthMonitor(SimpleNamespace(personal=personal, document=doc), cloud_sync=cloud)
+    result = monitor.snapshot()
+    assert result['sync']['evidence'] == 'per_record_source_hash_acknowledged_by_publish'
+    assert list((personal.path.parent / 'collection-health-projection').iterdir()) == []
+
+
+def test_restarted_monitor_never_reuses_a_hung_read_backup(personal, monkeypatch):
+    from server.cloud_sync.projection import CloudProjection
+    doc, _ = configured(personal)
+    started, release = threading.Event(), threading.Event()
+    caches = []
+    def records(projection):
+        caches.append(projection.cache)
+        if len(caches) == 1:
+            started.set()
+            release.wait(5)
+        return []
+    monkeypatch.setattr(CloudProjection, 'records', records)
+    cloud = SimpleNamespace(settings=SimpleNamespace(read=lambda: {'enabled': True}),
+        hashes={}, workspace='fixture-workspace', state={'connected': True, 'last_error': None})
+    service = SimpleNamespace(personal=personal, document=doc)
+    first = CollectionHealthMonitor(service, cloud_sync=cloud, snapshot_timeout=0.02)
+    second = CollectionHealthMonitor(service, cloud_sync=cloud, snapshot_timeout=1)
+    async def exercise():
+        try:
+            assert (await first.observe_bounded())['observation_error'] == 'health_snapshot_timeout'
+            assert started.is_set() and caches[0].exists()
+            await first.close()
+            result = await second.observe_bounded()
+            assert result['observation_state'] == 'observed'
+            assert len(caches) == 2 and caches[0] != caches[1]
+            assert caches[0].exists() and not caches[1].exists()
+            release.set()
+            for _ in range(100):
+                if not caches[0].exists():
+                    break
+                await asyncio.sleep(0.01)
+            assert not caches[0].exists()
+        finally:
+            release.set()
+    asyncio.run(exercise())
 
 
 def test_sync_observation_failure_cannot_silence_collection_health(personal):
