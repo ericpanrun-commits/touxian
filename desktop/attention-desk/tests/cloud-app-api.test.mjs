@@ -285,6 +285,24 @@ test('PDF byte ranges span immutable parts without fetching or buffering the who
   r.calls.length=0;const small=await fileResponse(r.store,new Request(ROOT,{headers:{Range:'bytes=11-12'}}),W,id);assert.equal(await small.text(),'bc');assert.equal(r.calls.filter(x=>x.startsWith('/storage/')).length,1);
   assert.deepEqual(byteRange('bytes=-4',30),[26,29]);assert.throws(()=>byteRange('bytes=30-31',30));assert.throws(()=>byteRange('bytes=0-1,4-5',30));
 });
+if(process.env.ERIC_API_VERIFY_FILE_V20==='1')test('The deployed file API retains conditional reads, CORS and worker size limits',async()=>{
+  const r=rig(),key='ework_'+'a'.repeat(43),id='attachment:fixture:original',body=new TextEncoder().encode('synthetic only'),sha=await hash(body);
+  r.tables.eric_app_processors.push({id:DEVICE,workspace_id:W,key_hash:await hash(key),revoked_at:null});
+  r.tables.eric_app_resources.push({workspace_id:W,id,complete:true,bytes:body.length,sha256:sha,filename:'test.pdf',mime:'application/pdf',part_count:1});
+  r.tables.eric_app_resource_parts.push({workspace_id:W,resource_id:id,part_index:0,sha256:sha,bytes:body.length,object_path:W+'/'+sha});
+  r.objects.set(W+'/'+sha,body);
+  const path='/worker/files/'+id+'/content',headers={'X-Eric-Worker-Key':key,'If-None-Match':'W/"'+sha+'"',Origin:ORIGIN};
+  const denied=await r.request(path,'GET',undefined,{'If-None-Match':headers['If-None-Match']});assert.equal(denied.status,401);
+  r.calls.length=0;const cached=await r.request(path,'GET',undefined,headers);
+  assert.equal(cached.status,304);assert.equal(cached.headers.get('ETag'),'"'+sha+'"');
+  assert.ok(cached.headers.get('Access-Control-Expose-Headers').includes('ETag'));
+  assert.ok(!r.calls.some(call=>call.startsWith('/storage/')));
+  const preflight=await r.request(path,'OPTIONS',undefined,{Origin:ORIGIN});
+  assert.ok(preflight.headers.get('Access-Control-Allow-Headers').includes('if-none-match'));
+  r.tables.eric_app_resources[0].bytes=50*1024*1024+1;
+  const large=await r.request(path,'GET',undefined,{'X-Eric-Worker-Key':key});
+  assert.equal(large.status,416);assert.equal((await large.json()).detail.code,'range_required');
+});
 async function readingFixture(){
   const r=rig(),source=new TextEncoder().encode('%PDF-1.7\nsynthetic original bytes\n%%EOF'),tail=new TextEncoder().encode('\nsynthetic incremental PDF index\n%%EOF\n');
   const attachment='book',document='doc-book',original='attachment:'+attachment+':original',sourceHash=await hash(source),tailHash=await hash(tail);

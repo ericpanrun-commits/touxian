@@ -2,9 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {build} from 'esbuild';
 import {fileURLToPath} from 'node:url';
+import {resolve} from 'node:path';
 
 async function moduleAt(path){
-  const compiled=await build({entryPoints:[fileURLToPath(new URL(path,import.meta.url))],bundle:true,write:false,
+  const entry=process.env.ERIC_API_TEST_ROOT?resolve(process.env.ERIC_API_TEST_ROOT,path.split('/').at(-1)):fileURLToPath(new URL(path,import.meta.url));
+  const compiled=await build({entryPoints:[entry],bundle:true,write:false,
     format:'esm',platform:'neutral',target:'es2022',external:['npm:*']});
   return import('data:text/javascript;base64,'+Buffer.from(compiled.outputFiles[0].contents).toString('base64'));
 }
