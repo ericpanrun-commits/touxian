@@ -2,6 +2,8 @@
 import asyncio
 import json
 
+import pytest
+
 from server.tests_wechat.test_pipeline import setup_service, scan
 from server.tests_wechat.test_media_pipeline import NOW, observe_images
 from server.wechat_collect.models import Observation, ObservedMessage
@@ -76,3 +78,45 @@ def test_historical_text_job_keeps_one_request_and_a_known_reservation(personal)
     assert plan['paid_plan']['vision_requests']==0
     assert plan['paid_plan']['reserved_tokens']==plan['jobs'][0]['reserved_tokens_if_requested']>0
     assert calls==[]
+
+
+@pytest.mark.parametrize('success_kind', ['vision', 'text'])
+def test_unknown_attempt_takes_priority_over_any_earlier_success(personal, monkeypatch, success_kind):
+    service, clock, calls = queued_image(personal, monkeypatch)
+    with personal.connection(write=True) as c:
+        job = c.execute('SELECT id FROM wechat_analysis_job').fetchone()[0]
+        for number, kind, status, unknown in ((1, success_kind, 'success', 0),
+                (2, 'text', 'outcome_unknown', 1)):
+            c.execute('INSERT INTO wechat_llm_attempt(id,job_id,attempt_number,kind,started_at,status,reserved_tokens,outcome_unknown) VALUES (?,?,?,?,?,?,?,?)',
+                      (f'attempt-{number}',job,number,kind,service.clock().isoformat(),status,100,unknown))
+    result = backlog_plan(personal, at=service.clock())
+    assert result['jobs'][0]['decision'] == 'hold_unknown_no_retry'
+    assert result['jobs'][0]['has_unknown_attempt'] and result['unknown_attempt_jobs'] == 1
+    assert result['paid_plan']['jobs'] == 0 and calls == []
+
+
+def test_successful_vision_alone_is_not_a_successful_text_analysis(personal, monkeypatch):
+    service, clock, calls = queued_image(personal, monkeypatch)
+    with personal.connection(write=True) as c:
+        job = c.execute('SELECT id FROM wechat_analysis_job').fetchone()[0]
+        c.execute('INSERT INTO wechat_llm_attempt(id,job_id,attempt_number,kind,started_at,status,reserved_tokens) VALUES (?,?,?,?,?,?,?)',
+                  ('vision-attempt',job,1,'vision',service.clock().isoformat(),'success',100))
+    result = backlog_plan(personal, at=service.clock())
+    assert result['jobs'][0]['decision'] == 'hold_completed_vision_requires_review'
+    assert result['jobs'][0]['request_plan'] is None
+    assert result['jobs'][0]['reserved_tokens_if_requested'] is None
+    assert result['paid_plan']['jobs'] == 0 and calls == []
+
+
+def test_inactive_unknown_attempt_is_still_visible_in_the_dry_run(personal, monkeypatch):
+    service, clock, calls = queued_image(personal, monkeypatch)
+    with personal.connection(write=True) as c:
+        job = c.execute('SELECT id FROM wechat_analysis_job').fetchone()[0]
+        # Even if an inconsistent legacy flag says zero, a timeout is uncertain.
+        c.execute('INSERT INTO wechat_llm_attempt(id,job_id,attempt_number,kind,started_at,status,reserved_tokens,outcome_unknown) VALUES (?,?,?,?,?,?,?,?)',
+                  ('unknown-attempt',job,1,'text',service.clock().isoformat(),'timeout',100,0))
+        c.execute("UPDATE wechat_batch SET status='ignored' WHERE id=(SELECT batch_id FROM wechat_analysis_job WHERE id=?)",(job,))
+    result = backlog_plan(personal, at=service.clock())
+    assert result['jobs'][0]['decision'] == 'skip_inactive_or_replaced'
+    assert result['jobs'][0]['has_unknown_attempt'] and result['unknown_attempt_jobs'] == 1
+    assert result['paid_plan']['jobs'] == 0 and calls == []

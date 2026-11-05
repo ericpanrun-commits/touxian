@@ -98,16 +98,18 @@ def backlog_plan(personal, *, at, allow_vision=False):
             attempts = c.execute('SELECT * FROM wechat_llm_attempt WHERE job_id=? ORDER BY attempt_number', (job['id'],)).fetchall()
             item = {k: job[k] for k in ('id', 'batch_id', 'snapshot_id', 'raw_item_id', 'status', 'error_code', 'batch_status', 'review_status')}
             item['attempts'] = [{k: a[k] for k in ('id', 'kind', 'status', 'outcome_unknown', 'reserved_tokens', 'started_at')} for a in attempts]
+            item['has_unknown_attempt'] = any(a['outcome_unknown'] or a['status'] in
+                {'running', 'outcome_unknown', 'timeout', 'connection_error', 'storage_or_response_error'} for a in attempts)
             item['hold'] = dispatch_hold(c, job, at)
             item['primary_source_ids'] = [r[0] for r in c.execute("SELECT message_id FROM wechat_batch_message WHERE batch_id=? AND role='primary' ORDER BY ordinal", (job['batch_id'],))]
             active = (job['enabled'] and not job['superseded_by'] and job['batch_status'] not in {'ignored','superseded','archived'}
                       and job['review_status'] == 'pending' and job['current_extraction'] == job['extraction_id'])
             if not active:
                 item['decision'] = 'skip_inactive_or_replaced'
-            elif any(a['status'] == 'success' for a in attempts):
-                item['decision'] = 'reconcile_success_without_http'
-            elif any(a['outcome_unknown'] or a['status'] == 'running' for a in attempts):
+            elif item['has_unknown_attempt']:
                 item['decision'] = 'hold_unknown_no_retry'
+            elif any(a['kind'] == 'text' and a['status'] == 'success' for a in attempts):
+                item['decision'] = 'reconcile_success_without_http'
             else:
                 batch = dict(c.execute('SELECT * FROM wechat_batch WHERE id=?', (job['batch_id'],)).fetchone())
                 batch['primary_ids'] = item['primary_source_ids']
@@ -143,24 +145,35 @@ def backlog_plan(personal, *, at, allow_vision=False):
                         item['saved_response_validation'] = 'invalid_saved_response'
                 if item['saved_response_validation'] == 'passed':
                     item['decision'] = 'local_saved_response_only'
+                elif attempts and all(a['kind'] == 'vision' and a['status'] == 'success' for a in attempts):
+                    # A completed image transcription is not a completed text
+                    # analysis. Review the remaining, potentially paid stage.
+                    item['decision'] = 'hold_completed_vision_requires_review'
                 elif attempts:
                     item['decision'] = 'hold_failed_requires_review'
                 else:
                     item['decision'] = 'paid_request_requires_approval'
                 config = AIConfig.model_validate(json.loads(job['config_json']))
-                messages = build_messages(batch, snapshot, json.loads(job['profile_json']))
                 item['model'] = config.model
                 item['max_output_tokens'] = config.max_output_tokens
-                item['request_plan']=request_plan(personal,batch,config,messages,allow_vision=allow_vision)
-                # This is a reservation estimate, never a price or an authorization.
-                item['reserved_tokens_if_requested'] = (None if item['request_plan']['post_vision_text_reservation_unknown']
-                    or item['request_plan']['vision_preflight_error'] else item['request_plan']['initial_reserved_tokens'])
+                if item['decision'] == 'hold_completed_vision_requires_review':
+                    # Do not propose replaying a successful vision request or
+                    # estimate text before its saved output has been reviewed.
+                    item['request_plan'] = None
+                    item['reserved_tokens_if_requested'] = None
+                else:
+                    messages = build_messages(batch, snapshot, json.loads(job['profile_json']))
+                    item['request_plan']=request_plan(personal,batch,config,messages,allow_vision=allow_vision)
+                    # This is a reservation estimate, never a price or an authorization.
+                    item['reserved_tokens_if_requested'] = (None if item['request_plan']['post_vision_text_reservation_unknown']
+                        or item['request_plan']['vision_preflight_error'] else item['request_plan']['initial_reserved_tokens'])
             rows.append(item)
     paid = [r for r in rows if r['decision'] == 'paid_request_requires_approval']
     vision=sum(r['request_plan']['vision_requests_max'] for r in paid)
     unknown=sum(r['request_plan']['post_vision_text_reservation_unknown'] or bool(r['request_plan']['vision_preflight_error']) for r in paid)
     return {'dry_run': True, 'generated_at': at.isoformat(), 'jobs': rows,
             'decisions': dict(Counter(r['decision'] for r in rows)),
+            'unknown_attempt_jobs': sum(r['has_unknown_attempt'] for r in rows),
             'paid_plan': {'jobs': len(paid), 'http_requests': len(paid)+vision,
                 'text_requests':len(paid),'vision_requests':vision,
                 'request_count_basis':'upper_bound_before_shared_vision_cache_reuse',
