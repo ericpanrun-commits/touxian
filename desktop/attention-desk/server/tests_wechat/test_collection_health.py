@@ -86,6 +86,143 @@ def test_unknown_delivery_is_claimed_without_resending(personal):
     assert json.loads(monitor.ledger.read_text())['sources']['wechat:health']['result'] == 'delivery_unknown'
 
 
+def test_recovery_requires_a_new_success_and_is_not_repeated_after_restart(personal):
+    doc, _ = configured(personal)
+    calls = []
+    current = [datetime.fromisoformat('2026-11-04T12:00:00+08:00')]
+    notifier = SimpleNamespace(send=lambda *a, **k: calls.append((a, k)) or 'os_accepted')
+    service = SimpleNamespace(personal=personal, document=doc)
+    monitor = CollectionHealthMonitor(service, notifier=notifier, clock=lambda: current[0])
+    failed = {'quiet': False, 'sources': [{'source_id': 'wechat:health', 'collection_state': 'failed',
+        'consecutive_failures': 3, 'alert_required': True}]}
+    monitor.deliver(failed)
+    assert len(calls) == 1
+    current[0] += timedelta(minutes=16)
+    recovered = {'quiet': False, 'sources': [{'source_id': 'wechat:health', 'collection_state': 'healthy_idle',
+        'consecutive_failures': 0, 'last_successful_scan_at': current[0].isoformat(), 'alert_required': False}]}
+    restarted = CollectionHealthMonitor(service, notifier=notifier, clock=lambda: current[0])
+    restarted.deliver(recovered)
+    restarted.deliver(recovered)
+    assert len(calls) == 2 and '恢复' in str(calls[-1])
+    again = CollectionHealthMonitor(service, notifier=notifier, clock=lambda: current[0])
+    again.deliver(recovered)
+    assert len(calls) == 2
+
+
+def test_recovery_is_deferred_during_cooldown_or_quiet_and_not_claimed_on_unknown(personal):
+    doc, _ = configured(personal)
+    calls = []
+    current = [datetime.fromisoformat('2026-11-04T23:40:00+08:00')]
+    monitor = CollectionHealthMonitor(SimpleNamespace(personal=personal, document=doc),
+        notifier=SimpleNamespace(send=lambda *a, **k: calls.append((a, k)) or 'os_accepted'), clock=lambda: current[0])
+    failed = {'quiet': False, 'sources': [{'source_id': 'wechat:health', 'collection_state': 'failed',
+        'consecutive_failures': 3, 'alert_required': True}]}
+    monitor.deliver(failed)
+    current[0] += timedelta(minutes=5)
+    healthy = {'quiet': False, 'sources': [{'source_id': 'wechat:health', 'collection_state': 'healthy',
+        'consecutive_failures': 0, 'last_successful_scan_at': current[0].isoformat(), 'alert_required': False}]}
+    monitor.deliver(healthy)
+    assert len(calls) == 1
+    current[0] += timedelta(minutes=20)
+    healthy['quiet'] = True
+    monitor.deliver(healthy)
+    assert len(calls) == 1
+    current[0] = datetime.fromisoformat('2026-11-05T06:00:00+08:00')
+    unknown = {'quiet': False, 'sources': [{'source_id': 'wechat:health', 'collection_state': 'unknown',
+        'consecutive_failures': None, 'alert_required': False}]}
+    monitor.deliver(unknown)
+    assert len(calls) == 1
+    healthy['quiet'] = False
+    healthy['sources'][0]['last_successful_scan_at'] = current[0].isoformat()
+    monitor.deliver(healthy)
+    assert len(calls) == 2 and '恢复' in str(calls[-1])
+
+
+def test_legacy_alerts_only_track_recovery_if_still_failing_on_activation(personal):
+    doc, _ = configured(personal)
+    current = [datetime.fromisoformat('2026-11-04T12:00:00+08:00')]
+    calls = []
+    monitor = CollectionHealthMonitor(SimpleNamespace(personal=personal, document=doc),
+        notifier=SimpleNamespace(send=lambda *a, **k: calls.append((a, k)) or 'os_accepted'), clock=lambda: current[0])
+    old = (current[0] - timedelta(hours=1)).isoformat()
+    monitor.ledger.write_text(json.dumps({'sources': {'wechat:health': {'claimed_at': old, 'result': 'os_accepted'}},
+                                          'last_claim_at': old}), encoding='utf-8')
+    healthy = {'quiet': False, 'sources': [{'source_id': 'wechat:health', 'collection_state': 'healthy_idle',
+        'consecutive_failures': 0, 'last_successful_scan_at': current[0].isoformat(), 'alert_required': False}]}
+    monitor.deliver(healthy)
+    assert calls == []
+    failed = {'quiet': False, 'sources': [{'source_id': 'wechat:health', 'collection_state': 'failed',
+        'consecutive_failures': 3, 'alert_required': True}]}
+    monitor.deliver(failed)
+    assert calls == []
+    current[0] += timedelta(minutes=1)
+    healthy['sources'][0]['last_successful_scan_at'] = current[0].isoformat()
+    monitor.deliver(healthy)
+    assert len(calls) == 1 and '恢复' in str(calls[0])
+
+
+def test_recovery_delivery_unknown_is_claimed_and_not_repeated(personal):
+    doc, _ = configured(personal)
+    current = [datetime.fromisoformat('2026-11-04T12:00:00+08:00')]
+    calls = []
+    def send(*args, **kwargs):
+        calls.append((args, kwargs))
+        if len(calls) == 2: raise OSError('synthetic unknown delivery')
+        return 'os_accepted'
+    service = SimpleNamespace(personal=personal, document=doc)
+    notifier = SimpleNamespace(send=send)
+    monitor = CollectionHealthMonitor(service, notifier=notifier, clock=lambda: current[0])
+    monitor.deliver({'quiet': False, 'sources': [{'source_id': 'wechat:health', 'alert_required': True}]})
+    current[0] += timedelta(minutes=16)
+    healthy = {'quiet': False, 'sources': [{'source_id': 'wechat:health', 'collection_state': 'healthy_idle',
+        'consecutive_failures': 0, 'last_successful_scan_at': current[0].isoformat(), 'alert_required': False}]}
+    monitor.deliver(healthy)
+    entry = json.loads(monitor.ledger.read_text())['sources']['wechat:health']
+    assert entry['incident_active'] is False and entry['recovery_result'] == 'delivery_unknown'
+    CollectionHealthMonitor(service, notifier=notifier, clock=lambda: current[0]).deliver(healthy)
+    assert len(calls) == 2
+
+
+def test_new_failure_and_recovery_are_combined_without_exposing_names(personal):
+    doc, _ = configured(personal)
+    current = [datetime.fromisoformat('2026-11-04T12:00:00+08:00')]
+    calls = []
+    monitor = CollectionHealthMonitor(SimpleNamespace(personal=personal, document=doc),
+        notifier=SimpleNamespace(send=lambda *a, **k: calls.append((a, k)) or 'os_accepted'), clock=lambda: current[0])
+    monitor.deliver({'quiet': False, 'sources': [{'source_id': 'wechat:health', 'alert_required': True}]})
+    current[0] += timedelta(minutes=16)
+    monitor.deliver({'quiet': False, 'sources': [
+        {'source_id': 'wechat:health', 'collection_state': 'healthy_idle', 'consecutive_failures': 0,
+         'last_successful_scan_at': current[0].isoformat(), 'alert_required': False, 'name': 'NEVER_LEAK'},
+        {'source_id': 'wechat:other', 'collection_state': 'failed', 'alert_required': True, 'name': 'NEVER_LEAK'}]})
+    assert len(calls) == 2 and '恢复' in str(calls[-1]) and 'NEVER_LEAK' not in str(calls[-1])
+    ledger = json.loads(monitor.ledger.read_text())['sources']
+    assert ledger['wechat:health']['incident_active'] is False
+    assert ledger['wechat:other']['incident_active'] is True
+
+
+def test_scheduler_recovery_needs_a_new_completed_nonfailed_run(personal):
+    doc, _ = configured(personal)
+    current = [datetime.fromisoformat('2026-11-04T12:00:00+08:00')]
+    calls = []
+    monitor = CollectionHealthMonitor(SimpleNamespace(personal=personal, document=doc),
+        notifier=SimpleNamespace(send=lambda *a, **k: calls.append((a, k)) or 'os_accepted'), clock=lambda: current[0])
+    collector = {'source_id': 'official:collector-scheduler', 'state': 'overdue', 'alert_required': True}
+    health = {'quiet': False, 'sources': [], 'official': {'collector': collector}}
+    monitor.deliver(health)
+    current[0] += timedelta(minutes=16)
+    collector.update(state='running', alert_required=False, last_run_status='ok', last_run_at=current[0].isoformat())
+    monitor.deliver(health)
+    collector.update(state='on_schedule', last_run_at=(current[0] - timedelta(hours=1)).isoformat())
+    monitor.deliver(health)
+    collector.update(last_run_at=current[0].isoformat(), last_run_status='failed')
+    monitor.deliver(health)
+    assert len(calls) == 1
+    collector['last_run_status'] = 'partial'
+    monitor.deliver(health)
+    assert len(calls) == 2 and '恢复' in str(calls[-1])
+
+
 def test_snapshot_failure_cannot_leave_stale_health_looking_current(personal, monkeypatch):
     doc, _ = configured(personal)
     current = [datetime.fromisoformat('2026-11-05T12:00:00+08:00')]

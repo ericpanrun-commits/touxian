@@ -17,6 +17,35 @@ SUCCESS = {'complete', 'changed', 'no_change'}
 SNAPSHOT_TIMEOUT_SECONDS = 45
 
 
+def _aware_time(value):
+    try:
+        parsed = datetime.fromisoformat(value)
+        return parsed if parsed.tzinfo is not None and parsed.utcoffset() is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _recovery_observed(row, health, official, claimed_at):
+    """Require fresh positive evidence; unknown, partial and disabled are not recovery."""
+    if row.get('alert_required') or claimed_at is None:
+        return False
+    source_id = row.get('source_id')
+    if source_id == 'system:collection-health-observer':
+        stamp = _aware_time(health.get('checked_at'))
+        return health.get('observation_state') == 'observed' and stamp is not None and stamp > claimed_at
+    if source_id == 'official:health-observer':
+        stamp = _aware_time(official.get('checked_at'))
+        return official.get('state') == 'observed' and stamp is not None and stamp > claimed_at
+    if source_id == 'official:collector-scheduler':
+        stamp = _aware_time(row.get('last_run_at'))
+        return (row.get('state') == 'on_schedule' and row.get('last_run_status') in {'ok','partial'}
+                and stamp is not None and stamp > claimed_at)
+    stamp = _aware_time(row.get('last_successful_scan_at'))
+    failures = row.get('consecutive_failures')
+    return (row.get('collection_state') in {'healthy','healthy_idle'} and type(failures) is int and failures == 0
+            and stamp is not None and stamp > claimed_at)
+
+
 def active_seconds(start, end):
     """Elapsed collection time, excluding the fixed 00:00–06:00 quiet window."""
     start, end = start.astimezone(SHANGHAI), end.astimezone(SHANGHAI)
@@ -392,7 +421,15 @@ class CollectionHealthMonitor:
             LOG.error('collection_health alert_ledger_unavailable')
             return  # Fail closed on deduplication failure.
         sources = ledger.setdefault('sources', {})
-        due = []
+        if not isinstance(sources, dict):
+            LOG.error('collection_health alert_ledger_invalid')
+            return
+        last_claim = _aware_time(ledger.get('last_claim_at'))
+        if ledger.get('last_claim_at') and last_claim is None:
+            LOG.error('collection_health alert_ledger_invalid')
+            return
+        due, recovered = [], []
+        legacy_changed = False
         official = health.get('official') or {}
         rows = [*health['sources'], *official.get('sources', [])]
         if health.get('observer'):
@@ -403,27 +440,55 @@ class CollectionHealthMonitor:
             rows.append(official['collector'])
         for row in rows:
             old = sources.get(row['source_id'], {})
-            if row['alert_required'] and (not old.get('claimed_at') or
-                    at - datetime.fromisoformat(old['claimed_at']) >= timedelta(hours=6)):
+            if not isinstance(old, dict):
+                LOG.error('collection_health alert_entry_invalid')
+                continue
+            claimed_at = _aware_time(old.get('claimed_at'))
+            if old.get('claimed_at') and claimed_at is None:
+                LOG.error('collection_health alert_entry_invalid')
+                continue
+            if row['alert_required'] and claimed_at is not None and 'incident_active' not in old:
+                old['incident_active'] = True
+                sources[row['source_id']] = old
+                legacy_changed = True
+            if row['alert_required'] and (claimed_at is None or at - claimed_at >= timedelta(hours=6)):
                 due.append(row)
-        if not due or ledger.get('last_claim_at') and at - datetime.fromisoformat(ledger['last_claim_at']) < timedelta(minutes=15):
+            elif old.get('incident_active') is True and _recovery_observed(row, health, official, claimed_at):
+                recovered.append(row)
+        if not (due or recovered) or last_claim and at - last_claim < timedelta(minutes=15):
+            if legacy_changed:
+                self._save_ledger(ledger)
             return
         stamp = at.isoformat()
-        delivery_id = 'collection-health:' + hashlib.sha256((stamp + '|'.join(r['source_id'] for r in due)).encode()).hexdigest()
+        delivery_id = 'collection-health:' + hashlib.sha256((stamp + '|'.join(r['source_id'] for r in due + recovered)).encode()).hexdigest()
         for row in due:
-            sources[row['source_id']] = {'claimed_at': stamp, 'result': 'delivery_unknown'}
+            sources[row['source_id']] = {**sources.get(row['source_id'], {}), 'claimed_at': stamp,
+                'result': 'delivery_unknown', 'incident_active': True}
+        for row in recovered:
+            sources[row['source_id']].update(incident_active=False, recovery_claimed_at=stamp,
+                recovery_result='delivery_unknown')
         ledger['last_claim_at'] = stamp
         self._save_ledger(ledger)  # Durable claim before contacting the OS.
         try:
-            result = self.notifier.send(['Attention Desk · 通知采集异常',
-                f'{len(due)} 个通知来源采集失败、扫描过期或健康状态无法读取。',
-                '请打开本机工作台检查采集健康状态；原文与历史数据仍保留。'], delivery_id=delivery_id)
+            if due and recovered:
+                title = 'Attention Desk · 采集状态变化'
+                message = f'{len(due)} 项采集或监控异常，{len(recovered)} 项已恢复。'
+            elif due:
+                title = 'Attention Desk · 通知采集异常'
+                message = f'{len(due)} 个通知来源采集失败、扫描过期或健康状态无法读取。'
+            else:
+                title = 'Attention Desk · 采集状态恢复'
+                message = f'{len(recovered)} 项采集或监控已恢复。'
+            result = self.notifier.send([title, message,
+                '请打开本机工作台查看详细状态；其他待处理内容仍需核对。'], delivery_id=delivery_id)
         except Exception:
             result = 'delivery_unknown'
         for row in due:
             sources[row['source_id']]['result'] = result
+        for row in recovered:
+            sources[row['source_id']]['recovery_result'] = result
         self._save_ledger(ledger)
-        LOG.warning('collection_health alert sources=%s result=%s', len(due), result)
+        LOG.warning('collection_health alert sources=%s recovered=%s result=%s', len(due), len(recovered), result)
 
     def _save_ledger(self, value):
         temporary = self.ledger.with_suffix('.tmp')
