@@ -67,6 +67,11 @@ test('Absent and malformed counts cannot claim zero or an idle scan',()=>{
   const missingFailures=officialHealth([{...source,failure_count:null}],NOW).sources[0];
   assert.equal(missingFailures.consecutive_failures,null);
   assert.equal(missingFailures.collection_state,'unknown');
+  const knownFailure=officialHealth([{...source,status:'failed',failure_count:null}],NOW).sources[0];
+  assert.equal(knownFailure.consecutive_failures,null);
+  assert.equal(knownFailure.collection_state,'failed');
+  const knownPartial=officialHealth([{...source,status:'partial',failure_count:null}],NOW).sources[0];
+  assert.equal(knownPartial.collection_state,'partial');
   const missingNew=officialHealth([{...source,last_new_count:null}],NOW).sources[0];
   assert.equal(missingNew.collection_state,'healthy');
 });

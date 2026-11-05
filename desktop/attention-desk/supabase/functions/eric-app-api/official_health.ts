@@ -29,8 +29,8 @@ export function officialHealth(rows: any[], at = new Date()): any {
       last_notification_at: timestamp(row.last_notification_at),
       consecutive_failures: failures, last_scan_status: status,
       latest_error: typeof row.error === 'string' && /^[a-z][a-z0-9_]{0,80}$/.test(row.error) ? row.error : row.error ? 'source_error' : null,
-      collection_state: !enabled ? 'disabled' : failures === null ? 'unknown' : failed ? 'failed' :
-        status === 'partial' ? 'partial' : stale ? 'stale' : status === 'ok' && lastSuccess ?
+      collection_state: !enabled ? 'disabled' : failed ? 'failed' : status === 'partial' ? 'partial' :
+        failures === null ? 'unknown' : stale ? 'stale' : status === 'ok' && lastSuccess ?
         lastNew === 0 ? 'healthy_idle' : 'healthy' : 'not_checked',
       stale_after_seconds: staleAfter, pending_content: pendingContent,
       pending_analysis: 0, analysis_method: 'existing_deterministic_rules',
