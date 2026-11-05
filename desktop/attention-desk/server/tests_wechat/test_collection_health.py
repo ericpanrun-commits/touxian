@@ -85,6 +85,90 @@ def test_unknown_delivery_is_claimed_without_resending(personal):
     assert json.loads(monitor.ledger.read_text())['sources']['wechat:health']['result'] == 'delivery_unknown'
 
 
+def test_snapshot_failure_cannot_leave_stale_health_looking_current(personal, monkeypatch):
+    doc, _ = configured(personal)
+    current = [datetime.fromisoformat('2026-11-05T12:00:00+08:00')]
+    calls = []
+    monitor = CollectionHealthMonitor(SimpleNamespace(personal=personal, document=doc),
+        notifier=SimpleNamespace(send=lambda *a, **k: calls.append((a, k)) or 'os_accepted'),
+        clock=lambda: current[0])
+    healthy = monitor.observe()
+    original_state = healthy['sources'][0]['collection_state']
+    real_snapshot = monitor.snapshot
+
+    def unavailable():
+        raise OSError('synthetic SQLite read failure')
+
+    monkeypatch.setattr(monitor, 'snapshot', unavailable)
+    for attempt in range(1, 4):
+        current[0] += timedelta(minutes=1)
+        observed = monitor.observe()
+        assert observed['observation_state'] == 'observation_failed'
+        assert observed['observation_failures'] == attempt
+        assert observed['last_successful_observation_at'] == healthy['checked_at']
+        assert observed['sources'][0]['collection_state'] == 'unknown'
+        assert observed['sources'][0]['last_known_collection_state'] == original_state
+        assert observed['collection_failed'] is None and observed['pending_analysis'] is None
+        assert observed['sync']['state'] == 'unknown'
+        assert observed['observer']['alert_required'] == (attempt == 3)
+        monitor.deliver(observed)
+    monitor.deliver(observed)
+    assert len(calls) == 1
+
+    monkeypatch.setattr(monitor, 'snapshot', real_snapshot)
+    recovered = monitor.observe()
+    assert recovered['observation_state'] == 'observed'
+    assert recovered['observation_failures'] == 0
+    assert not recovered['observer']['alert_required']
+    assert recovered['sources'][0]['collection_state'] == original_state
+
+
+def test_snapshot_failure_without_previous_state_and_overnight_stays_unknown(personal, monkeypatch):
+    doc, _ = configured(personal)
+    current = [datetime.fromisoformat('2026-11-05T03:00:00+08:00')]
+    calls = []
+    official = SimpleNamespace(runtime=SimpleNamespace(automatic_sync_allowed=False))
+    monitor = CollectionHealthMonitor(SimpleNamespace(personal=personal, document=doc), official=official,
+        notifier=SimpleNamespace(send=lambda *a, **k: calls.append(1)), clock=lambda: current[0])
+    monkeypatch.setattr(monitor, 'snapshot', lambda: (_ for _ in ()).throw(OSError('read failed')))
+    monkeypatch.setattr(monitor, '_official_observation', lambda: (_ for _ in ()).throw(ValueError('bad observation')))
+    for _ in range(3):
+        observed = monitor.observe()
+        monitor.deliver(observed)
+    assert observed['quiet'] and not observed['observer']['alert_required'] and calls == []
+    assert observed['sources'] == [] and observed['last_successful_observation_at'] is None
+    assert observed['official']['state'] == 'observation_failed'
+    current[0] = datetime.fromisoformat('2026-11-05T06:00:00+08:00')
+    observed = monitor.observe()
+    monitor.deliver(observed)
+    assert observed['observer']['alert_required'] and calls == [1]
+
+
+def test_monitor_loop_publishes_unknown_and_alerts_if_observations_keep_failing(personal, monkeypatch):
+    doc, _ = configured(personal)
+    calls = []
+
+    class FastStop:
+        stopped = False
+        def is_set(self): return self.stopped
+        def set(self): self.stopped = True
+        async def wait(self): raise TimeoutError
+
+    monitor = CollectionHealthMonitor(SimpleNamespace(personal=personal, document=doc),
+        clock=lambda: datetime.fromisoformat('2026-11-05T12:00:00+08:00'))
+    monitor.stop = FastStop()
+    def send(*args, **kwargs):
+        calls.append((args, kwargs))
+        monitor.stop.set()
+        return 'os_accepted'
+    monitor.notifier = SimpleNamespace(send=send)
+    monkeypatch.setattr(monitor, 'snapshot', lambda: (_ for _ in ()).throw(OSError('read failed')))
+    asyncio.run(monitor._run())
+    assert monitor.latest['observation_state'] == 'observation_failed'
+    assert monitor.latest['observation_failures'] == 3
+    assert monitor.latest['observer']['alert_required'] and len(calls) == 1
+
+
 def test_historical_pending_dispatch_cannot_spend(personal):
     service, current, calls = setup_service(personal, [Observation('test','unverified',
         (ObservedMessage('请按要求提交完整实验报告与登记材料'),), True, True)])

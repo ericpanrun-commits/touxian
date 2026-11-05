@@ -117,7 +117,59 @@ class CollectionHealthMonitor:
         self.official_last_attempt = None
         self.official_error = None
         self.official_failures = 0
+        self.observation_failures = 0
+        self.last_observed_health = None
         self.stop = asyncio.Event()
+
+    def observe(self):
+        """Never present an old healthy snapshot as a current observation."""
+        try:
+            health = self.snapshot()
+        except Exception:
+            self.observation_failures += 1
+            LOG.error('collection_health snapshot_unavailable')
+            health = self._unavailable_snapshot()
+        else:
+            self.observation_failures = 0
+            self.last_observed_health = health
+            health['observation_state'] = 'observed'
+        health['observation_failures'] = self.observation_failures
+        health['observer'] = {'source_id': 'system:collection-health-observer',
+            'name': '采集健康读取', 'alert_required': self.observation_failures >= 3 and not health['quiet']}
+        return health
+
+    def _unavailable_snapshot(self):
+        at = self.clock()
+        previous = self.last_observed_health or {}
+        sources = []
+        for row in previous.get('sources', []):
+            sources.append({'source_id': row['source_id'], 'chat_id': row.get('chat_id'),
+                'name': row.get('name'), 'enabled': row.get('enabled'),
+                'collection_state': 'unknown', 'last_known_collection_state': row.get('collection_state'),
+                'last_known_checked_at': previous.get('checked_at'),
+                'last_scan_at': row.get('last_scan_at'),
+                'last_successful_scan_at': row.get('last_successful_scan_at'),
+                'last_notification_at': row.get('last_notification_at'),
+                'consecutive_failures': None, 'latest_error': 'health_snapshot_unavailable',
+                'latest_error_stage': 'observation', 'pending_analysis': None,
+                'analysis_errors': None, 'pending_sync': None, 'sync_state': 'unknown',
+                'alert_required': False})
+        health = {'checked_at': at.isoformat(), 'quiet': at.astimezone(SHANGHAI).hour < 6,
+            'observation_state': 'observation_failed', 'last_successful_observation_at': previous.get('checked_at'),
+            'sources': sources, 'pending_analysis': None, 'analysis_errors': None,
+            'pending_staging_messages': None, 'collection_failed': None,
+            'frontend_visibility': 'unverified',
+            'sync': {'state': 'unknown', 'pending_records': None, 'latest_error': 'health_snapshot_unavailable'}}
+        if self.official is not None:
+            if not self.official.runtime.automatic_sync_allowed:
+                # The cloud observer is independent of the local SQLite read.
+                try:
+                    health['official'] = self._official_observation()
+                except Exception:
+                    health['official'] = {'owner': 'cloud', 'state': 'observation_failed', 'sources': []}
+            else:
+                health['official'] = {'owner': 'local', 'state': 'observation_failed', 'sources': []}
+        return health
 
     def snapshot(self):
         health = wechat_health(self.personal, self.wechat.document, self.clock())
@@ -246,6 +298,8 @@ class CollectionHealthMonitor:
         due = []
         official = health.get('official') or {}
         rows = [*health['sources'], *official.get('sources', [])]
+        if health.get('observer'):
+            rows.append(health['observer'])
         if official.get('observer'):
             rows.append(official['observer'])
         for row in rows:
@@ -290,7 +344,7 @@ class CollectionHealthMonitor:
     async def _run(self):
         while not self.stop.is_set():
             try:
-                self.latest = await asyncio.to_thread(self.snapshot)
+                self.latest = await asyncio.to_thread(self.observe)
                 await asyncio.to_thread(self.deliver, self.latest)
                 if self.official is not None and not self.official.runtime.automatic_sync_allowed:
                     elapsed = (self.clock() - self.official_last_attempt).total_seconds() if self.official_last_attempt else None
