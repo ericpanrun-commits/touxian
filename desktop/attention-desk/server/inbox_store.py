@@ -248,6 +248,32 @@ class InboxStore:
             elif c.execute('''SELECT 1 FROM wechat_candidate ca JOIN wechat_batch b ON b.id=ca.batch_id
                 WHERE b.snapshot_id=? AND ca.status='needs_review' LIMIT 1''', (sid,)).fetchone():
                 status = 'needs_review'
+            elif r['review_status'] == 'pending':
+                # The WeChat queue owns its execution state. A saved batch may
+                # not have an extraction yet, and generic startup recovery may
+                # mark an unstarted extraction interrupted. Neither is a
+                # completed analysis or proof of a failed model request.
+                work = c.execute('''SELECT b.status AS batch_status,j.status AS job_status,j.error_code,
+                    (SELECT COUNT(*) FROM wechat_llm_attempt a WHERE a.job_id=j.id) AS attempts,
+                    EXISTS(SELECT 1 FROM wechat_llm_attempt a WHERE a.job_id=j.id AND
+                        (a.outcome_unknown=1 OR a.status IN ('outcome_unknown','timeout','connection_error','storage_or_response_error'))) AS unknown
+                    FROM wechat_batch b JOIN raw_review rr ON rr.raw_snapshot_id=b.snapshot_id
+                    LEFT JOIN wechat_analysis_job j ON j.batch_id=b.id AND j.extraction_id=rr.extraction_id
+                    WHERE b.snapshot_id=? AND b.superseded_by IS NULL LIMIT 1''', (sid,)).fetchone()
+                if work:
+                    job, batch = work['job_status'], work['batch_status']
+                    if job == 'outcome_unknown' or (work['unknown'] and job in {'pending','retry','budget_deferred'}):
+                        status, stage, error = 'recovery_needed', 'analysis_result_unknown', {
+                            'code': 'outcome_unknown', 'message': '微信分析结果尚未确认；原文保留，请先核对记录。', 'retryable': False}
+                    elif job == 'running':
+                        status, stage, error = 'analyzing', 'analysis', None
+                    elif job in {'pending','retry','budget_deferred'} or (job is None and batch in {'pending','waiting_context'}):
+                        status = 'needs_review' if any(a['needs_review'] for a in attachments) else 'received'
+                        stage = 'analysis_budget_deferred' if job == 'budget_deferred' else 'analysis_pending'
+                        if job == 'budget_deferred':
+                            error = {'code': 'budget_deferred', 'message': '微信分析等待预算；原文已保存。', 'retryable': False}
+                        elif job == 'pending' and not work['attempts'] and isinstance(error, dict) and error.get('code') == 'interrupted':
+                            error = None
         course = c.execute('SELECT id,name FROM course WHERE id=?', (r['inbox_course_id'],)).fetchone()
         if kind in {'image', 'pdf'}:
             card = InboxStore.project_snapshot({'input_kind': kind, 'original_text': r.get('original_text') or ''}, vision, human_text, ROW_PREVIEW_LIMIT)

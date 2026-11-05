@@ -27,8 +27,12 @@ class ExtractionService:
     def recover_interrupted(self):
         self.long.recover()
         with self.personal.connection(write=True) as connection:
-            connection.execute("UPDATE ai_extraction SET status='failed',analysis_state='failed',completed_at=?,error_json=? WHERE status IN ('running','waiting')",
-                               (now(), encode({"code": "interrupted", "message": "上次分析因应用退出而中断。原文保留，请主动重新分析或手动整理。"})))
+            connection.execute("""UPDATE ai_extraction SET status='failed',analysis_state='failed',completed_at=?,error_json=?
+                WHERE status IN ('running','waiting') AND NOT (status='waiting' AND EXISTS (
+                    SELECT 1 FROM wechat_analysis_job j WHERE j.extraction_id=ai_extraction.id
+                      AND j.status IN ('pending','retry','budget_deferred')
+                      AND NOT EXISTS (SELECT 1 FROM wechat_llm_attempt a WHERE a.job_id=j.id)
+                ))""", (now(), encode({"code": "interrupted", "message": "上次分析因应用退出而中断。原文保留，请主动重新分析或手动整理。"})))
 
     async def close(self):
         tasks = list(self.tasks.values())
