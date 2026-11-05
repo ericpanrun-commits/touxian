@@ -213,6 +213,16 @@ def reclassify_saved(personal,context):
         for row in rows:
             state=c.execute('SELECT * FROM wechat_attention_state WHERE candidate_id=?',(row['id'],)).fetchone()
             original=json.loads(state['original_data_json'] if state else row['data_json'])
+            if (state is None and row['model_item_id']=='_pending' and row['status']=='unresolved'
+                    and original.get('analysis_origin')=='local_pending'):
+                # A standalone placeholder with no queued analysis or extraction
+                # is not an analysed candidate.  Preserve its review state until
+                # the ordinary intake/analysis flow actually processes it.
+                job=c.execute('SELECT 1 FROM wechat_analysis_job WHERE batch_id=? LIMIT 1',(row['batch_id'],)).fetchone()
+                other=c.execute("SELECT 1 FROM wechat_candidate WHERE batch_id=? AND model_item_id!='_pending' LIMIT 1",(row['batch_id'],)).fetchone()
+                review=c.execute('SELECT extraction_id FROM raw_review WHERE raw_snapshot_id=?',(row['snapshot_id'],)).fetchone()
+                if not job and not other and review and review['extraction_id'] is None:
+                    continue
             signature=hashlib.sha256(encode([VERSION,original,context]).encode()).hexdigest()
             if state and state['policy_version']==VERSION and state['input_hash']==signature: continue
             snapshot=snapshot_with_metadata(c,c.execute('SELECT * FROM raw_snapshot WHERE id=?',(row['snapshot_id'],)).fetchone())
