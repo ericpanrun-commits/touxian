@@ -94,9 +94,7 @@ def run_once(runtime, database, *, bark_config=None, client=None, client_factory
         summary['status']='ok' if healthy and not summary['failed'] else 'partial' if healthy else 'failed'
         summary['elapsed_seconds']=round(time.monotonic()-started,2)
         with database.connection() as db:
-            # Retain identities and dedup forever; only detailed operation logs expire.
-            db.execute("DELETE FROM zqu_worker.crawl_runs WHERE started_at<clock_timestamp()-interval '30 days'")
-            db.execute("DELETE FROM zqu_worker.worker_runs WHERE started_at<clock_timestamp()-interval '30 days' AND id<>%s",(run_id,))
+            # Retain source and worker journals for diagnosis and recovery.
             if runtime.dry_run and summary['succeeded']>0 and summary['would_send']<=10 and not dispatcher.last_cycle_error:
                 db.execute('UPDATE zqu_worker.meta SET first_dry_run_verified=true WHERE id=1')
             db.execute('UPDATE zqu_worker.worker_runs SET finished_at=clock_timestamp(),status=%s,summary=%s,elapsed_seconds=%s WHERE id=%s',

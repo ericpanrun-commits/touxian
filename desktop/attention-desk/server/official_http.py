@@ -97,7 +97,7 @@ class PublicHTMLClient:
                         raise SourceFailure('access_denied', '公开页面拒绝访问或需要认证，已跳过。', status='unreachable')
                     if response.status_code != 200:
                         temporary = response.status_code >= 500 or response.status_code == 429
-                        raise SourceFailure('temporary_http' if temporary else 'http_error', f'HTTP {response.status_code}，原有通知保留。', status='unreachable' if temporary else 'error')
+                        raise SourceFailure('temporary_http' if temporary else 'http_error', f'HTTP {response.status_code}，原有通知保留。', status='unreachable' if temporary else 'error', http_status=response.status_code)
                     size = response.headers.get('content-length', '')
                     if size.isdigit() and int(size) > 2_000_000:
                         raise SourceFailure('response_too_large', '页面超过 2 MB 限制，已跳过。')

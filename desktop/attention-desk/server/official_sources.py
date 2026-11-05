@@ -12,9 +12,16 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 
 class SourceFailure(Exception):
-    def __init__(self, code: str, message: str, *, status='error'):
+    def __init__(self, code: str, message: str, *, status='error', http_status=None):
         super().__init__(message)
-        self.code, self.status = code, status
+        self.code, self.status, self.http_status = code, status, http_status
+
+
+def historical_only_failure(error, counts):
+    """Keep a saved, unlisted dead link visible without delaying new list scans."""
+    historic = counts.get('historical_unavailable', 0)
+    return bool(error and error.code == 'historical_unavailable' and historic > 0
+                and counts.get('failed') == historic)
 
 
 def canonical_url(url: str, allowed_hosts: list[str]) -> str:
