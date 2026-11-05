@@ -2,11 +2,14 @@
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 import json
+from types import SimpleNamespace
 
 import httpx
 import pytest
 
 from server.actions.store import PostgresOfficialStore
+from server.actions.runtime import ActionsRuntime
+from server.actions import worker
 from server.official_http import PublicHTMLClient
 from server.official_service import OfficialSourceMonitor
 from server.official_sources import SourceFailure
@@ -129,3 +132,38 @@ def test_cloud_store_keeps_partial_status_but_does_not_back_off_historical_only(
     assert timedelta(minutes=59) < db.next_checks[-1] - datetime.now(timezone.utc) < timedelta(hours=2)
     PostgresOfficialStore(db).finish('fixture', counts, SourceFailure('http_error', 'current 404'))
     assert db.next_checks[-1] - datetime.now(timezone.utc) > timedelta(days=1)
+
+
+def test_existing_worker_does_not_prune_historical_run_journals(monkeypatch):
+    class Database:
+        def __init__(self): self.statements = []
+        @contextmanager
+        def connection(self): yield self
+        def execute(self, sql, params=()): self.statements.append(sql)
+    class Store:
+        def __init__(self, db): pass
+        def meta(self): return {'schema_version': 1, 'database_id': 'fixture'}
+        def acquire_lease(self, *args): return True
+        def release_lease(self, *args): pass
+        def source_rows(self): return []
+    class Monitor:
+        def __init__(self, *args, **kwargs):
+            self.configuration_error = ''
+            self.configured = set()
+            self.stop_event = SimpleNamespace(set=lambda: None)
+        def close(self): pass
+    class Timer:
+        def __init__(self, *args): self.daemon = False
+        def start(self): pass
+        def cancel(self): pass
+    monkeypatch.setattr(worker, 'PostgresOfficialStore', Store)
+    monkeypatch.setattr(worker, 'PostgresNotificationStore', lambda *args: SimpleNamespace(counters={}))
+    monkeypatch.setattr(worker, 'OfficialSourceMonitor', Monitor)
+    monkeypatch.setattr(worker, 'NotificationDispatcher', lambda *args, **kwargs: SimpleNamespace(last_cycle_error=False, tick=lambda **kw: None))
+    monkeypatch.setattr(worker.threading, 'Timer', Timer)
+    runtime = ActionsRuntime(environment='production', auto_sync=True, execution_verified=True,
+                             dry_run=True, expected_database_id='fixture')
+    database = Database()
+    assert worker.run_once(runtime, database, bark_config=object())['status'] == 'ok'
+    assert any('UPDATE zqu_worker.worker_runs' in sql for sql in database.statements)
+    assert not any('DELETE FROM zqu_worker.crawl_runs' in sql or 'DELETE FROM zqu_worker.worker_runs' in sql for sql in database.statements)
