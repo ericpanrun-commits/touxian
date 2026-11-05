@@ -5,17 +5,27 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "npm run build:desktop && npm run build:web",
+    "build:desktop": "vite build",
+    "build:web": "vite build --config vite.cloud.config.js",
+    "dev:web": "vite --config vite.cloud.config.js",
     "preview": "vite preview",
     "test:frontend": "node --test tests/*.test.mjs",
-    "test:browser": "node tests/bark-browser.mjs"
+    "test:web": "node tests/cloud-workbench-browser.mjs",
+    "test:browser": "node tests/desk-browser.mjs",
+    "test:browser:wechat-groups": "node tests/wechat-groups-browser.mjs",
+    "test:browser:official-bark": "node tests/bark-browser.mjs"
   },
   "dependencies": {
+    "@noble/hashes": "2.4.0",
+    "@supabase/supabase-js": "2.99.1",
     "@vitejs/plugin-react": "^5.2.0",
+    "dexie": "4.4.5",
     "lucide-react": "^0.468.0",
+    "pdfjs-dist": "6.4.299",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "vite": "^6.0.0"
+    "vite": "6.4.5"
   },
   "devDependencies": {
     "playwright": "^1.62.1"

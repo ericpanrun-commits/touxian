@@ -18,7 +18,17 @@ export function useDraft(initial) {
   const [errors, setErrors] = useState({});
   const formRef = useRef(null);
   const field = (name, value) => { setValues(current => ({ ...current, [name]: value })); setErrors(current => ({ ...current, [name]: undefined })); };
-  const validate = (next) => { setErrors(next); const first = Object.keys(next)[0]; if (first) formRef.current?.elements.namedItem(first)?.focus(); return !first; };
+  const validate = (next) => {
+    setErrors(next);
+    const first = Object.keys(next)[0];
+    if (first) {
+      const control = formRef.current?.elements.namedItem(first);
+      let disclosure = control?.closest?.('details');
+      while (disclosure) { disclosure.open = true; disclosure = disclosure.parentElement?.closest('details'); }
+      control?.focus();
+    }
+    return !first;
+  };
   const clearError = name => setErrors(current => ({ ...current, [name]: undefined }));
   return { values, setValues, errors, formRef, field, validate, clearError };
 }

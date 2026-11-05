@@ -5,6 +5,8 @@ import { Field, SubmitButton } from './Forms';
 import { ConfirmDialog } from './Evidence';
 import { preventImeSubmit, useDraft } from './formHelpers';
 import { expiryLabel, qrImagePath, remainingSeconds } from './collectorPairing';
+import usePersonalResource from './usePersonalResource';
+import DeskSheet from './DeskSheet';
 
 export default function MobileCollectorSettings({ onDirtyChange, onBusyChange, onBack }) {
   const draft = useDraft({ interface_id: '', port: '8473' });
@@ -13,6 +15,7 @@ export default function MobileCollectorSettings({ onDirtyChange, onBusyChange, o
   const [error, setError] = useState('');
   const [mutationError, setMutationError] = useState('');
   const [dialog, setDialog] = useState(null);
+  const [devicesOpen,setDevicesOpen] = useState(false);
   const [reload, setReload] = useState(0);
   const [loaded, setLoaded] = useState(false);
   const [now, setNow] = useState(() => performance.now());
@@ -70,9 +73,11 @@ export default function MobileCollectorSettings({ onDirtyChange, onBusyChange, o
   const showQr = remaining > 0 && imagePath && qrFailed !== imagePath && !error;
   return <section className="personal-section collector-settings">
     <div className="personal-section-heading"><h1 ref={heading} tabIndex={-1}>手机收集</h1><button type="button" className="button button-quiet" disabled={busy} onClick={onBack}>返回我的事项</button></div>
-    <p className="personal-meta">电脑和 iPhone 连接同一 Wi-Fi 后启用。接收的通知会进入现有待确认列表，核对后才创建事项。</p>
+    <p className="personal-meta">课堂笔记使用云端分享，电脑上线后自动取回。其他手机通知可继续使用局域网入口。</p>
     {!loaded ? <p role="status">正在检测可用物理网络…</p> : null}
     {error || mutationError ? <div className="personal-analysis-error" role="alert"><p>{mutationError || error}</p><button type="button" className="button button-quiet" disabled={busy} onClick={() => { setMutationError(''); setReload(value => value + 1); }}><RefreshCw size={16} />重新检测</button></div> : null}
+    {status?.anywhere ? <section className="personal-section"><h2>随处分享课堂笔记</h2><p role="status">{status.anywhere.message}</p><p>学校、外出或电脑关机时，云端先私密保存；电脑上线后继续整理。</p><div className="personal-form-actions"><button type="button" className="button button-primary" disabled={busy || !status.anywhere.configured || !status.enabled} onClick={()=>mutate('anywhere/setup')}>{busy ? '正在准备…' : '配置笔记分享'}</button><button type="button" className="button button-quiet" disabled={busy || !status.anywhere.configured} onClick={()=>setDevicesOpen(true)}>笔记分享设备</button></div>{!status.enabled && status.anywhere.configured ? <p className="personal-meta">首次配置页暂不可用。分享捷径配置好后，不需要电脑保持在线或连接同一 Wi-Fi。</p> : null}{status.anywhere_setup_id ? <div className="collector-qr"><p>配置码15分钟内有效。手机扫码后复制“笔记连接”，安装捷径时粘贴一次。</p><img width="264" height="264" src={`/api/personal/collector/anywhere/qr?setup_id=${encodeURIComponent(status.anywhere_setup_id)}`} alt="仅供自己手机使用的云端笔记分享配置码"/></div> : null}</section> : null}
+    <details className="desk-disclosure personal-section"><summary>局域网备用入口</summary>
     {status ? <div className="collector-layout"><div>
       <p className="collector-status" role="status"><Smartphone size={18} /><strong>{status.enabled ? '正在接收手机通知' : '手机收集已关闭'}</strong></p>
       <p className="personal-meta">{status.message}</p>
@@ -81,7 +86,7 @@ export default function MobileCollectorSettings({ onDirtyChange, onBusyChange, o
           <Field name="interface_id" label="共同连接的网络" error={draft.errors.interface_id} help="启用时重新检测 LAN 地址；只保存接口选择，不保存 IP。"><select value={draft.values.interface_id} onChange={event => draft.field('interface_id', event.target.value)}><option value="">{status.interfaces.length ? '选择物理网络' : '未找到可用物理网络'}</option>{status.interfaces.map(item => <option key={item.id} value={item.id}>{item.name} · {item.address} · {item.profile}</option>)}</select></Field>
           <Field name="port" label="收集端口" error={draft.errors.port}><input inputMode="numeric" value={draft.values.port} onChange={event => draft.field('port', event.target.value)} /></Field>
         </fieldset>
-        {!status.enabled ? <><p className="personal-meta">{selected?.profile === 'Public' ? '当前网络为 Public。请在可信的共同 Wi-Fi 环境下手动检查 Private network，再启用。' : selected?.profile !== 'Private' ? '仅允许在已确认的 Private network 上启用。' : '已检测到 Private network。启用后若手机无法访问，请手动检查该网络的入站权限。'}</p><div className="personal-form-actions"><SubmitButton busy={busy}>启用手机收集</SubmitButton><button type="button" className="button button-quiet" disabled={busy} onClick={() => { initialized.current = false; setReload(value => value + 1); }}><RefreshCw size={16} />重新检测</button></div></> : <div className="personal-form-actions"><button type="button" className="button button-quiet" disabled={busy} onClick={() => mutate('stop')}><Square size={16} />停止手机收集</button></div>}
+        {!status.enabled ? <><p className="personal-meta">{selected?.profile === 'Public' ? '当前网络为 Public。请在可信的共同 Wi-Fi 环境下手动检查 Private network，再启用。' : selected?.profile !== 'Private' ? '仅允许在已确认的 Private network 上启用。' : '已检测到 Private network。启用后若手机无法访问，请手动检查该网络的入站权限。'}</p><div className="personal-form-actions"><SubmitButton busy={busy}>启用手机收集</SubmitButton><button type="button" className="button button-quiet" disabled={busy} onClick={() => { initialized.current = false; setReload(value => value + 1); }}><RefreshCw size={16} />重新检测</button></div></> : <div className="personal-form-actions"><button type="button" className="button button-quiet" disabled={busy} onClick={() => mutate('stop')}><Square size={16} />停止局域网收集</button></div>}
       </form>
       <div className="collector-network-note"><h2>连接检查</h2><p className="personal-meta">网络信息来自 Windows 当前物理网卡。</p><p className="personal-meta">Private 防火墙：{status.firewall?.private_enabled === false ? '关闭' : status.firewall?.private_enabled === true ? '已启用' : '尚未确认'}；当前端口入站允许规则：{status.firewall?.matching_private_allow ? '检测到' : '未确认'}。这里只读取状态，不会修改网络类型或防火墙。</p><p className="personal-meta">若需手动放行，请仅在可信的 Private network 中允许此 Python 程序或所选 TCP 端口，并限定本地子网。Public network 不应开放此入口。网络地址或类型变化时，入口自动停止；重新启用会检测新地址。准备扫码时再生成二维码。</p></div>
     </div><div className="collector-pairing">
@@ -90,6 +95,24 @@ export default function MobileCollectorSettings({ onDirtyChange, onBusyChange, o
       {status.enabled ? <><p className="personal-meta">LAN：{status.address} · 端口：{status.port}</p><p className="personal-meta">已配对 {status.paired_devices} 台 · {remaining > 0 ? '二维码五分钟内有效；手机确认后才使用一次' : '当前没有可用配对二维码'}</p>{showQr ? <div className="personal-meta collector-qr-time"><p>二维码生成时间：<time dateTime={status.pairing.created_at}>{new Date(status.pairing.created_at).toLocaleTimeString('zh-CN', { hour12: false })}</time></p><p>有效期剩余：<span>{expiryLabel(remaining)}</span></p></div> : null}{!status.diagnostics_ok ? <p role="alert" className="personal-analysis-error">配对诊断暂未保存，请检查本地数据目录的写入权限。</p> : null}<p className="personal-meta">已批准的手机会话最长七天。重新生成二维码保留已配对设备；停止收集、电脑重启或网络变化时需重新配对。</p><div className="personal-form-actions"><button type="button" className="button button-quiet" disabled={busy} onClick={() => remaining <= 0 ? mutate('regenerate') : setDialog({ title: '生成新配对二维码？', message: '旧二维码将失效，已配对的手机继续有效。电脑已保存的通知及正在处理的内容仍保留。', confirmLabel: '重新生成', action: () => mutate('regenerate') })}><RefreshCw size={16} />生成新二维码</button><button type="button" className="button button-quiet" disabled={busy || !status.paired_devices} onClick={() => setDialog({ title: '撤销已配对设备？', message: '所有已配对手机和未使用二维码立即失效。需要使用时再生成二维码。再次使用需重新扫码并确认配对。电脑已保存的内容和正在处理的任务仍保留。', confirmLabel: '撤销已配对设备', action: () => mutate('revoke-devices') })}>撤销已配对设备</button></div></> : null}
       <p className="personal-meta">配对后，手机只能提交内容并查看本次接收状态。手机不提供事项修改、删除、提取设置或原文件下载。</p>
     </div></div> : null}
+    {status?.enabled ? <details className="desk-disclosure personal-section"><summary>Apple Notes 分享</summary><p>在手机配置“Eric OS 课堂笔记”捷径后，从备忘录分享即可直接接收原件，继续自动关联和复盘。</p><p className="personal-meta">{status.notes_auto_enabled ? '已记住90天笔记专用连接；工作台只在之前选择的私人Wi-Fi自动接收。关闭收集或更换网络即停止。' : '当前为临时连接，最长七天；停止、电脑重启或网络变化后失效。'}</p><button type="button" className="button button-quiet" disabled={busy} onClick={() => status.notes_shortcut_ready ? setDialog({ title:'重新配置笔记分享？', message:'现有笔记分享连接将失效。其他已保存内容保留；新配置码只给自己的手机使用。', confirmLabel:'生成新连接',action:()=>mutate('notes-setup') }) : mutate('notes-setup')}>{status.notes_shortcut_ready ? '重新配置局域网备用捷径' : '配置局域网备用捷径'}</button>{status.notes_setup_id ? <div className="collector-qr"><img width="264" height="264" src={`/api/personal/collector/notes-qr?setup_id=${encodeURIComponent(status.notes_setup_id)}`} alt="仅供自己手机扫描的课堂笔记分享配置码" /></div> : null}</details> : null}
+    </details>
+    {devicesOpen ? <NoteShareDevices onClose={()=>setDevicesOpen(false)} onBusyChange={onBusyChange}/> : null}
     {dialog ? <ConfirmDialog {...dialog} onCancel={() => setDialog(null)} onConfirm={() => { const action = dialog.action; setDialog(null); action(); }} /> : null}
   </section>;
+}
+
+function NoteShareDevices({onClose,onBusyChange}) {
+  const [busy,setBusy]=useState(false),[error,setError]=useState(''),[confirm,setConfirm]=useState(null);
+  const pending=useRef(false);
+  const resource=usePersonalResource('/collector/anywhere/devices',{paused:busy});
+  const revoke=async id=>{
+    if(pending.current)return;
+    pending.current=true;setBusy(true);onBusyChange(true);setError('');
+    try {await personalRequest('/collector/anywhere/revoke',{method:'POST',body:{device_id:id}});resource.retry();}
+    catch(failure){setError(failure.message);}
+    finally{pending.current=false;setBusy(false);onBusyChange(false);}
+  };
+  const devices=(resource.data?.devices || []).filter(device=>!device.revoked_at);
+  return <><DeskSheet title="笔记分享设备" onClose={onClose} busy={busy}><p>撤销后，该连接不能再上传。已接收的笔记继续保留并处理。</p>{resource.loading && !resource.data ? <p role="status">正在读取分享连接…</p> : null}{resource.error || error ? <div role="alert" className="personal-field-error">{error || resource.error.message}<button type="button" className="personal-text-button" disabled={busy} onClick={resource.retry}>重新读取</button></div> : null}{resource.data && !devices.length ? <p>还没有可用的手机分享连接。</p> : null}<ul className="learning-history-list">{devices.map(device=><li key={device.id}><span><strong>{device.label || '笔记分享连接'}</strong><small>{new Date(device.created_at).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',hour12:false})} 创建</small></span><button type="button" className="button button-quiet" disabled={busy} onClick={()=>setConfirm(device)}>撤销连接</button></li>)}</ul></DeskSheet>{confirm ? <ConfirmDialog title="撤销笔记分享连接？" message="此连接将立即停止接收新笔记。已收到的文件保留，其他分享连接继续可用。" confirmLabel="撤销连接" onCancel={()=>setConfirm(null)} onConfirm={()=>{const id=confirm.id;setConfirm(null);revoke(id);}}/> : null}</>;
 }

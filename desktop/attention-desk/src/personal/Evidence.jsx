@@ -4,15 +4,15 @@ import { FileList, SourceBlockPicker, SourceImage, sourceLabel } from './Documen
 
 export function EvidenceLinks({ evidence, fieldPath, onView }) {
   const matches = evidence.filter((value) => value.field_path === fieldPath);
-  return matches.length ? <div className="personal-evidence-links">{matches.map((value, index) =>
+  return matches.length ? <details className="desk-disclosure desk-evidence-shortcut"><summary>原文依据</summary><div className="personal-evidence-links">{matches.map((value, index) =>
     <button type="button" className="personal-text-button" key={value.id} onClick={() => onView(value)} aria-controls="personal-original-notice">
       <FileText size={14} />查看依据{value.page ? ` · 第 ${value.page} 页` : value.section ? ` · ${value.section}` : matches.length > 1 ? ` ${index + 1}` : ''}
-    </button>)}</div> : <span className="personal-meta">未绑定原文依据</span>;
+    </button>)}</div></details> : null;
 }
 
-export function OriginalNotice({ snapshot, selectedEvidence, onClear, onParse, busy }) {
+export function OriginalNotice({ snapshot, selectedEvidence, onClear, onParse, busy, initialBlockId }) {
   const region = useRef(null);
-  const [viewBlock, setViewBlock] = useState(snapshot.blocks?.[0]?.block_id || '');
+  const [viewBlock, setViewBlock] = useState(initialBlockId || snapshot.blocks?.[0]?.block_id || '');
   useEffect(() => {
     if (selectedEvidence) {
       region.current?.scrollIntoView({ block: 'nearest', behavior: 'instant' });
@@ -30,15 +30,16 @@ export function OriginalNotice({ snapshot, selectedEvidence, onClear, onParse, b
   const web = snapshot.web;
   return <section id="personal-original-notice" ref={region} tabIndex={-1} className="personal-section personal-original" aria-label="原始通知与引用依据">
     <div className="personal-section-heading"><h2>原始通知</h2>{selectedEvidence ? <button type="button" className="personal-text-button" onClick={onClear}><X size={14} />清除高亮</button> : null}</div>
-    <p className="personal-meta">原文已保存，不可修改。{web ? ` 网站发布时间：${web.published_at || '未提供'}；原文第 ${web.version} 版。发布时间不等于截止日期。` : snapshot.source_time ? ` 原消息时间：${snapshot.source_time.replace('T', ' ')}（北京时间）` : ' 原消息时间未提供。'}</p>
+    <p className="personal-meta">原文已保存，不可修改。{snapshot.wechat ? ' 每条消息的来源和时间见下方。' : web ? ` 网站发布时间：${web.published_at || '未提供'}；原文第 ${web.version} 版。发布时间不等于截止日期。` : snapshot.source_time ? ` 原消息时间：${snapshot.source_time.replace('T', ' ')}（北京时间）` : ' 原消息时间未提供。'}</p>
     {web ? <p className="personal-meta"><a className="personal-text-button" href={web.canonical_url} target="_blank" rel="noopener noreferrer">打开官网原页</a> · 抓取于 {new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', dateStyle: 'medium', timeStyle: 'short' }).format(new Date(web.fetched_at))}（北京时间）</p> : null}
-    <FileList snapshot={snapshot} busy={busy} onParse={onParse} />
+    <FileList snapshot={snapshot} busy={busy} onParse={snapshot.wechat ? undefined : onParse} />
+    {snapshot.wechat ? <div className="personal-meta"><strong>来源：微信 · 原始消息</strong><ul>{snapshot.wechat.messages.filter((message, index, all) => all.findIndex(item => item.message_id === message.message_id) === index).map(message => <li key={message.message_id}>{message.chat_name} · {message.sender || '发送者未知'} · {message.source_time || '发送时间未知'} · 采集于 {new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', dateStyle: 'short', timeStyle: 'short' }).format(new Date(message.captured_at))}</li>)}</ul><p>OCR 与视觉识别属于派生文字，请对照图片核对。</p></div> : null}
     {snapshot.attachment_jobs?.[0]?.error?.length ? <div role="alert" className="personal-analysis-error"><strong>上次附件处理未完整完成</strong><ul>{snapshot.attachment_jobs[0].error.map((error, index) => <li key={index}>{error.message}</li>)}</ul><p className="personal-meta">已保存的原文件和已有引用仍保留。</p></div> : null}
     {!snapshot.blocks?.length && web?.images.length ? <p className="personal-meta">正文含 {web.images.length} 张图片，图片内容未识别，请解析原图或打开官网核对。</p> : null}
     {!snapshot.blocks?.length && web?.body_status === 'document_only' ? <p className="personal-meta">该页正文位于嵌入文件中，请下载并解析附件后核对。</p> : null}
     <SourceBlockPicker blocks={snapshot.blocks} value={selectedEvidence?.block_id || viewBlock} onChange={id => { onClear(); setViewBlock(id); }} />
     {block ? <p className="personal-source-badge">{sourceLabel(block)}</p> : null}
-    {block?.attachment_id && (block.page || block.source_type === 'image_ocr') ? <SourceImage source={{ ...block, bounding_box: selectedEvidence?.bounding_box || quoteBox || block.bounding_box }} /> : null}
+    {block?.attachment_id && (block.page || ['image_ocr', 'image_vision'].includes(block.source_type)) ? <SourceImage source={{ ...block, bounding_box: selectedEvidence?.bounding_box || quoteBox || block.bounding_box }} /> : null}
     {selectedEvidence ? <blockquote className="personal-quote" aria-label="当前依据引用">{selectedEvidence.quote}</blockquote> : null}
     <pre className="personal-original-text">{selectedEvidence ? <>
       {text.slice(0, selectedEvidence.start_offset).join('')}<mark>{text.slice(selectedEvidence.start_offset, selectedEvidence.end_offset).join('')}</mark>{text.slice(selectedEvidence.end_offset).join('')}
@@ -46,7 +47,7 @@ export function OriginalNotice({ snapshot, selectedEvidence, onClear, onParse, b
   </section>;
 }
 
-export function ConfirmDialog({ title, message, confirmLabel, onConfirm, onCancel }) {
+export function ConfirmDialog({ title, message, confirmLabel, onConfirm, onCancel, busy = false }) {
   const dialog = useRef(null);
   const id = useId();
   useEffect(() => {
@@ -58,8 +59,8 @@ export function ConfirmDialog({ title, message, confirmLabel, onConfirm, onCance
       if (opener?.isConnected) opener.focus();
     };
   }, []);
-  return <dialog ref={dialog} className="personal-confirm-dialog" aria-labelledby={`${id}-title`} aria-describedby={`${id}-message`} onCancel={(event) => { event.preventDefault(); onCancel(); }}>
+  return <dialog ref={dialog} className="personal-confirm-dialog" aria-labelledby={`${id}-title`} aria-describedby={`${id}-message`} onCancel={(event) => { event.preventDefault(); if (!busy) onCancel(); }}>
     <h2 id={`${id}-title`}>{title}</h2><p id={`${id}-message`}>{message}</p>
-    <div className="personal-form-actions"><button type="button" className="button button-quiet" onClick={onCancel}>继续当前操作</button><button type="button" className="button button-primary" onClick={onConfirm}>{confirmLabel}</button></div>
+    <div className="personal-form-actions"><button type="button" className="button button-quiet" disabled={busy} onClick={onCancel}>继续当前操作</button><button type="button" className="button button-primary" disabled={busy} aria-busy={busy} onClick={onConfirm}>{confirmLabel}</button></div>
   </dialog>;
 }

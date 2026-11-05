@@ -1,0 +1,7 @@
+/sw.js
+  Cache-Control: no-store, max-age=0
+  Service-Worker-Allowed: /
+/
+  Cache-Control: no-cache
+/index.html
+  Cache-Control: no-cache
