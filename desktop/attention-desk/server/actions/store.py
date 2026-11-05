@@ -110,17 +110,9 @@ class PostgresOfficialStore:
             discovered=self._find(db,original_url)
             existing=db.execute('SELECT * FROM zqu_worker.items WHERE canonical_url=%s',(canonical,)).fetchone()
             if existing and discovered and existing['id']!=discovered['id']:
-                has_history=db.execute('SELECT 1 FROM zqu_worker.notification_events WHERE item_id=%s LIMIT 1',(discovered['id'],)).fetchone()
-                if discovered['content_hash'] or has_history:
-                    raise SourceFailure('canonical_conflict','两个已保存原文现在指向同一地址，保留历史。')
-                for ref in db.execute('SELECT source_id FROM zqu_worker.source_refs WHERE item_id=%s',(discovered['id'],)).fetchall():
-                    self._associate(db,existing['id'],ref['source_id'])
-                db.execute('UPDATE zqu_worker.aliases SET item_id=%s WHERE item_id=%s',(existing['id'],discovered['id']))
-                # Only a new unprojected placeholder can be merged. References were
-                # copied above; no cascading FK can erase historical state.
-                db.execute('DELETE FROM zqu_worker.source_refs WHERE item_id=%s',(discovered['id'],))
-                db.execute("DELETE FROM zqu_worker.items WHERE id=%s AND content_hash='' AND NOT EXISTS (SELECT 1 FROM zqu_worker.notification_events WHERE item_id=%s)",
-                    (discovered['id'],discovered['id']))
+                # A redirect can join two saved identities, including an empty
+                # placeholder. Keep both and report the conflict for review.
+                raise SourceFailure('canonical_conflict','两个已保存的通知地址现在指向同一地址，原记录保留。')
             prior=existing or discovered
             if not prior:
                 raise ValueError('必须先保存列表 identity，再保存原文。')

@@ -167,3 +167,27 @@ def test_existing_worker_does_not_prune_historical_run_journals(monkeypatch):
     assert worker.run_once(runtime, database, bark_config=object())['status'] == 'ok'
     assert any('UPDATE zqu_worker.worker_runs' in sql for sql in database.statements)
     assert not any('DELETE FROM zqu_worker.crawl_runs' in sql or 'DELETE FROM zqu_worker.worker_runs' in sql for sql in database.statements)
+
+
+@pytest.mark.parametrize('content_hash', ['', 'saved-original'])
+def test_cloud_redirect_identity_conflict_preserves_both_records(content_hash):
+    class Cursor:
+        def __init__(self, row): self.row = row
+        def fetchone(self): return self.row
+    class Database:
+        def __init__(self): self.statements = []
+        @contextmanager
+        def connection(self): yield self
+        def execute(self, sql, params=()):
+            self.statements.append(sql)
+            if sql.startswith('SELECT i.*'): return Cursor({'id': 'discovered', 'content_hash': content_hash})
+            if sql.startswith('SELECT * FROM zqu_worker.items'): return Cursor({'id': 'existing', 'content_hash': 'saved'})
+            raise AssertionError('identity conflict must not modify stored records')
+    database = Database()
+    article = {'original_text': '正文', 'title': '通知', 'published_at': TODAY,
+               'attachments': [], 'images': [], 'body_status': 'complete'}
+    with pytest.raises(SourceFailure) as failure:
+        PostgresOfficialStore(database).collect(source(), 'https://unit.zqu.edu.cn/old',
+            'https://unit.zqu.edu.cn/new', article, object())
+    assert failure.value.code == 'canonical_conflict'
+    assert len(database.statements) == 2
