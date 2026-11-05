@@ -1,5 +1,6 @@
 """A read-only recovery plan must include conditional vision, without any spend."""
 import asyncio
+import hashlib
 import json
 
 import pytest
@@ -8,6 +9,7 @@ from server.tests_wechat.test_pipeline import setup_service, scan
 from server.tests_wechat.test_media_pipeline import NOW, observe_images
 from server.wechat_collect.models import Observation, ObservedMessage
 from server.wechat_collect.recovery import backlog_plan
+from server.personal_store import encode
 
 
 def queued_image(personal, monkeypatch, *, vision=True):
@@ -40,6 +42,7 @@ def test_vision_then_text_requires_two_requests_and_later_budget_recheck(persona
     assert plan['paid_plan']['reserved_tokens'] is None
     assert plan['paid_plan']['known_initial_reserved_tokens']>0
     assert plan['paid_plan']['jobs_requiring_post_vision_budget_check']==1
+    assert plan['jobs'][0]['text_disclosure']['may_change_after_vision'] is True
     assert plan['paid_plan']['max_output_tokens']==2*plan['jobs'][0]['max_output_tokens']
     assert plan['jobs'][0]['request_plan']['vision_images']==1
     assert 'data:image' not in json.dumps(plan) and str(personal.path.parent) not in json.dumps(plan)
@@ -53,6 +56,7 @@ def test_explicitly_disabled_vision_stays_text_only_even_for_legacy_adapter(pers
     assert plan['paid_plan']['vision_requests']==0
     assert plan['paid_plan']['reserved_tokens']>0
     assert plan['paid_plan']['jobs_requiring_post_vision_budget_check']==0
+    assert plan['jobs'][0]['text_disclosure']['may_change_after_vision'] is False
     assert calls==[]
 
 
@@ -78,6 +82,51 @@ def test_historical_text_job_keeps_one_request_and_a_known_reservation(personal)
     assert plan['paid_plan']['vision_requests']==0
     assert plan['paid_plan']['reserved_tokens']==plan['jobs'][0]['reserved_tokens_if_requested']>0
     assert calls==[]
+
+
+def test_review_plan_and_actual_mock_request_use_the_same_captured_message_order(personal):
+    messages = (ObservedMessage('所有同学请提交完整的实验报告。'),
+                ObservedMessage('请同时提交课程登记材料。'))
+    service, _, calls = setup_service(personal, [Observation('test','unverified',messages,True,True)])
+    service.document.wechat.context_followup.enabled = False
+    asyncio.run(scan(service))
+    with personal.connection(write=True) as c:
+        batch = c.execute('SELECT id FROM wechat_batch').fetchone()[0]
+        ids = sorted(r[0] for r in c.execute("SELECT message_id FROM wechat_batch_message WHERE batch_id=? AND role='primary'", (batch,)))
+        assert len(ids) == 2
+        # Ensure chronological ordinal differs from the table's identity order.
+        for ordinal, message_id in enumerate(reversed(ids)):
+            c.execute('UPDATE wechat_batch_message SET ordinal=? WHERE batch_id=? AND message_id=?',
+                      (ordinal, batch, message_id))
+    job = service.analysis.enqueue(batch, service.context.read())
+    plan = backlog_plan(personal, at=service.clock())
+    expected = list(reversed(ids))
+    assert plan['jobs'][0]['primary_source_ids'] == expected
+    assert asyncio.run(service.analysis.run_one(job)) is True
+    payload = json.loads(calls[0]['messages'][-1]['content'].split('仅处理以下数据:\n', 1)[1])
+    assert payload['primary_message_ids'] == expected
+    assert plan['jobs'][0]['text_disclosure']['request_sha256'] == hashlib.sha256(encode(calls[0]).encode()).hexdigest()
+
+
+def test_disclosure_summary_marks_ocr_and_context_without_exporting_text(personal):
+    messages = (ObservedMessage('所有同学请提交完整的实验报告。',sender='测试姓名'),
+                ObservedMessage('联系人 test@example.test，详情 https://example.test。',sender='测试老师'))
+    service, _, calls = setup_service(personal, [Observation('test','unverified',messages,True,True)])
+    service.document.wechat.context_followup.enabled = False
+    asyncio.run(scan(service))
+    with personal.connection(write=True) as c:
+        batch = c.execute('SELECT id,snapshot_id FROM wechat_batch').fetchone()
+        c.execute("INSERT INTO raw_source_block(raw_snapshot_id,block_id,source_type,ordinal,text,needs_review) VALUES (?,'synthetic-ocr','image_ocr',999,'测试图片派生文字',1)",(batch['snapshot_id'],))
+    service.analysis.enqueue(batch['id'], service.context.read())
+    result = backlog_plan(personal, at=service.clock())
+    disclosure = result['jobs'][0]['text_disclosure']
+    assert disclosure['block_source_types']['image_ocr'] == 1
+    assert disclosure['sender_fields_nonempty'] == 2
+    assert disclosure['indicators']['email'] and disclosure['indicators']['url']
+    assert disclosure['indicators_are_lower_bounds'] and disclosure['requires_content_review']
+    serialized = json.dumps(result, ensure_ascii=False)
+    assert '测试姓名' not in serialized and 'test@example.test' not in serialized and 'https://example.test' not in serialized
+    assert calls == []
 
 
 @pytest.mark.parametrize('success_kind', ['vision', 'text'])

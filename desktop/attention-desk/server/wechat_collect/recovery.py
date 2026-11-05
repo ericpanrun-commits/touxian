@@ -7,13 +7,15 @@ from __future__ import annotations
 
 from collections import Counter
 from datetime import datetime, timedelta
+import hashlib
 import json
+import re
 
 from ..ai_settings import AIConfig
 from ..extraction_errors import ExtractionFailure
 from ..personal_store import encode
 from ..source_metadata import snapshot_with_metadata
-from .analysis import build_messages, validate_output
+from .analysis import build_text_request, primary_message_ids, validate_output
 from ..recovery_controls import paid_ai_paused
 
 
@@ -89,6 +91,26 @@ def request_plan(personal, batch, config, messages, *, allow_vision=False):
     return result
 
 
+def text_disclosure(batch, snapshot, context, body):
+    """Describe possible disclosure without saving messages or profile values."""
+    messages = snapshot['wechat']['messages']
+    blocks = snapshot['blocks']
+    text = '\n'.join(str(block.get('text') or '') for block in blocks)
+    patterns = {'phone': r'(?<!\d)(?:\+?86[ -]*)?1[3-9](?:[ -]*\d){9}(?!\d)',
+        'email': r'[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}',
+        'url': r'https?://[^\s<>]+', 'wechat_identifier': r'wxid_[A-Za-z0-9_]+'}
+    primary = set(batch['primary_ids'])
+    return {'request_sha256': hashlib.sha256(encode(body).encode()).hexdigest(),
+        'request_hash_scope': 'canonical_json_preview_not_authorization',
+        'message_types': dict(Counter(message.get('message_type') or 'unknown' for message in messages)),
+        'block_source_types': dict(Counter(block.get('source_type') or 'unknown' for block in blocks)),
+        'context_message_count': sum(message['message_id'] not in primary for message in messages),
+        'sender_fields_nonempty': sum(bool(message.get('sender')) for message in messages),
+        'user_context_fields_present': sorted(key for key, value in context.items() if value not in (None, '', [], {})),
+        'indicators': {key: bool(re.search(pattern, text, re.IGNORECASE)) for key, pattern in patterns.items()},
+        'indicators_are_lower_bounds': True, 'requires_content_review': True}
+
+
 def backlog_plan(personal, *, at, allow_vision=False):
     rows = []
     with personal.connection() as c:
@@ -101,7 +123,7 @@ def backlog_plan(personal, *, at, allow_vision=False):
             item['has_unknown_attempt'] = any(a['outcome_unknown'] or a['status'] in
                 {'running', 'outcome_unknown', 'timeout', 'connection_error', 'storage_or_response_error'} for a in attempts)
             item['hold'] = dispatch_hold(c, job, at)
-            item['primary_source_ids'] = [r[0] for r in c.execute("SELECT message_id FROM wechat_batch_message WHERE batch_id=? AND role='primary' ORDER BY ordinal", (job['batch_id'],))]
+            item['primary_source_ids'] = primary_message_ids(c, job['batch_id'])
             active = (job['enabled'] and not job['superseded_by'] and job['batch_status'] not in {'ignored','superseded','archived'}
                       and job['review_status'] == 'pending' and job['current_extraction'] == job['extraction_id'])
             if not active:
@@ -162,8 +184,12 @@ def backlog_plan(personal, *, at, allow_vision=False):
                     item['request_plan'] = None
                     item['reserved_tokens_if_requested'] = None
                 else:
-                    messages = build_messages(batch, snapshot, json.loads(job['profile_json']))
-                    item['request_plan']=request_plan(personal,batch,config,messages,allow_vision=allow_vision)
+                    context = json.loads(job['profile_json'])
+                    body = build_text_request(config, batch, snapshot, context)
+                    item['request_plan']=request_plan(personal,batch,config,body['messages'],allow_vision=allow_vision)
+                    if item['decision'] == 'paid_request_requires_approval':
+                        item['text_disclosure'] = text_disclosure(batch, snapshot, context, body)
+                        item['text_disclosure']['may_change_after_vision'] = item['request_plan']['post_vision_text_reservation_unknown']
                     # This is a reservation estimate, never a price or an authorization.
                     item['reserved_tokens_if_requested'] = (None if item['request_plan']['post_vision_text_reservation_unknown']
                         or item['request_plan']['vision_preflight_error'] else item['request_plan']['initial_reserved_tokens'])

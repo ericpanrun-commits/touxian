@@ -104,6 +104,13 @@ def resolve_range(phrase,source_time,unit):
     return None
 
 
+def primary_message_ids(connection, batch_id):
+    """Use the captured order in both request preparation and recovery plans."""
+    return [row[0] for row in connection.execute(
+        "SELECT message_id FROM wechat_batch_message WHERE batch_id=? AND role='primary' "
+        "ORDER BY ordinal,message_id,content_revision", (batch_id,))]
+
+
 def build_messages(batch, snapshot, context):
     metadata=snapshot['wechat']
     primary=set(batch['primary_ids'])
@@ -114,6 +121,13 @@ def build_messages(batch, snapshot, context):
              'source_warnings':metadata['warnings']}
     return [{'role':'system','content':SYSTEM},
             {'role':'user','content':'JSON schema:\n'+encode(WeChatOutput.model_json_schema())+'\n仅处理以下数据:\n'+encode(payload)}]
+
+
+def build_text_request(config, batch, snapshot, context):
+    """The local review and dispatch must describe the same request body."""
+    return {'model':config.model,'messages':build_messages(batch,snapshot,context),
+            'response_format':{'type':'json_object'},'max_tokens':config.max_output_tokens,
+            'thinking':{'type':'disabled'},'stream':False}
 
 
 def validate_output(raw, batch, snapshot, context, *, legacy=False):
@@ -410,13 +424,12 @@ class AnalysisQueue:
                 if job['next_attempt_at'] and job['status']!='budget_deferred' and self.clock()<datetime.fromisoformat(job['next_attempt_at']):
                     return False
                 batch=dict(c.execute('SELECT * FROM wechat_batch WHERE id=?',(job['batch_id'],)).fetchone())
-                batch['primary_ids']=[r[0] for r in c.execute("SELECT message_id FROM wechat_batch_message WHERE batch_id=? AND role='primary'",(batch['id'],))]
+                batch['primary_ids']=primary_message_ids(c,batch['id'])
                 snapshot=snapshot_with_metadata(c,c.execute('SELECT * FROM raw_snapshot WHERE id=?',(job['snapshot_id'],)).fetchone())
             from ..ai_settings import AIConfig
             config=AIConfig.model_validate(json.loads(job['config_json']))
             context=json.loads(job['profile_json'])
-            body={'model':config.model,'messages':build_messages(batch,snapshot,context),'response_format':{'type':'json_object'},
-                  'max_tokens':config.max_output_tokens,'thinking':{'type':'disabled'},'stream':False}
+            body=build_text_request(config,batch,snapshot,context)
             attempt_id=None
             response=None
             media=[]
@@ -535,7 +548,7 @@ class AnalysisQueue:
                     if (batch['superseded_by'] or batch['status'] in {'ignored','superseded','archived'}
                             or not review or review['status']!='pending' or review['extraction_id']!=job['extraction_id']):
                         continue
-                    batch['primary_ids']=[r[0] for r in c.execute("SELECT message_id FROM wechat_batch_message WHERE batch_id=? AND role='primary'",(batch['id'],))]
+                    batch['primary_ids']=primary_message_ids(c,batch['id'])
                     snapshot=snapshot_with_metadata(c,c.execute('SELECT * FROM raw_snapshot WHERE id=?',(job['snapshot_id'],)).fetchone())
                     attempts=c.execute('SELECT id FROM wechat_llm_attempt WHERE job_id=? ORDER BY attempt_number DESC',(job['id'],)).fetchall()
                     attempt=next((a for a in attempts if a['id']==saved.get('attempt_id')),None) if saved.get('attempt_id') else attempts[0] if len(attempts)==1 else None
@@ -572,7 +585,7 @@ class AnalysisQueue:
                     continue
                 job=dict(c.execute('SELECT * FROM wechat_analysis_job WHERE id=?',(attempt['job_id'],)).fetchone())
                 batch=dict(c.execute('SELECT * FROM wechat_batch WHERE id=?',(job['batch_id'],)).fetchone())
-                batch['primary_ids']=[row[0] for row in c.execute("SELECT message_id FROM wechat_batch_message WHERE batch_id=? AND role='primary'",(batch['id'],))]
+                batch['primary_ids']=primary_message_ids(c,batch['id'])
                 snapshot=snapshot_with_metadata(c,c.execute('SELECT * FROM raw_snapshot WHERE id=?',(job['snapshot_id'],)).fetchone())
             try:
                 parsed,warnings=validate_output(attempt['raw_output'] or '',batch,snapshot,json.loads(job['profile_json']),legacy=True)
