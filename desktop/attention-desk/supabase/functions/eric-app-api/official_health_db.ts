@@ -33,12 +33,17 @@ export const SOURCE_HEALTH_SQL = `
     s.state->>'last_checked_at' AS last_scan_at, s.state->>'last_success_at' AS last_success_at,
     s.state->>'failure_count' AS failure_count, s.state->>'error' AS error,
     s.state->>'last_new_count' AS last_new_count,
+    worker.last_cloud_run::text AS worker_last_run_at,
+    worker.next_expected_run::text AS worker_next_expected_at,
+    worker.last_run_status AS worker_last_status,
+    (SELECT expires_at::text FROM zqu_worker.leases WHERE name='actions' AND expires_at > clock_timestamp()) AS worker_active_until,
     COALESCE(t.item_count,0) AS item_count, t.last_notification_at,
     COALESCE(t.pending_content,0) AS pending_content,
     COALESCE(t.unmapped_raw_count,0) AS unmapped_raw_count,
     COALESCE(t.missing_original_count,0) AS missing_original_count,
     COALESCE(t.pending_projection_count,0) AS pending_projection_count
-  FROM zqu_worker.sources s LEFT JOIN totals t ON t.source_id=s.id ORDER BY s.id LIMIT 200`;
+  FROM zqu_worker.sources s LEFT JOIN totals t ON t.source_id=s.id
+    LEFT JOIN zqu_worker.cloud_status worker ON worker.id=1 ORDER BY s.id LIMIT 200`;
 
 async function clientFor(databaseUrl: string): Promise<any> {
   // Lazy import keeps the optional observation path out of every existing route.

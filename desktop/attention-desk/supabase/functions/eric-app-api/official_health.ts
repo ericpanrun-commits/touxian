@@ -44,7 +44,22 @@ export function officialHealth(rows: any[], at = new Date()): any {
   type CountKey = 'pending_content' | 'pending_sync' | 'missing_original_count' | 'unmapped_raw_count';
   const total = (key: CountKey): number | null => sources.some(row => row[key] === null) ? null :
     sources.reduce((n, row) => n + (row[key] ?? 0), 0);
+  const worker = rows[0] || {};
+  const lastRun = timestamp(worker.worker_last_run_at), nextRun = timestamp(worker.worker_next_expected_at);
+  const activeUntil = timestamp(worker.worker_active_until);
+  const lastMs = lastRun ? Date.parse(lastRun) : null, nextMs = nextRun ? Date.parse(nextRun) : null;
+  const remaining = activeUntil ? Date.parse(activeUntil) - instant : null;
+  const running = remaining !== null && remaining > 0 && remaining <= 1_200_000;
+  const validSchedule = lastMs !== null && nextMs !== null && lastMs <= instant + 300_000 &&
+    nextMs - lastMs >= 60_000 && nextMs - lastMs <= 21_600_000;
+  const scheduleState = running ? 'running' : !validSchedule ? 'unknown' :
+    instant >= nextMs! + 7_200_000 ? 'overdue' : 'on_schedule';
+  const collector = { source_id: 'official:collector-scheduler', name: '官网定时采集', owner: 'cloud',
+    state: scheduleState, last_run_at: lastRun, next_expected_at: nextRun, active_until: activeUntil,
+    last_run_status: ['ok','partial','failed'].includes(worker.worker_last_status) ? worker.worker_last_status : null,
+    overdue_grace_seconds: 7200, alert_required: scheduleState === 'overdue' };
   return { owner: 'cloud', state: 'observed', checked_at: at.toISOString(), sources,
+    collector,
     count_unit: 'source_item_associations',
     pending_content: total('pending_content'), pending_sync: total('pending_sync'),
     missing_original_count: total('missing_original_count'), unmapped_raw_count: total('unmapped_raw_count') };

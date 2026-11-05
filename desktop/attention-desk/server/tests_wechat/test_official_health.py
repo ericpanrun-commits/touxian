@@ -86,3 +86,44 @@ def test_malformed_cloud_source_is_not_installed_into_the_local_snapshot(persona
     assert health['official']['state'] == 'observation_failed'
     assert health['official']['sources'] == []
     assert len(health['sources']) == 1
+
+
+def test_overdue_cloud_collector_alert_is_deduplicated_and_stale_snapshot_is_unknown(personal):
+    async def request(*args):
+        return {'owner': 'cloud', 'state': 'observed', 'checked_at': NOW.isoformat(), 'sources': [],
+            'collector': {'source_id': 'official:collector-scheduler', 'name': '官网定时采集',
+                'state': 'overdue', 'alert_required': True, 'last_run_at': NOW.isoformat(),
+                'secret': 'NEVER_RETURN'}}
+    monitor, _, calls, at = environment(personal, request)
+    asyncio.run(monitor._refresh_official())
+    health = monitor.snapshot()
+    assert health['official']['collector']['state'] == 'overdue'
+    assert 'NEVER_RETURN' not in str(health)
+    health['quiet'] = True
+    monitor.deliver(health)
+    assert calls == []
+    health['quiet'] = False
+    monitor.deliver(health)
+    monitor.deliver(health)
+    assert len(calls) == 1
+    at[0] += timedelta(minutes=16)
+    stale = monitor.snapshot()['official']
+    assert stale['collector']['state'] == 'unknown'
+    assert stale['collector']['last_known_state'] == 'overdue'
+    assert stale['collector']['alert_required'] is False
+    assert stale['observer']['alert_required'] is True
+
+
+def test_invalid_collector_payload_keeps_last_observation_as_unknown(personal):
+    payload = {'owner': 'cloud', 'state': 'observed', 'checked_at': NOW.isoformat(), 'sources': [],
+        'collector': {'source_id': 'official:collector-scheduler', 'state': 'on_schedule', 'alert_required': False}}
+    async def request(*args): return payload
+    monitor, _, _, _ = environment(personal, request)
+    asyncio.run(monitor._refresh_official())
+    payload['collector'] = {'source_id': 'official:collector-scheduler', 'state': 'on_schedule', 'alert_required': True}
+    asyncio.run(monitor._refresh_official())
+    health = monitor.snapshot()['official']
+    assert health['state'] == 'observation_failed'
+    assert health['collector']['state'] == 'unknown'
+    assert health['collector']['last_known_state'] == 'on_schedule'
+    assert health['collector']['alert_required'] is False

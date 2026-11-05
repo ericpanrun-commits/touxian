@@ -71,6 +71,33 @@ test('Absent and malformed counts cannot claim zero or an idle scan',()=>{
   assert.equal(missingNew.collection_state,'healthy');
 });
 
+test('The collector schedule is independent of source health and respects a live run',()=>{
+  const row={...source,worker_last_run_at:'2026-11-03T23:00:00Z',worker_next_expected_at:'2026-11-04T00:00:00Z',worker_last_status:'partial'};
+  const late=officialHealth([row],NOW);
+  assert.equal(late.sources.length,1);
+  assert.equal(late.sources[0].collection_state,'healthy_idle');
+  assert.equal(late.collector.state,'overdue');
+  assert.equal(late.collector.last_run_status,'partial');
+  assert.equal(late.collector.alert_required,true);
+  const active=officialHealth([{...row,worker_active_until:'2026-11-04T04:05:00Z'}],NOW);
+  assert.equal(active.collector.state,'running');assert.equal(active.collector.alert_required,false);
+  const abandoned=officialHealth([{...row,worker_active_until:'2026-11-04T03:59:00Z'}],NOW);
+  assert.equal(abandoned.collector.state,'overdue');
+  const invalidLease=officialHealth([{...row,worker_active_until:'2026-11-04T05:00:00Z'}],NOW);
+  assert.equal(invalidLease.collector.state,'overdue');
+  const recent=officialHealth([{...row,worker_next_expected_at:'2026-11-04T03:00:00Z'}],NOW);
+  assert.equal(recent.collector.state,'on_schedule');assert.equal(recent.collector.alert_required,false);
+  const boundary=officialHealth([{...row,worker_next_expected_at:'2026-11-04T02:00:00Z'}],NOW);
+  assert.equal(boundary.collector.state,'overdue');
+  const beforeBoundary=officialHealth([{...row,worker_next_expected_at:'2026-11-04T02:00:00.001Z'}],NOW);
+  assert.equal(beforeBoundary.collector.state,'on_schedule');
+  const missing=officialHealth([source],NOW);
+  assert.equal(missing.collector.state,'unknown');assert.equal(missing.collector.alert_required,false);
+  assert.equal(officialHealth([],NOW).collector.state,'unknown');
+  const invalid=officialHealth([{...row,worker_next_expected_at:'2026-11-03T22:00:00Z'}],NOW);
+  assert.equal(invalid.collector.state,'unknown');assert.equal(invalid.collector.alert_required,false);
+});
+
 test('Read-only transaction, workspace binding, concurrent coalescing and bounded cache',async()=>{
   const queries=[],transactions=[],current={now:NOW};let created=0;
   const tag=async()=>[];

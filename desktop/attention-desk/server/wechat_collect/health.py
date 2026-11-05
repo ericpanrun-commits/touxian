@@ -271,6 +271,8 @@ class CollectionHealthMonitor:
     def _official_observation(self):
         result = dict(self.official_snapshot or {'owner': 'cloud', 'state': 'external_observation_required', 'sources': []})
         result['sources'] = [dict(row) for row in result['sources']]
+        if isinstance(result.get('collector'), dict):
+            result['collector'] = dict(result['collector'])
         checked = datetime.fromisoformat(result['checked_at']) if result.get('checked_at') else None
         stale = bool(checked and (self.clock() - checked).total_seconds() > 15 * 60)
         if self.official_error or stale:
@@ -280,6 +282,10 @@ class CollectionHealthMonitor:
                 row['last_known_collection_state'] = row['collection_state']
                 row['collection_state'] = 'unknown'
                 row['alert_required'] = False
+            if result.get('collector'):
+                result['collector']['last_known_state'] = result['collector']['state']
+                result['collector']['state'] = 'unknown'
+                result['collector']['alert_required'] = False
         result['observation_failures'] = self.official_failures
         result['last_observation_attempt'] = self.official_last_attempt.isoformat() if self.official_last_attempt else None
         result['observer'] = {'source_id': 'official:health-observer', 'name': '官网健康读取',
@@ -311,9 +317,20 @@ class CollectionHealthMonitor:
                         or not isinstance(row.get('collection_state'), str)):
                     raise ValueError('invalid_source_health_source')
                 sources.append({key: row[key] for key in allowed if key in row})
-            self.official_snapshot = {key: value[key] for key in
+            snapshot = {key: value[key] for key in
                 ('owner','state','checked_at','count_unit','pending_content','pending_sync','unmapped_raw_count','missing_original_count') if key in value}
-            self.official_snapshot['sources'] = sources
+            snapshot['sources'] = sources
+            collector = value.get('collector')
+            if collector is not None:
+                if (not isinstance(collector, dict) or collector.get('source_id') != 'official:collector-scheduler'
+                        or collector.get('state') not in {'running','overdue','on_schedule','unknown'}
+                        or type(collector.get('alert_required')) is not bool
+                        or collector['alert_required'] != (collector['state'] == 'overdue')):
+                    raise ValueError('invalid_collector_health')
+                collector_keys = {'source_id','name','owner','state','last_run_at','next_expected_at',
+                    'active_until','last_run_status','overdue_grace_seconds','alert_required'}
+                snapshot['collector'] = {key: collector[key] for key in collector_keys if key in collector}
+            self.official_snapshot = snapshot
             self.official_error = None
             self.official_failures = 0
         except asyncio.CancelledError:
@@ -382,6 +399,8 @@ class CollectionHealthMonitor:
             rows.append(health['observer'])
         if official.get('observer'):
             rows.append(official['observer'])
+        if official.get('collector'):
+            rows.append(official['collector'])
         for row in rows:
             old = sources.get(row['source_id'], {})
             if row['alert_required'] and (not old.get('claimed_at') or
