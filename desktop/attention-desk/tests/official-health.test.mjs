@@ -57,6 +57,20 @@ test('Invalid coverage counts stay unknown instead of reducing to zero',()=>{
   assert.equal(result.missing_original_count,null);
 });
 
+test('Absent and malformed counts cannot claim zero or an idle scan',()=>{
+  for (const value of [null,undefined,'','  ',true,false,-1,0.5,'1e3','0x10']) {
+    const result=officialHealth([{...source,missing_original_count:value}],NOW);
+    assert.equal(result.sources[0].missing_original_count,null,`invalid count ${String(value)}`);
+    assert.equal(result.sources[0].sync_state,'unknown');
+    assert.equal(result.missing_original_count,null);
+  }
+  const missingFailures=officialHealth([{...source,failure_count:null}],NOW).sources[0];
+  assert.equal(missingFailures.consecutive_failures,null);
+  assert.equal(missingFailures.collection_state,'unknown');
+  const missingNew=officialHealth([{...source,last_new_count:null}],NOW).sources[0];
+  assert.equal(missingNew.collection_state,'healthy');
+});
+
 test('Read-only transaction, workspace binding, concurrent coalescing and bounded cache',async()=>{
   const queries=[],transactions=[],current={now:NOW};let created=0;
   const tag=async()=>[];

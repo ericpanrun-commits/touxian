@@ -2,7 +2,8 @@
 export function officialHealth(rows: any[], at = new Date()): any {
   const instant = at.getTime();
   const count = (value: unknown) => {
-    const n = Number(value ?? 0);
+    if (typeof value !== 'number' && (typeof value !== 'string' || !/^\d+$/.test(value))) return null;
+    const n = Number(value);
     return Number.isSafeInteger(n) && n >= 0 ? n : null;
   };
   const timestamp = (value: unknown) => typeof value === 'string' && Number.isFinite(Date.parse(value)) ? value : null;
@@ -21,6 +22,7 @@ export function officialHealth(rows: any[], at = new Date()): any {
     const rawCount = count(row.item_count), unmapped = count(row.unmapped_raw_count);
     const pendingSync = count(row.pending_projection_count), pendingContent = count(row.pending_content);
     const missingOriginal = count(row.missing_original_count);
+    const lastNew = count(row.last_new_count);
     return {
       source_id: 'official:' + row.id, id: row.id, name: row.name, owner: 'cloud', enabled,
       last_scan_at: lastScan, last_successful_scan_at: lastSuccess,
@@ -29,7 +31,7 @@ export function officialHealth(rows: any[], at = new Date()): any {
       latest_error: typeof row.error === 'string' && /^[a-z][a-z0-9_]{0,80}$/.test(row.error) ? row.error : row.error ? 'source_error' : null,
       collection_state: !enabled ? 'disabled' : failures === null ? 'unknown' : failed ? 'failed' :
         status === 'partial' ? 'partial' : stale ? 'stale' : status === 'ok' && lastSuccess ?
-        Number(row.last_new_count) === 0 ? 'healthy_idle' : 'healthy' : 'not_checked',
+        lastNew === 0 ? 'healthy_idle' : 'healthy' : 'not_checked',
       stale_after_seconds: staleAfter, pending_content: pendingContent,
       pending_analysis: 0, analysis_method: 'existing_deterministic_rules',
       collected_items: rawCount, unmapped_raw_count: unmapped, missing_original_count: missingOriginal, pending_sync: pendingSync,
