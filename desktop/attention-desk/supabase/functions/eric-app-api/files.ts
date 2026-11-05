@@ -96,10 +96,42 @@ export function byteRange(value: string|null,total: number): [number,number]|nul
   return [begin,end];
 }
 
-export async function fileResponse(store: CloudStore,req: Request,workspace: string,id: string): Promise<Response> {
-  const {resource,original,tail}=await readableResource(store,workspace,id),manifest=await parts(store,workspace,original);
+// 50 MiB. Worker sync of a larger object must send Range; ticket and browser reads stay whole-file.
+export const FULL_DOWNLOAD_LIMIT = 50 * 1024 * 1024;
+export const FILE_CACHE_CONTROL = 'private, max-age=86400, immutable';
+
+export function quotedEtag(sha256: string): string | null {
+  return SHA.test(sha256 || '') ? `"${sha256}"` : null;
+}
+
+export function ifNoneMatch(header: string | null, etag: string): boolean {
+  if (!header || !etag.startsWith('"') || !etag.endsWith('"')) return false;
+  const wanted = etag.slice(1, -1);
+  return header.split(',').some(raw => {
+    const token = raw.trim();
+    if (token === '*') return true;
+    const bare = token.replace(/^W\//i, '').trim();
+    const value = bare.startsWith('"') && bare.endsWith('"') ? bare.slice(1, -1) : bare;
+    return value === wanted;
+  });
+}
+
+function notModified(etag: string): Response {
+  return new Response(null, {status: 304, headers: {ETag: etag, 'Cache-Control': FILE_CACHE_CONTROL, 'Accept-Ranges': 'bytes'}});
+}
+
+export async function fileResponse(store: CloudStore,req: Request,workspace: string,id: string,workerDownload=false): Promise<Response> {
+  const {resource,original,tail}=await readableResource(store,workspace,id);
+  const etag=quotedEtag(resource.sha256);
+  if (etag && ifNoneMatch(req.headers.get('If-None-Match'), etag)) return notModified(etag);
+  const rangeHeader=req.headers.get('Range');
+  // Only the worker publisher is refused. Ticket links (SourceLink) and vision keep unranged reads.
+  if (workerDownload && resource.bytes > FULL_DOWNLOAD_LIMIT && !(rangeHeader && rangeHeader.trim())) {
+    throw new AppFault(416,'range_required','大文件必须按范围读取。Large files must be read in ranges.');
+  }
+  const manifest=await parts(store,workspace,original);
   if(tail)manifest.push({bytes:tail.length,inline:tail});
-  const range=byteRange(req.headers.get('Range'),resource.bytes),[begin,end]=range||[0,resource.bytes-1];
+  const range=byteRange(rangeHeader,resource.bytes),[begin,end]=range||[0,resource.bytes-1];
   let offset=0;
   const selected: any[]=[];
   for (const part of manifest) {
@@ -139,7 +171,8 @@ export async function fileResponse(store: CloudStore,req: Request,workspace: str
   const safeInline=['application/pdf','image/jpeg','image/png','image/webp','image/heic','image/heif','text/plain'].includes(resource.mime);
   const headers: Record<string,string>={'Content-Type':safeInline?resource.mime:'application/octet-stream','Content-Length':String(end-begin+1),'Accept-Ranges':'bytes',
     'Content-Disposition':(!safeInline||new URL(req.url).searchParams.get('download')==='1'?'attachment':'inline')+"; filename*=UTF-8''"+encodeURIComponent(resource.filename),
-    'X-Content-Type-Options':'nosniff','Content-Security-Policy':"default-src 'none'; sandbox",'Referrer-Policy':'no-referrer','Cache-Control':'private, no-store'};
+    'X-Content-Type-Options':'nosniff','Content-Security-Policy':"default-src 'none'; sandbox",'Referrer-Policy':'no-referrer','Cache-Control':FILE_CACHE_CONTROL};
+  if(etag) headers.ETag=etag;
   if(range) headers['Content-Range']='bytes '+begin+'-'+end+'/'+resource.bytes;
   if (req.method==='HEAD') {await stream.cancel();return new Response(null,{status:range?206:200,headers});}
   return new Response(stream,{status:range?206:200,headers});
