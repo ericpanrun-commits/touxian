@@ -15,13 +15,16 @@ export const SOURCE_HEALTH_SQL = `
         WHERE e.workspace_id=$1::uuid AND e.kind='raw_item' AND e.id=i.id AND NOT e.deleted) AS has_raw,
       EXISTS(SELECT 1 FROM public.eric_app_records e
         WHERE e.workspace_id=$1::uuid AND e.kind='inbox' AND e.id=i.id AND NOT e.deleted) AS has_inbox,
+      EXISTS(SELECT 1 FROM public.eric_app_records e
+        WHERE e.workspace_id=$1::uuid AND e.kind='inbox_item' AND e.id=i.id AND NOT e.deleted) AS has_inbox_item,
       EXISTS(SELECT 1 FROM snapshots original WHERE original.raw_id=i.id) AS has_original
     FROM zqu_worker.items i
   ), totals AS (
     SELECT r.source_id, COUNT(*) AS item_count, MAX(r.first_seen_at)::text AS last_notification_at,
       COUNT(*) FILTER(WHERE i.content_hash='') AS pending_content,
       COUNT(*) FILTER(WHERE NOT i.has_raw) AS unmapped_raw_count,
-      COUNT(*) FILTER(WHERE i.has_raw AND i.has_original AND NOT i.has_inbox) AS pending_projection_count
+      COUNT(*) FILTER(WHERE i.has_raw AND NOT i.has_original) AS missing_original_count,
+      COUNT(*) FILTER(WHERE i.has_raw AND i.has_original AND (NOT i.has_inbox OR NOT i.has_inbox_item)) AS pending_projection_count
     FROM zqu_worker.source_refs r JOIN item_projection i ON i.id=r.item_id GROUP BY r.source_id
   )
   SELECT s.id, s.config->>'name' AS name,
@@ -33,6 +36,7 @@ export const SOURCE_HEALTH_SQL = `
     COALESCE(t.item_count,0) AS item_count, t.last_notification_at,
     COALESCE(t.pending_content,0) AS pending_content,
     COALESCE(t.unmapped_raw_count,0) AS unmapped_raw_count,
+    COALESCE(t.missing_original_count,0) AS missing_original_count,
     COALESCE(t.pending_projection_count,0) AS pending_projection_count
   FROM zqu_worker.sources s LEFT JOIN totals t ON t.source_id=s.id ORDER BY s.id LIMIT 200`;
 

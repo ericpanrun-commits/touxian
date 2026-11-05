@@ -15,7 +15,7 @@ const {createOfficialHealthReader}=await moduleAt('../supabase/functions/eric-ap
 const NOW=new Date('2026-11-04T04:00:00Z'),W='11111111-1111-4111-8111-111111111111',OTHER='22222222-2222-4222-8222-222222222222';
 const source={id:'school',name:'School public notices',enabled:true,status:'ok',failure_count:'0',last_new_count:'0',
   last_scan_at:'2026-11-04T03:45:00Z',last_success_at:'2026-11-04T03:46:00Z',polling_interval:'3600',
-  item_count:'12',pending_content:'0',unmapped_raw_count:'0',pending_projection_count:'0'};
+  item_count:'12',pending_content:'0',unmapped_raw_count:'0',missing_original_count:'0',pending_projection_count:'0'};
 
 test('Healthy empty scan is independent of old article arrival and unverified frontend',()=>{
   const result=officialHealth([{...source,last_notification_at:'2026-10-01T03:00:00Z',original_text:'NEVER_RETURN',config:{secret:'NEVER_RETURN'}}],NOW);
@@ -38,6 +38,23 @@ test('Failed collection, stale coverage, missing integration and pending project
   assert.equal(rows[2].sync_state,'integration_missing');assert.equal(rows[2].pending_sync,0);
   assert.equal(rows[3].sync_state,'pending');assert.equal(rows[3].unmapped_raw_count,0);
   assert.equal(rows[4].collection_state,'disabled');assert.equal(rows[4].alert_required,false);
+});
+
+test('An index without an original is not reported synchronized or as an uploadable backlog',()=>{
+  const result=officialHealth([{...source,id:'missing-original',pending_content:'1',missing_original_count:'1'}],NOW);
+  assert.equal(result.sources[0].sync_state,'original_unavailable');
+  assert.equal(result.sources[0].missing_original_count,1);
+  assert.equal(result.sources[0].pending_sync,0);
+  assert.equal(result.missing_original_count,1);
+  assert.equal(result.pending_content,1);
+  assert.equal(result.sources[0].frontend_visibility,'unverified');
+});
+
+test('Invalid coverage counts stay unknown instead of reducing to zero',()=>{
+  const result=officialHealth([{...source,missing_original_count:'not-a-number'}, {...source,id:'known',missing_original_count:'1'}],NOW);
+  assert.equal(result.sources[0].sync_state,'unknown');
+  assert.equal(result.sources[1].sync_state,'original_unavailable');
+  assert.equal(result.missing_original_count,null);
 });
 
 test('Read-only transaction, workspace binding, concurrent coalescing and bounded cache',async()=>{

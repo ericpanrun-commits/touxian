@@ -20,6 +20,7 @@ export function officialHealth(rows: any[], at = new Date()): any {
     const failed = ['unreachable','auth_required','error','failed','interrupted'].includes(status);
     const rawCount = count(row.item_count), unmapped = count(row.unmapped_raw_count);
     const pendingSync = count(row.pending_projection_count), pendingContent = count(row.pending_content);
+    const missingOriginal = count(row.missing_original_count);
     return {
       source_id: 'official:' + row.id, id: row.id, name: row.name, owner: 'cloud', enabled,
       last_scan_at: lastScan, last_successful_scan_at: lastSuccess,
@@ -31,16 +32,18 @@ export function officialHealth(rows: any[], at = new Date()): any {
         Number(row.last_new_count) === 0 ? 'healthy_idle' : 'healthy' : 'not_checked',
       stale_after_seconds: staleAfter, pending_content: pendingContent,
       pending_analysis: 0, analysis_method: 'existing_deterministic_rules',
-      collected_items: rawCount, unmapped_raw_count: unmapped, pending_sync: pendingSync,
-      sync_state: unmapped === null || pendingSync === null ? 'unknown' : unmapped > 0 ?
-        'integration_missing' : pendingSync > 0 ? 'pending' : rawCount ? 'synchronized' : 'not_checked',
+      collected_items: rawCount, unmapped_raw_count: unmapped, missing_original_count: missingOriginal, pending_sync: pendingSync,
+      sync_state: rawCount === null || unmapped === null || pendingSync === null || missingOriginal === null ? 'unknown' : unmapped > 0 ?
+        'integration_missing' : missingOriginal > 0 ? 'original_unavailable' : pendingSync > 0 ? 'pending' : rawCount ? 'synchronized' : 'not_checked',
       sync_evidence: 'existing_raw_and_inbox_ids_only', frontend_visibility: 'unverified',
       alert_required: Boolean(enabled && (failures !== null && failures >= 3 || stale)),
     };
   });
+  type CountKey = 'pending_content' | 'pending_sync' | 'missing_original_count' | 'unmapped_raw_count';
+  const total = (key: CountKey): number | null => sources.some(row => row[key] === null) ? null :
+    sources.reduce((n, row) => n + (row[key] ?? 0), 0);
   return { owner: 'cloud', state: 'observed', checked_at: at.toISOString(), sources,
     count_unit: 'source_item_associations',
-    pending_content: sources.reduce((n, row) => n + (row.pending_content || 0), 0),
-    pending_sync: sources.reduce((n, row) => n + (row.pending_sync || 0), 0),
-    unmapped_raw_count: sources.reduce((n, row) => n + (row.unmapped_raw_count || 0), 0) };
+    pending_content: total('pending_content'), pending_sync: total('pending_sync'),
+    missing_original_count: total('missing_original_count'), unmapped_raw_count: total('unmapped_raw_count') };
 }

@@ -26,14 +26,19 @@ def test_cloud_observation_is_get_only_and_includes_independent_source_alarm(per
     async def request(method, path):
         requests.append((method, path))
         return {'owner': 'cloud', 'state': 'observed', 'checked_at': NOW.isoformat(),
+            'missing_original_count': 1,
             'sources': [{'source_id': 'official:school', 'name': 'School public notices',
                 'collection_state': 'partial', 'consecutive_failures': 11, 'alert_required': True,
+                'missing_original_count': 1, 'sync_state': 'original_unavailable',
                 'original_text': 'NEVER_RETURN', 'secret': 'NEVER_RETURN'}]}
     monitor, _, calls, _ = environment(personal, request)
     asyncio.run(monitor._refresh_official())
     assert requests == [('GET', '/worker/official-health')]
     health = monitor.snapshot()
     assert health['official']['sources'][0]['consecutive_failures'] == 11
+    assert health['official']['missing_original_count'] == 1
+    assert health['official']['sources'][0]['missing_original_count'] == 1
+    assert health['official']['sources'][0]['sync_state'] == 'original_unavailable'
     assert 'NEVER_RETURN' not in str(health)
     monitor.deliver(health)
     assert len(calls) == 1

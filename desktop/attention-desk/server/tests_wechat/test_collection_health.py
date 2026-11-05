@@ -209,6 +209,9 @@ def test_hung_snapshot_is_polled_without_overlap_and_late_health_is_discarded(pe
             assert late['observation_error'] == 'health_snapshot_expired'
             assert late['sources'][0]['collection_state'] == 'unknown'
             monkeypatch.setattr(monitor, 'snapshot', good_snapshot)
+            # Keep the short timeout for the deliberately blocked read, but
+            # give the real SQLite snapshot enough time on a busy CI host.
+            monitor.snapshot_timeout = 1
             recovered = await monitor.observe_bounded()
             assert recovered['observation_state'] == 'observed'
             assert recovered['observation_failures'] == 0

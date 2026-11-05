@@ -303,7 +303,7 @@ class CollectionHealthMonitor:
             allowed = {'source_id','id','name','owner','enabled','last_scan_at','last_successful_scan_at',
                 'last_notification_at','consecutive_failures','last_scan_status','latest_error','collection_state',
                 'stale_after_seconds','pending_content','pending_analysis','analysis_method','collected_items',
-                'unmapped_raw_count','pending_sync','sync_state','sync_evidence','frontend_visibility','alert_required'}
+                'unmapped_raw_count','missing_original_count','pending_sync','sync_state','sync_evidence','frontend_visibility','alert_required'}
             sources = []
             for row in value['sources']:
                 if (not isinstance(row, dict) or not isinstance(row.get('source_id'), str)
@@ -312,7 +312,7 @@ class CollectionHealthMonitor:
                     raise ValueError('invalid_source_health_source')
                 sources.append({key: row[key] for key in allowed if key in row})
             self.official_snapshot = {key: value[key] for key in
-                ('owner','state','checked_at','count_unit','pending_content','pending_sync','unmapped_raw_count') if key in value}
+                ('owner','state','checked_at','count_unit','pending_content','pending_sync','unmapped_raw_count','missing_original_count') if key in value}
             self.official_snapshot['sources'] = sources
             self.official_error = None
             self.official_failures = 0
