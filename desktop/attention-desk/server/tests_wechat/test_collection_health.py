@@ -219,13 +219,44 @@ def test_sync_ack_hash_is_distinct_from_frontend_visibility(personal, monkeypatc
     record = {'kind': 'raw_item', 'id': 'raw-health', 'source_hash': 'ack-hash'}
     monkeypatch.setattr(CloudProjection, 'records', lambda self: [record])
     cloud = SimpleNamespace(settings=SimpleNamespace(read=lambda: {'enabled': True}),
-        hashes={}, state={'connected': True, 'last_error': None})
+        hashes={}, workspace='fixture-workspace', state={'connected': True, 'last_error': None})
     monitor = CollectionHealthMonitor(SimpleNamespace(personal=personal, document=doc), cloud_sync=cloud)
     assert monitor.snapshot()['sync']['pending_records'] == 1
     cloud.hashes[('raw_item','raw-health')] = 'ack-hash'
     result = monitor.snapshot()
     assert result['sync']['state'] == 'synchronized' and result['sync']['pending_records'] == 0
     assert result['frontend_visibility'] == 'unverified'
+
+
+def test_sync_count_is_unknown_until_the_entire_remote_catalogue_is_loaded(personal, monkeypatch):
+    from server.cloud_sync.projection import CloudProjection
+    doc, _ = configured(personal)
+    with personal.connection(write=True) as c:
+        c.execute("INSERT INTO raw_item(id,source_id,kind,submission_hash,created_at) VALUES ('raw-health','wechat:health','wechat_batch','unit-only','2026-11-04T00:00:00+00:00')")
+    record = {'kind': 'raw_item', 'id': 'raw-health', 'source_hash': 'ack-hash'}
+    monkeypatch.setattr(CloudProjection, 'records', lambda self: [record])
+    cloud = SimpleNamespace(settings=SimpleNamespace(read=lambda: {'enabled': True}), hashes={},
+        workspace=None, local_only_catalogued=False,
+        state={'uploads_held': True, 'connected': False, 'last_error': None})
+    monitor = CollectionHealthMonitor(SimpleNamespace(personal=personal, document=doc), cloud_sync=cloud)
+    result = monitor.snapshot()
+    assert result['sync']['state'] == 'held_local_only'
+    assert result['sync']['pending_records'] is None
+    assert result['sync']['evidence'] == 'record_catalogue_not_ready'
+    assert result['sources'][0]['pending_sync'] is None
+
+    # A partial page is still not evidence of the final number of differences.
+    cloud.hashes[('other-kind', 'some-id')] = 'partial'
+    assert monitor.snapshot()['sync']['pending_records'] is None
+    cloud.local_only_catalogued = True
+    assert monitor.snapshot()['sync']['pending_records'] == 1
+    cloud.hashes[('raw_item', 'raw-health')] = 'ack-hash'
+    assert monitor.snapshot()['sync']['pending_records'] == 0
+
+    # The normal startup path is also unknown before workspace/catalogue setup.
+    cloud.state['uploads_held'] = False
+    assert monitor.snapshot()['sync']['state'] == 'unknown'
+    assert monitor.snapshot()['sources'][0]['pending_sync'] is None
 
 
 def test_sync_observation_failure_cannot_silence_collection_health(personal):
@@ -257,7 +288,7 @@ def test_one_sources_pending_sync_does_not_mark_another_acknowledged_source_pend
         {'kind':'raw_item','id':'raw-one','source_hash':'one'},
         {'kind':'raw_item','id':'raw-two','source_hash':'two'}])
     cloud = SimpleNamespace(settings=SimpleNamespace(read=lambda: {'enabled':True}),
-        hashes={('raw_item','raw-one'):'one'}, state={'connected':True,'last_error':None})
+        hashes={('raw_item','raw-one'):'one'}, workspace='fixture-workspace', state={'connected':True,'last_error':None})
     result = CollectionHealthMonitor(SimpleNamespace(personal=personal, document=doc), cloud_sync=cloud).snapshot()
     assert result['sync']['state'] == 'pending'
     assert result['sources'][0]['sync_state'] == 'synchronized'

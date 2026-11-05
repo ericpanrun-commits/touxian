@@ -264,6 +264,20 @@ class CollectionHealthMonitor:
             worker = self.cloud_sync
             config = worker.settings.read()
             if config and config.get('enabled'):
+                state = dict(worker.state)
+                held = bool(state.get('uploads_held'))
+                catalogued = (getattr(worker, 'local_only_catalogued', False) if held
+                              else getattr(worker, 'workspace', None) is not None)
+                if not catalogued:
+                    # The worker fills hashes page by page. Until the complete
+                    # remote catalogue has arrived, absent hashes prove nothing.
+                    health['sync'] = {'state': 'held_local_only' if held else 'unknown',
+                        'pending_records': None, 'latest_error': state.get('last_error'),
+                        'evidence': 'record_catalogue_not_ready'}
+                    for source in health['sources']:
+                        source['pending_sync'] = None
+                        source['sync_state'] = 'held_local_only' if held else 'unknown'
+                    return
                 from ..cloud_sync.projection import CloudProjection
                 # Own backup path: never race the sync worker's projection snapshot.
                 projection = CloudProjection(self.personal, self.personal.path.parent / 'collection-health-projection')
@@ -275,7 +289,6 @@ class CollectionHealthMonitor:
                     raw_sources.update({r['raw_item_id']: r['source_id'] for r in c.execute('SELECT b.raw_item_id,ch.source_id FROM wechat_batch b JOIN wechat_chat ch ON ch.id=b.chat_id WHERE b.raw_item_id IS NOT NULL')})
                 records = [r for r in records if r['kind'] in {'raw_item','inbox_item','inbox'} and r['id'] in raw_sources]
                 pending = [r for r in records if worker.hashes.get((r['kind'],r['id'])) != r['source_hash']]
-                state = dict(worker.state)
                 health['sync'] = {'state': 'held_local_only' if state.get('uploads_held') else 'failed' if state.get('last_error') else
                     'pending' if pending else 'synchronized' if state.get('connected') else 'unknown',
                     'pending_records': len(pending), 'latest_error': state.get('last_error'),
