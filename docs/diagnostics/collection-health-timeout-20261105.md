@@ -11,9 +11,10 @@
 - 36 项隔离回归通过，覆盖卡住时只保留一个读取句柄、迟到结果丢弃、恢复、告警去重、关闭不等待卡住的读取、新旧监控临时文件隔离和真实临时 SQLite 备份关闭。结果：`desktop/attention-desk/artifacts/p0-20261104/health-timeout-20261105-results.xml`。
 - 使用已有 SQLite 备份及真实本地投影逻辑验证正常快照：五个来源，约 3.2 秒完成，临时目录无残留；未访问正式库写入、未发 HTTP 或模型请求。证据：`health-timeout-backup-check.json`。超时及故障告警分支仅在隔离环境模拟，没有故意卡住正式采集。
 - 09:15 原周期扫描和 09:16 本次重启后的启动补扫均为 `no_change`，各有五个来源记录为 `complete`。09:17:19 的健康快照显示五群 `healthy_idle`、读取错误为空；官网健康观察为 29 个来源。云同步仍暂停，待同步投影 306；付费分析仍暂停。
+- 加载后的首个自然周期扫描于 09:30:01 开始，09:30:03 结束为 `no_change`，五个来源均为 `complete`，下一轮计划 09:45。Raw 762、快照 836、微信消息 709、模型调用 59，与重启后对照一致。健康快照与扫描日志分时读取，不把 09:29 的健康快照误写成 09:30 的群级扫描证据。
 - 重启前无运行中的扫描、模型调用或分析作业，已创建 SQLite 一致性备份并通过 `quick_check`。重启前后 event 11、task 23、course 10、review_artifact 13 与 59 条模型调用账本的完整哈希一致；既有 Raw、快照、微信消息、分析作业和调用记录没有缺失或改写，外键错误 0。配置哈希及两项暂停不变。
 
-本机证据及备份位于忽略目录 `desktop/attention-desk/artifacts/p0-20261104/health-timeout-activation-20261105-011552-920926/`，包括 `before.json`、`after.json`、`scan-groups.json`、`initial-health.json`、`final-health.json` 和 SQLite 备份。它们可能含内部标识或本机原文，不提交 Git。
+本机证据及备份位于忽略目录 `desktop/attention-desk/artifacts/p0-20261104/health-timeout-activation-20261105-011552-920926/`，包括 `before.json`、`after.json`、`scan-groups.json`、`initial-health.json`、`final-health.json`、`periodic-health.json`、`periodic-db-check.json` 和 SQLite 备份。它们可能含内部标识或本机原文，不提交 Git。
 
 现有 `AttentionDesk-Local` 计划任务只在登录触发，设置中已有失败后每分钟重试、最多 999 次；这是配置证据，不是此次真实崩溃恢复或用户已看到通知的证据。没有修改任务配置、数据库 Schema、云端数据或 UI。
 
