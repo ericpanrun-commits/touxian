@@ -49,7 +49,8 @@ class PostgresOfficialStore:
             failures=state.get('failure_count',0)+1 if error else 0
             # Hourly Actions never increases school polling frequency.
             interval=max(3600,config['polling_interval'])
-            delay=max(interval,min(86400*4,1800*2**min(max(0,failures-1),7))) if error else interval
+            from ..official_sources import historical_only_failure
+            delay=max(interval,min(86400*4,1800*2**min(max(0,failures-1),7))) if error and not historical_only_failure(error,counts) else interval
             status='partial' if error and counts.get('saved',0) else error.status if error else 'ok'
             state.update(status=status,failure_count=failures,error=error.code if error else '',
                 last_new_count=counts['new'],last_changed_count=counts['changed'],

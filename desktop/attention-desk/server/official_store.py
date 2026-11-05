@@ -84,7 +84,8 @@ class OfficialStore:
             row = c.execute('SELECT * FROM official_source WHERE source_id=?', (source_id,)).fetchone()
             failed = row['failure_count'] + 1 if error else 0
             interval = max(row['fetch_interval'],row['polling_interval']) if row['polling_interval']>3600 else row['fetch_interval']
-            delay = max(interval, min(86400 * 4, 1800 * (2 ** min(failed - 1, 7)))) if error else interval
+            from .official_sources import historical_only_failure
+            delay = max(interval, min(86400 * 4, 1800 * (2 ** min(failed - 1, 7)))) if error and not historical_only_failure(error, counts) else interval
             status = 'partial' if error and counts.get('saved', 0) else error.status if error else 'ok'
             stamp = now()
             c.execute('''UPDATE official_source SET status=?,last_success_at=?,next_check_at=?,error=?,failure_count=?,

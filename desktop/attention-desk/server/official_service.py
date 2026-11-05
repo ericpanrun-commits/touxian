@@ -144,7 +144,7 @@ class OfficialSourceMonitor:
                 LOG.info('source_sync_started instance=%s source_id=%s',self.runtime.instance_id,source_id)
                 backfill=not current['backfill_completed_at']
                 cutoff=(datetime.now(timezone.utc)-timedelta(days=source.backfill_days)).date().isoformat()
-                counts = {'new': 0, 'discovered': 0, 'changed': 0, 'unchanged': 0, 'saved': 0, 'requests': 0, 'scanned':0,'failed':0}
+                counts = {'new': 0, 'discovered': 0, 'changed': 0, 'unchanged': 0, 'saved': 0, 'requests': 0, 'scanned':0,'failed':0,'historical_unavailable':0}
                 error = None
                 client = None
                 try:
@@ -171,6 +171,7 @@ class OfficialSourceMonitor:
                                 break
                             if not backfill and rows and all(self.store.fetch_state(e['url']) for e in rows):
                                 break
+                        listed_urls=set(entries)
                         work=sorted(entries.values(),key=lambda e:(e['published_at'] or '',e['title']),reverse=True)[:source.max_items]
                         if not backfill:
                             work+=self.store.revalidation_entries(source,{e['url'] for e in work})
@@ -182,6 +183,7 @@ class OfficialSourceMonitor:
                                 raise SourceFailure('interrupted', '检查因应用退出而中断，已取得原文保留。', status='unreachable')
                             discovered = self.store.discover(source, entry, backfill=backfill)
                             counts['discovered'] += int(discovered['new'])
+                            state = None
                             try:
                                 state = self.store.fetch_state(entry['url'])
                                 if state and not backfill and state['title']==entry['title'] and state['published_at']==entry['published_at'] and state['last_fetched_at']>(datetime.now(timezone.utc)-timedelta(seconds=source.revalidate_interval)).isoformat():
@@ -208,7 +210,14 @@ class OfficialSourceMonitor:
                                     self._notify(saved['raw_item_id'])
                             except SourceFailure as exc:
                                 self.store.fetch_error(discovered['raw_item_id'], exc)
-                                error = error or exc
+                                historical = (not backfill and entry['url'] not in listed_urls and state
+                                    and state.get('latest_snapshot_id') and exc.code == 'http_error'
+                                    and exc.http_status in {404, 410})
+                                if historical:
+                                    counts['historical_unavailable'] += 1
+                                    error = error or SourceFailure('historical_unavailable', '历史通知页面不可用，已保存原文保留。', status='partial')
+                                else:
+                                    error = exc if error and error.code == 'historical_unavailable' else error or exc
                                 counts['failed']+=1
                                 if counts['failed']>=3:
                                     break
