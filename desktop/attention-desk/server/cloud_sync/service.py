@@ -1,203 +1,417 @@
-"""Download worker file bytes in ranges and reuse a verified local cache.
-
-Objects above 50 MiB, and any object the server answers with 416, are read in
-about 4 MiB ranges. A matching id + sha256 cache file is reused. Failures
-delete only the incomplete ``*.partial`` file, including when a later ack fails.
-"""
+"""Outbound-only Windows processor, backed by the existing originals and domain owners."""
 from __future__ import annotations
 
+import asyncio
 import hashlib
+import json
+import math
 import os
-import re
+import sqlite3
 from pathlib import Path
+from dotenv import dotenv_values
 from urllib.parse import quote
+from uuid import UUID,uuid4
 
 import httpx
+from pydantic import ValidationError
+
+from ..cloud_store import ProcessLock
+from ..personal_store import PersonalError
+from ..notes_anywhere.settings import BASE
+from ..collector.safe_logs import record
+from .commands import CommandExecutor
+from .projection import CloudProjection
+from ..recovery_controls import cloud_uploads_held
+
+ENDPOINT=BASE+'/functions/v1/eric-app-api'
+PART_BYTES=4_000_000
+FULL_DOWNLOAD_LIMIT=50*1024*1024
 
 
-# Keep in step with files.ts FULL_DOWNLOAD_LIMIT (50 MiB) and the ~4 MiB client chunk.
-FULL_DOWNLOAD_LIMIT = 50 * 1024 * 1024
-CHUNK_BYTES = 4 * 1024 * 1024
-_ID = re.compile(r'^[A-Za-z0-9_.:-]{1,256}$')
-_SHA = re.compile(r'^[a-f0-9]{64}$')
+class SyncError(Exception):
+    def __init__(self,code,status=503):self.code,self.status=code,status;super().__init__(code)
 
 
-class CloudSyncError(Exception):
-    def __init__(self, code: str, message: str):
-        super().__init__(message)
-        self.code = code
+def retryable(error):
+    """Only known temporary failures may replay a durable business operation."""
+    if isinstance(error,httpx.TransportError):return True
+    if isinstance(error,SyncError):
+        if error.code in {'schema_mismatch','data_access_denied','record_too_large','source_file_changed','source_part_changed','unsupported_file_protocol','connection_not_configured'}:return False
+        return error.status==429 or 500<=error.status<600
+    if isinstance(error,sqlite3.OperationalError):
+        return getattr(error,'sqlite_errorcode',None) in (sqlite3.SQLITE_BUSY,sqlite3.SQLITE_LOCKED)
+    return False
 
 
-def sample_windows(size: int, window: int = 65536) -> list[tuple[int, int]]:
-    """Small inclusive ranges used to check a cloud original without reading it all."""
-    if not isinstance(size, int) or isinstance(size, bool) or size < 1:
-        raise CloudSyncError('download_unavailable', '文件大小无效，已停止下载。')
-    if not isinstance(window, int) or isinstance(window, bool) or window < 1:
-        raise CloudSyncError('download_unavailable', '抽样窗口无效。')
-    last = min(window, size) - 1
-    first = (0, last)
-    if size <= window:
-        return [first]
-    begin = min(size // 2, size - window)
-    return [first, (begin, begin + window - 1)]
+def batches(items,max_bytes=4_000_000,max_items=100):
+    batch=[];size=2
+    for item in items:
+        length=len(json.dumps(item,ensure_ascii=False,separators=(',',':')).encode())+1
+        if length>max_bytes:raise SyncError('record_too_large')
+        if batch and (len(batch)>=max_items or size+length>max_bytes):yield batch;batch=[];size=2
+        batch.append(item);size+=length
+    if batch:yield batch
 
 
-class CloudSyncService:
-    def __init__(self, base_url: str, worker_key: str, cache_dir, *, transport=None, range_limit=FULL_DOWNLOAD_LIMIT, chunk_bytes=CHUNK_BYTES):
-        if not isinstance(base_url, str) or not base_url.startswith(('https://', 'http://')):
-            raise CloudSyncError('download_unavailable', '同步地址无效。')
-        if not isinstance(worker_key, str) or not worker_key or len(worker_key) > 512:
-            raise CloudSyncError('download_unavailable', '同步连接不可用。')
-        if range_limit < 1 or chunk_bytes < 1:
-            raise CloudSyncError('download_unavailable', '分段大小无效。')
-        self.base_url = base_url.rstrip('/')
-        self.worker_key = worker_key
-        self.cache_dir = Path(cache_dir)
-        self.range_limit = range_limit
-        self.chunk_bytes = chunk_bytes
-        self._client = httpx.Client(transport=transport, timeout=httpx.Timeout(60, connect=10), follow_redirects=False, trust_env=False)
+def capture_states(records):
+    learning={}
+    for record in records:
+        if record['kind']=='learning_capture':
+            value=record['payload'];old=learning.get(value['raw_item_id'])
+            if not old or value.get('created_at','')>=old.get('created_at',''):learning[value['raw_item_id']]=value
+    result=[]
+    for record in records:
+        if record['kind']!='inbox_item':continue
+        row=record['payload'];status=row['processing_status'];capture=learning.get(row['id']) or {};context=capture.get('context') or {};automation=context.get('note_automation') or {}
+        state='completed' if status=='completed' else 'needs_confirmation' if row['needs_manual'] else 'failed' if status in ('failed','recovery_needed') else 'processing'
+        error=row.get('error')
+        if context.get('note_share'):
+            if automation.get('status')=='completed':state='completed';error=None
+            elif capture.get('status')=='needs_context' or automation.get('status') in ('needs_context','needs_review','needs_source','needs_setup','needs_vision_permission'):
+                state='needs_confirmation'
+                if automation.get('message'):error={'code':'note_review_required' if automation.get('review_job_id') or automation.get('review_id') else 'note_context_required','message':automation['message']}
+            elif automation.get('status') in ('local_ready','reviewing','processing','generating'):state='processing'
+        result.append({'raw_item_id':row['id'],'local_version':row['version'],'state':state,'course_id':(row.get('course') or {}).get('id') or context.get('course_id'),
+            'lecture_id':context.get('lecture_id') or automation.get('lecture_id'),'learning_capture_id':capture.get('id'),'error':error})
+    return result
 
-    def close(self):
-        self._client.close()
 
-    def __enter__(self):
-        return self
+def preview_targets(records):
+    """Only classroom evidence needs a separate rendered copy; books load by range."""
+    targets=set()
+    for record in records:
+        if record['kind']!='facade' or not record['id'].startswith('/school/lectures/') or not record['id'].endswith('/context'):continue
+        for source in record['payload'].get('sources',[]):
+            doc,page=source.get('document_id'),source.get('page')
+            if doc and isinstance(page,int) and not isinstance(page,bool) and page>0:targets.add((doc,page))
+    return targets
 
-    def __exit__(self, *_args):
-        self.close()
 
-    def cache_file(self, resource_id: str, sha256: str) -> Path:
-        self._check(resource_id, sha256)
-        name = hashlib.sha256(resource_id.encode()).hexdigest()
-        return self.cache_dir / sha256[:2] / f'{name}.{sha256}'
+class CloudSync:
+    def __init__(self,personal,intake,school,extraction,settings,learning=None,*,cache=None,client=None,poll_seconds=None):
+        self.personal,self.intake,self.school,self.settings=personal,intake,school,settings
+        self.learning=learning
+        self.cache=Path(cache or personal.path.with_name('cloud-sync'));self.cache.mkdir(parents=True,exist_ok=True)
+        self.projection=CloudProjection(personal,self.cache)
+        self.executor=CommandExecutor(personal,school,extraction,intake,learning)
+        self.client=client or self._new_client();self.owns_client=client is None
+        env={**dotenv_values(Path(__file__).resolve().parents[1]/'.env',interpolate=False),**os.environ}
+        self.poll_seconds=float(poll_seconds if poll_seconds is not None else env.get('CLOUD_SYNC_POLL_SECONDS') or 60);self.lock=asyncio.Lock();self.process_lock=ProcessLock(self.cache)
+        self.heartbeat_seconds=float(env.get('CLOUD_SYNC_HEARTBEAT_SECONDS') or 300)
+        self.task=None;self.heartbeat=None;self.epoch=str(uuid4());self.generation=0;self.workspace=None;self.config=None
+        self.hashes={};self.resources=set();self.resource_signatures={};self.pending_commands={};self.preview_targets=set();self.state={'connected':False,'phase':'waiting','last_error':None}
 
-    def download_capture(self, resource_id: str, sha256: str, *, size: int | None = None, ack=None) -> Path:
-        """Return the verified cache file for this id and sha256.
+    @staticmethod
+    def _new_client():return httpx.AsyncClient(timeout=httpx.Timeout(90,connect=10),follow_redirects=False)
 
-        A matching cache is reused and is not downloaded again. ``ack`` runs
-        only after that file is in place; an ack error leaves it on disk.
-        """
-        cached = self.cache_file(resource_id, sha256)
-        partial = cached.with_name(cached.name + '.partial')
-        if self._matches(cached, sha256):
-            partial.unlink(missing_ok=True)
-        else:
-            cached.parent.mkdir(parents=True, exist_ok=True)
+    async def request(self,method,path,body=None,content=None):
+        if cloud_uploads_held(self.personal.path) and (method.upper() not in {'GET','HEAD'} or body is not None or content is not None):
+            self.state['blocked_write_requests']=self.state.get('blocked_write_requests',0)+1
+            raise SyncError('cloud_uploads_held',409)
+        if not self.config:raise SyncError('connection_not_configured')
+        headers={'X-Eric-Worker-Key':self.config['worker_key']}
+        if content is not None:headers['Content-Type']='application/octet-stream'
+        counter='read_requests' if method.upper() in {'GET','HEAD'} else 'write_requests'
+        self.state[counter]=self.state.get(counter,0)+1
+        response=await self.client.request(method,ENDPOINT+path,headers=headers,
+            **({'json':body} if content is None else {'content':content}))
+        if response.status_code not in (200,201,202):
+            try:value=response.json()
+            except ValueError:value={}
+            detail=value.get('detail') if isinstance(value,dict) else None
+            candidate=detail.get('code') if isinstance(detail,dict) else None
+            code=candidate if isinstance(candidate,str) else 'cloud_unavailable'
+            raise SyncError(code,response.status_code)
+        try:return response.json()
+        except ValueError:raise SyncError('invalid_cloud_response') from None
+
+    async def start(self):
+        if self.task and not self.task.done():return
+        self.process_lock.acquire()
+        self.task=asyncio.create_task(self._run())
+
+    async def close(self):
+        for task in (self.task,self.heartbeat):
+            if task:task.cancel()
+        await asyncio.gather(*(x for x in (self.task,self.heartbeat) if x),return_exceptions=True)
+        self.task=self.heartbeat=None
+        if self.owns_client:await self.client.aclose()
+        self.process_lock.close()
+
+    async def _heartbeats(self):
+        while True:
+            await asyncio.sleep(self.heartbeat_seconds)
+            try:await self.request('POST','/worker/heartbeat',{'epoch':self.epoch,'phase':self.state['phase'] if self.state['phase'] in ('preparing','processing') else 'connected'})
+            except asyncio.CancelledError:raise
+            except Exception as error:
+                self.state['last_error']='heartbeat_unavailable'
+                record(self.personal,'cloud_heartbeat',error,job_id=self.epoch,entity='workspace')
+
+    async def _run(self):
+        while True:
+            try:await self.sync_once()
+            except asyncio.CancelledError:raise
+            except Exception as error:
+                self.state.update(connected=False,last_error=error.code if isinstance(error,SyncError) else 'connection_unavailable')
+                record(self.personal,'cloud_sync',error,job_id=self.epoch,entity='workspace')
+                if isinstance(error,httpx.TransportError) and self.owns_client:
+                    old=self.client;self.client=self._new_client();await old.aclose()
+            await asyncio.sleep(self.poll_seconds)
+
+    async def sync_once(self):
+        if self.lock.locked():return
+        async with self.lock:
+            if cloud_uploads_held(self.personal.path):
+                self.state.update(uploads_held=True,phase='local_only',last_error=None)
+                self.config=self.settings.read()
+                if self.config and self.config.get('enabled'):
+                    if not getattr(self,'local_only_catalogued',False):
+                        await self.resource_catalogue()
+                        await self.record_catalogue()
+                        self.local_only_catalogued=True
+                    self.state['connected']=True
+                return
+            self.state['uploads_held']=False
+            self.local_only_catalogued=False
+            # Local handoffs continue even while the Internet request below
+            # fails. Their durable marker also covers commit-before-shutdown.
+            if self.learning is not None:self.learning.resume_pending_note_links()
+            config=self.settings.read()
+            if not config or not config.get('enabled'):return
+            self.config=config
+            if self.workspace is None:
+                hello=await self.request('POST','/worker/hello',{'epoch':self.epoch})
+                workspace=str(UUID(hello['workspace_id']))
+                if not PART_BYTES<=hello.get('part_bytes',0)<=16_000_000:raise SyncError('unsupported_file_protocol')
+                if not self.heartbeat or self.heartbeat.done():self.heartbeat=asyncio.create_task(self._heartbeats())
+                await self.resource_catalogue()
+                if hello.get('record_catalogue'):await self.record_catalogue()
+                self.workspace=workspace
+            self.state.update(connected=True,phase='preparing',last_error=None)
+            await self.publish()
+            self.state['phase']='processing'
+            await self.mirror_tasks()
+            await self.intake.resume_notes()
+            for kind in ('captures','commands'):
+                claimed=await self.request('POST','/worker/claim',{'kind':kind,'limit':3})
+                for item in claimed['items']:
+                    await self.process(kind,item)
+            # New material and edits always take priority over optional book previews.
+            await self.publish_previews(limit=4)
+            self.state['phase']='connected'
+            await self.request('POST','/worker/heartbeat',{'epoch':self.epoch,'phase':'connected','published':True})
+
+    async def upload_resource(self,item):
+        identity=item['id']
+        signature=(item['sha256'],item['bytes'])
+        if identity in self.resources:
+            if self.resource_signatures.get(identity,signature)!=signature:raise SyncError('source_file_changed')
+            return
+        path=Path(item['path']);before=path.stat()
+        manifest={key:item[key] for key in ('id','filename','mime','sha256','bytes')}
+        manifest['part_count']=math.ceil(item['bytes']/PART_BYTES)
+        resource=await self.request('POST','/worker/resources',manifest)
+        if resource.get('complete'):self.resources.add(identity);self.resource_signatures[identity]=signature;return
+        received={p['part_index']:p for p in resource.get('parts',[])}
+        total=0;whole=hashlib.sha256()
+        with path.open('rb') as stream:
+            for index in range(manifest['part_count']):
+                data=await asyncio.to_thread(stream.read,PART_BYTES)
+                if not data:raise SyncError('source_file_changed')
+                total+=len(data);whole.update(data)
+                part=received.get(index);digest=hashlib.sha256(data).hexdigest()
+                if part and (part['sha256']!=digest or part['bytes']!=len(data)):raise SyncError('source_part_changed')
+                if not part:await self.request('PUT','/worker/files/'+quote(identity,safe='')+'/parts/'+str(index),content=data)
+        after=path.stat()
+        if total!=item['bytes'] or whole.hexdigest()!=item['sha256'] or (before.st_size,before.st_mtime_ns)!=(after.st_size,after.st_mtime_ns):raise SyncError('source_file_changed')
+        await self.request('POST','/worker/files/'+quote(identity,safe='')+'/finish',{})
+        self.resources.add(identity)
+        self.resource_signatures[identity]=signature
+
+    async def resource_catalogue(self):
+        offset=0
+        while True:
+            page=await self.request('GET','/worker/resources?offset='+str(offset))
+            for row in page['items']:
+                self.resources.add(row['id']);self.resource_signatures[row['id']]=(row['sha256'],row['bytes'])
+            if len(page['items'])<page['limit']:break
+            offset+=len(page['items'])
+
+    async def mirror_tasks(self):
+        from .progress import apply_task_progress
+        page=await self.request('GET','/worker/task-progress')
+        for row in page['items']:
             try:
-                self._download_to(resource_id, partial, size)
-                if not self._matches(partial, sha256):
-                    raise CloudSyncError('download_unavailable', '文件校验没有通过，请重试。')
-                os.replace(partial, cached)
+                await asyncio.to_thread(apply_task_progress,self.personal,row)
+                state,message='applied',''
+            except PersonalError as error:
+                state,message='needs_confirmation',str(error)
+            await self.publish()
+            await self.request('POST','/worker/task-progress/ack',{'id':row['id'],'revision':row['revision'],'state':state,'message':message,
+                'epoch':self.epoch,'generation':self.generation})
+
+    async def record_catalogue(self):
+        offset=0
+        while True:
+            page=await self.request('GET','/worker/records?offset='+str(offset))
+            for row in page['items']:self.hashes[(row['kind'],row['id'])]=row['source_hash']
+            if len(page['items'])<page['limit']:break
+            offset+=len(page['items'])
+
+    def render_page(self,doc,index):
+        target=self.cache/(doc['sha256']+'-'+str(index)+'.webp')
+        if not target.exists():
+            pending=target.with_suffix('.pending.png')
+            self.school.documents.worker(doc['path'],'school-render:'+str(index),pending,45)
+            from PIL import Image
+            encoded=target.with_suffix('.pending.webp')
+            with Image.open(pending) as image:image.save(encoded,format='WEBP',lossless=True,method=4,exact=True)
+            with Image.open(encoded) as image:image.verify()
+            encoded.replace(target);pending.unlink(missing_ok=True)
+        filename=''.join(c if c not in '/\\\x00' else '-' for c in doc['title'][:160])+'-'+str(index)+'.webp'
+        return {'id':'page:'+doc['id']+':'+str(index)+':image','filename':filename,'mime':'image/webp',
+                'bytes':target.stat().st_size,'sha256':self.projection._hash(target),'path':target}
+
+    async def publish(self):
+        resources,documents=await asyncio.to_thread(self.projection.resources)
+        for resource in resources:await self.upload_resource(resource)
+        records=await asyncio.to_thread(self.projection.records)
+        self.preview_targets=preview_targets(records)
+        self.generation+=1
+        changed=[r for r in records if self.hashes.get((r['kind'],r['id']))!=r['source_hash']]
+        for batch in batches(changed):
+            await self.request('POST','/worker/publish',{'epoch':self.epoch,'generation':self.generation,'records':batch})
+            self.hashes.update({(r['kind'],r['id']):r['source_hash'] for r in batch})
+        await self.publish_capture_states(records)
+
+    async def publish_previews(self,limit=4):
+        _,documents=await asyncio.to_thread(self.projection.resources)
+        count=0
+        for doc in documents:
+            for index in sorted(page for identity,page in self.preview_targets if identity==doc['id'] and page<=(doc.get('page_count') or 0)):
+                if 'page:'+doc['id']+':'+str(index)+':image' in self.resources:continue
+                await self.upload_resource(await asyncio.to_thread(self.render_page,doc,index))
+                count+=1
+                if count>=limit:return
+
+    async def publish_capture_states(self,records):
+        owner='anywhere:'+self.config['notes_installation_id']
+        with self.personal.connection() as c:
+            receipts=[{'id':r['request_id'],'raw_item_id':r['raw_item_id'],'local_receipt_id':r['id']} for r in c.execute('SELECT * FROM inbox_receipt WHERE owner=?',(owner,))]
+        for batch in batches(receipts):await self.request('POST','/worker/receipts',{'items':batch})
+        states=capture_states(records)
+        for batch in batches(states):await self.request('POST','/worker/capture-results',{'epoch':self.epoch,'generation':self.generation,'items':batch})
+
+    async def download_capture(self,capture):
+        files=[]
+        for file in capture['files']:
+            target=self.cache/(capture['id']+'-'+file['sha256']+'.download')
+            partial=target.with_name(target.name+'.partial')
+            if target.exists():
+                digest=hashlib.sha256();size=0
+                with target.open('rb') as stream:
+                    while True:
+                        data=stream.read(65536)
+                        if not data:break
+                        size+=len(data);digest.update(data)
+                if size==file['bytes'] and digest.hexdigest()==file['sha256']:
+                    partial.unlink(missing_ok=True)
+                    files.append((file['filename'],file['mime'],target))
+                    continue
+            url=ENDPOINT+'/worker/files/'+quote(file['resource_id'],safe='')+'/content'
+            headers={'X-Eric-Worker-Key':self.config['worker_key']}
+            try:
+                use_range=file['bytes']>FULL_DOWNLOAD_LIMIT
+                if not use_range:
+                    async with self.client.stream('GET',url,headers=headers) as response:
+                        if response.status_code==416:
+                            use_range=True
+                        elif response.status_code!=200:
+                            raise SyncError('download_unavailable')
+                        else:
+                            digest=hashlib.sha256();size=0
+                            with partial.open('wb') as stream:
+                                async for data in response.aiter_bytes(65536):
+                                    size+=len(data)
+                                    if size>file['bytes']:raise SyncError('download_size_mismatch')
+                                    stream.write(data);digest.update(data)
+                                stream.flush();os.fsync(stream.fileno())
+                            if size!=file['bytes'] or digest.hexdigest()!=file['sha256']:raise SyncError('download_hash_mismatch')
+                            os.replace(partial,target)
+                if use_range:
+                    digest=hashlib.sha256();size=0
+                    with partial.open('wb') as stream:
+                        begin=0;total=file['bytes']
+                        while begin<total:
+                            end=min(begin+PART_BYTES,total)-1
+                            range_headers={**headers,'Range':f'bytes={begin}-{end}'}
+                            async with self.client.stream('GET',url,headers=range_headers) as response:
+                                if response.status_code!=206:raise SyncError('download_unavailable')
+                                async for data in response.aiter_bytes(65536):
+                                    size+=len(data)
+                                    if size>total:raise SyncError('download_size_mismatch')
+                                    stream.write(data);digest.update(data)
+                            begin=end+1
+                        stream.flush();os.fsync(stream.fileno())
+                    if size!=file['bytes'] or digest.hexdigest()!=file['sha256']:raise SyncError('download_hash_mismatch')
+                    os.replace(partial,target)
             except Exception:
                 partial.unlink(missing_ok=True)
                 raise
+            files.append((file['filename'],file['mime'],target))
+        return files
+
+    async def process(self,kind,item):
+        lease=asyncio.create_task(self.renew(kind,item))
+        work=asyncio.create_task(self._process(kind,item))
         try:
-            if ack is not None:
-                ack(cached)
-        except Exception:
-            raise
-        return cached
+            done,_=await asyncio.wait((lease,work),return_when=asyncio.FIRST_COMPLETED)
+            if lease in done:
+                # Lease failure must stop this owner before any further publish/ack.
+                await lease
+                raise SyncError('stale_processing_lease',409)
+            await work
+        finally:
+            for task in (lease,work):task.cancel()
+            await asyncio.gather(lease,work,return_exceptions=True)
 
-    def sample_file(self, resource_id: str, size: int, ranges: list[tuple[int, int]]) -> list[bytes]:
-        """Read only the given ranges. This never issues an unranged GET."""
-        self._check(resource_id, 'a' * 64)
-        if not ranges:
-            raise CloudSyncError('download_unavailable', '没有要抽样的范围。')
-        return [self._read_range(resource_id, begin, end, size) for begin, end in ranges]
-
-    def _download_to(self, resource_id: str, partial: Path, size: int | None):
-        total = self._known_size(size) if size is not None else self._manifest_size(resource_id)
-        if total > self.range_limit:
-            self._download_ranged(resource_id, partial, total)
-            return
-        with self._client.stream('GET', self._content_url(resource_id), headers=self._headers()) as response:
-            if response.status_code == 416:
-                ranged = True
-            elif response.status_code != 200:
-                raise CloudSyncError('download_unavailable', f'文件下载失败 HTTP {response.status_code}。')
+    async def _process(self,kind,item):
+        paths=[]
+        try:
+            if kind=='captures':
+                paths=[self.cache/(item['id']+'-'+f['sha256']+'.download') for f in item['files']]
+                files=await self.download_capture(item)
+                choices=[entry['course_id'] for entry in item.get('course_candidates',[]) if entry.get('basis')=='owner_selected']
+                if len(choices)>1:raise PersonalError('这次上传选择了多个课程，请核对一次关联。','ambiguous_course',409)
+                saved=await self.intake.bridge(self.intake.submit('cloud:'+self.workspace,'file' if files else 'text',{
+                    'submission_id':item['id'],'text':item['text_content'],'source_name':item['title'],'source_time':item['shared_at'],'purpose':item['purpose'],'confirm_large':True},files,
+                    **({'confirmed_course_id':choices[0]} if choices else {})))
+                if not saved.get('saved'):raise SyncError('local_receive_unconfirmed')
+                result={'raw_item_id':saved['submission_id'],'local_receipt_id':saved['id']};state='processing'
             else:
-                declared = response.headers.get('content-length')
-                if declared and declared.isdigit() and int(declared) > self.range_limit:
-                    total = int(declared)
-                    ranged = True
-                else:
-                    ranged = False
-                    self._write_all(response, partial, total)
-        if ranged:
-            self._download_ranged(resource_id, partial, total)
+                result=await self.executor.execute(item);state='completed'
+            # Do not report a completed command before its actual data are readable in the cloud.
+            await self.publish()
+        except asyncio.CancelledError:raise
+        except (PersonalError,ValidationError) as error:
+            result={'code':getattr(error,'code','invalid_input'),'message':str(error) if isinstance(error,PersonalError) else '内容需要核对，原有资料保留。'}
+            state='failed' if kind=='captures' else 'needs_confirmation'
+            record(self.personal,'cloud_process',error,job_id=item['id'],entity=kind,status=state)
+        except Exception as error:
+            temporary=retryable(error)
+            result={'code':'processing_interrupted' if temporary else 'processing_failed',
+                'message':'处理暂时中断，原件保留，会自动继续。' if temporary else '处理失败，原件保留；请核对错误后再重试。'}
+            state=('received' if kind=='captures' else 'pending') if temporary else 'failed'
+            record(self.personal,'cloud_process',error,job_id=item['id'],entity=kind,status=state)
+        finally:
+            for path in paths:
+                path.with_name(path.name+'.partial').unlink(missing_ok=True)
+        from .projection import public_value
+        await self.request('POST','/worker/finish',{'kind':kind,'id':item['id'],'token':item['lease_token'],'state':state,'result':public_value(result),'records':[],
+            'epoch':self.epoch,'generation':self.generation})
 
-    def _download_ranged(self, resource_id: str, partial: Path, total: int):
-        if total < 1 or total > 512_000_000:
-            raise CloudSyncError('download_unavailable', '文件大小无效，已停止下载。')
-        with partial.open('wb') as out:
-            begin = 0
-            while begin < total:
-                end = min(begin + self.chunk_bytes, total) - 1
-                out.write(self._read_range(resource_id, begin, end, total))
-                begin = end + 1
-            out.flush()
-            os.fsync(out.fileno())
-
-    def _read_range(self, resource_id: str, begin: int, end: int, total: int) -> bytes:
-        headers = self._headers()
-        headers['Range'] = f'bytes={begin}-{end}'
-        with self._client.stream('GET', self._content_url(resource_id), headers=headers) as response:
-            if response.status_code != 206:
-                raise CloudSyncError('download_unavailable', f'分段下载失败 HTTP {response.status_code}。')
-            if response.headers.get('content-range') != f'bytes {begin}-{end}/{total}':
-                raise CloudSyncError('download_unavailable', '分段范围与文件不符，已停止下载。')
-            body = response.read()
-        if len(body) != end - begin + 1:
-            raise CloudSyncError('download_unavailable', '分段长度不符，已停止下载。')
-        return body
-
-    def _write_all(self, response: httpx.Response, partial: Path, total: int):
-        remaining = total
-        with partial.open('wb') as out:
-            for chunk in response.iter_bytes():
-                if not chunk:
-                    continue
-                if len(chunk) > remaining or total - remaining + len(chunk) > self.range_limit:
-                    raise CloudSyncError('download_unavailable', '文件超过分段阈值，已停止整文件下载。')
-                out.write(chunk)
-                remaining -= len(chunk)
-            out.flush()
-            os.fsync(out.fileno())
-        if remaining != 0:
-            raise CloudSyncError('download_unavailable', '文件下载不完整，已停止。')
-
-    def _manifest_size(self, resource_id: str) -> int:
-        response = self._client.get(self._content_url(resource_id).rsplit('/', 1)[0] + '/manifest', headers=self._headers())
-        if response.status_code != 200:
-            raise CloudSyncError('download_unavailable', '无法确认文件大小，已停止下载。')
-        try:
-            body = response.json()
-            size = body['bytes']
-        except (ValueError, KeyError, TypeError):
-            raise CloudSyncError('download_unavailable', '无法确认文件大小，已停止下载。') from None
-        return self._known_size(size)
-
-    def _known_size(self, size) -> int:
-        if not isinstance(size, int) or isinstance(size, bool) or size < 1 or size > 512_000_000:
-            raise CloudSyncError('download_unavailable', '文件大小无效，已停止下载。')
-        return size
-
-    def _content_url(self, resource_id: str) -> str:
-        return self.base_url + '/worker/files/' + quote(resource_id, safe='') + '/content'
-
-    def _headers(self) -> dict[str, str]:
-        return {'X-Eric-Worker-Key': self.worker_key, 'Accept-Encoding': 'identity'}
-
-    def _check(self, resource_id: str, sha256: str):
-        if not isinstance(resource_id, str) or not _ID.fullmatch(resource_id) or not isinstance(sha256, str) or not _SHA.fullmatch(sha256):
-            raise CloudSyncError('download_unavailable', '文件标识无效。')
-
-    @staticmethod
-    def _matches(path: Path, sha256: str) -> bool:
-        if not path.is_file():
-            return False
-        digest = hashlib.sha256()
-        with path.open('rb') as source:
-            for chunk in iter(lambda: source.read(1024 * 1024), b''):
-                digest.update(chunk)
-        return digest.hexdigest() == sha256
+    async def renew(self,kind,item):
+        while True:
+            await asyncio.sleep(60)
+            result=await self.request('POST','/worker/renew',{'kind':kind,'id':item['id'],'token':item['lease_token']})
+            if result.get('renewed') is not True:raise SyncError('stale_processing_lease',409)

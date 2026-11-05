@@ -1,12 +1,13 @@
-"""Replay a cloud shortcut by Range, not by one whole-file GET.
+"""Assemble a cloud capture with the real Windows ``CloudSync`` downloader.
 
-Samples two small windows by default. ``--assemble`` checks the sha256, but a
-file above 50 MiB is built from about 4 MiB ranges and a verified id+sha cache
-is reused. A failure does not delete that cache.
+Files above 50 MiB, and any file the server answers with 416, are read in
+``PART_BYTES`` ranges. A verified ``{capture}-{sha256}.download`` cache is
+reused. A failure removes only the incomplete ``*.partial`` file.
 """
 from __future__ import annotations
 
 import argparse
+import asyncio
 import sys
 from pathlib import Path
 
@@ -14,41 +15,64 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from server.cloud_sync.service import CloudSyncError, CloudSyncService, sample_windows
 
-
-def replay(service: CloudSyncService, resource_id: str, size: int, *, sha256: str | None = None, assemble: bool = False, window: int = 65536):
-    if assemble:
-        if not sha256:
-            raise CloudSyncError('download_unavailable', '组装核对需要 sha256。')
-        path = service.download_capture(resource_id, sha256, size=size)
-        return {'mode': 'assemble', 'path': str(path), 'sha256': sha256}
-    windows = sample_windows(size, window)
-    parts = service.sample_file(resource_id, size, windows)
-    return {'mode': 'sample', 'windows': windows, 'lengths': [len(part) for part in parts], 'parts': parts}
+def replay(sync, capture):
+    """Return verified files from ``CloudSync.download_capture``."""
+    files = asyncio.run(sync.download_capture(capture))
+    stored = [(filename, mime, str(path)) for filename, mime, path in files]
+    filename, mime, path = stored[0]
+    return {
+        'mode': 'assemble',
+        'path': path,
+        'filename': filename,
+        'mime': mime,
+        'sha256': capture['files'][0]['sha256'],
+        'files': stored,
+    }
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description='Range-sample a worker cloud file. Assemble only when asked.')
-    parser.add_argument('--base-url', required=True)
+    parser = argparse.ArgumentParser(description='Assemble a worker cloud file with CloudSync.download_capture.')
     parser.add_argument('--worker-key', required=True)
     parser.add_argument('--cache-dir', required=True)
+    parser.add_argument('--capture-id', required=True)
     parser.add_argument('--resource-id', required=True)
     parser.add_argument('--bytes', required=True, type=int)
-    parser.add_argument('--sha256')
-    parser.add_argument('--window', type=int, default=65536)
-    parser.add_argument('--assemble', action='store_true')
+    parser.add_argument('--sha256', required=True)
+    parser.add_argument('--filename', default='capture.bin')
+    parser.add_argument('--mime', default='application/octet-stream')
+    parser.add_argument('--base-url', help='Override the eric-app-api root. Defaults to the CloudSync endpoint.')
     args = parser.parse_args(argv)
+    import httpx
+
+    import server.cloud_sync.service as cloud_sync
+    from server.cloud_sync.service import CloudSync, SyncError
+
+    if args.base_url:
+        cloud_sync.ENDPOINT = args.base_url.rstrip('/')
+    sync = CloudSync.__new__(CloudSync)
+    sync.cache = Path(args.cache_dir)
+    sync.cache.mkdir(parents=True, exist_ok=True)
+    sync.config = {'worker_key': args.worker_key}
+    sync.client = httpx.AsyncClient(timeout=httpx.Timeout(90, connect=10), follow_redirects=False)
+    capture = {
+        'id': args.capture_id,
+        'files': [{
+            'resource_id': args.resource_id,
+            'sha256': args.sha256,
+            'bytes': args.bytes,
+            'filename': args.filename,
+            'mime': args.mime,
+        }],
+    }
     try:
-        with CloudSyncService(args.base_url, args.worker_key, args.cache_dir) as service:
-            result = replay(service, args.resource_id, args.bytes, sha256=args.sha256, assemble=args.assemble, window=args.window)
-    except CloudSyncError as error:
-        print(f'{error.code}: {error}', file=sys.stderr)
+        result = replay(sync, capture)
+    except SyncError as error:
+        print(error.code, file=sys.stderr)
         return 1
-    if result['mode'] == 'sample':
-        print('sample', ' '.join(f'{begin}-{end}:{length}' for (begin, end), length in zip(result['windows'], result['lengths'])))
-    else:
-        print('assemble', result['sha256'], result['path'])
+    finally:
+        asyncio.run(sync.client.aclose())
+    print('assemble', result['sha256'], result['path'])
     return 0
 
 
