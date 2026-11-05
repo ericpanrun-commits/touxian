@@ -15,9 +15,11 @@
 
 第二次启动的 08:50:33 快照实际返回 `held_local_only`、`pending_records=null`、`record_catalogue_not_ready`；目录读取完成后，08:52:59 快照返回 306 条待同步投影。五个授权群均为 `healthy_idle`、连续失败 0；官网健康观察返回 29 个来源。105 个待分析项及 2 个分析错误与采集状态分开。306 的单位是原监控统计的 `raw_item`、`inbox_item`、`inbox` 投影差异，不是 306 条新通知；经批准的脱敏投影与本机完整投影的哈希不同，也不会被冒认成完整原文已同步。
 
+09:00:01 原调度的下一次 `periodic` 扫描开始，09:00:03 结束为 `no_change`，五个授权群的独立扫描记录均为 `complete`；下一次计划 09:15。Raw 762、快照 836、微信消息 709、模型调用 59，均与第二次重启后的数量一致。健康监控快照与采集日志分时读取，09:00 的群级完成证据以本机扫描日志为准。
+
 重启前后 Matter/event 11、Task 23、课程 10、Review 13 的完整内容哈希一致；微信模型调用账本仍为 59 条且完整哈希一致。对重启前已有 Raw、快照、微信消息、分析作业和调用记录逐行比较，缺失和改写均为 0；外键检查错误 0。配置文件哈希不变，两个暂停开关始终有效。后续真实业务变化不应与这个短窗口对照混为一谈。
 
-第二次重启的只读快照、备份及对照位于 `desktop/attention-desk/artifacts/p0-20261104/health-catalogue-activation-20261105-005008-225002/`：`before.json`、`personal.sqlite3`、`initial-health.json`、`after.json`、`final-health.json`。这些文件包含本机数据或内部标识，保留在忽略目录，不提交 Git。第一次重启的对照位于同级 `health-observer-activation-20261105-004618-073618/`。隔离回归 `health-catalogue-20261105-results.xml`：26 项通过。
+第二次重启的只读快照、备份及对照位于 `desktop/attention-desk/artifacts/p0-20261104/health-catalogue-activation-20261105-005008-225002/`：`before.json`、`personal.sqlite3`、`initial-health.json`、`after.json`、`final-health.json`、`periodic-health.json`、`periodic-db-check.json`。这些文件包含本机数据或内部标识，保留在忽略目录，不提交 Git。第一次重启的对照位于同级 `health-observer-activation-20261105-004618-073618/`。隔离回归 `health-catalogue-20261105-results.xml`：26 项通过。
 
 ## 积压与授权边界
 
