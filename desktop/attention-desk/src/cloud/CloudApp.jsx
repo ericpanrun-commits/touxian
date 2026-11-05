@@ -63,12 +63,12 @@ export default function CloudApp() {
   const exit=()=>setDialog({title:'退出此设备？',message:queue.captures?'还有待发送的收集，原件将保留在此设备。请先完成发送，再退出可方便日后继续。':'其他设备仍保持登录，已经保存的资料会保留。',confirmLabel:'退出此设备',action:async()=>{try{await signOut();setAccount(null);setDialog(null);}catch(value){setDialog(null);setNotice(value.message||'尚未退出，请恢复连接后重试。');}}});
   if(starting)return <div className="desk-shell cloud-shell"><main className="cloud-auth"><p role="status"><LoaderCircle size={20} className="spin"/>正在打开 Eric OS…</p></main></div>;
   if(!account)return <div className="desk-shell cloud-shell"><Login error={error} onReady={restore}/></div>;
-  return <div className="desk-shell cloud-shell"><div className="personal-workspace"><DeskChrome cloud mode={route.view} onNavigate={navigate}/><main key={account.owner+':'+account.device.id} className="personal-content" id="main-content">
+  return <div className="desk-shell cloud-shell" data-view={route.view}><div className="personal-workspace"><DeskChrome cloud mode={route.view} onNavigate={navigate}/><main key={account.owner+':'+account.device.id} className="personal-content" id="main-content">
     <a className="cloud-skip-link" href="#page-heading">跳到当前内容</a>
     <div className="cloud-connection" role="status">{!online?'当前离线，收集会保存在此设备。':queue.captures?`${queue.captures} 份收集正在自动发送。`:queue.commands?`${queue.commands} 项修改已保存，正在接续处理。`:null}</div>
     {notice?<p className="cloud-feedback" role="status" aria-live="polite">{notice}</p>:null}
     <Suspense fallback={null}><PendingChanges navigate={navigate}/></Suspense>
-    <h1 ref={heading} id="page-heading" className="cloud-page-title" tabIndex={-1}>{names[route.view]}</h1>
+    <h1 ref={heading} id="page-heading" className={`cloud-page-title${route.view==='today'?' sr-only':''}`} tabIndex={-1}>{names[route.view]}</h1>
     <Connectivity.Provider value={online}><Suspense fallback={<p className="personal-meta" role="status">正在打开…</p>}><Pages route={route} navigate={navigate} onDirtyChange={markDirty} onNotice={setNotice} account={account} onExit={exit} onRevoked={async()=>{await signOut({alreadyRevoked:true});setAccount(null);}}/></Suspense></Connectivity.Provider>
   </main>{dialog?<ConfirmDialog {...dialog} onCancel={()=>setDialog(null)} onConfirm={()=>void dialog.action()}/>:null}</div></div>;
 }

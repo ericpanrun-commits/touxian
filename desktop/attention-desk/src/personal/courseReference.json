@@ -1,0 +1,593 @@
+{
+  "provenance": "Owner-provided 2026 fall iCalendar. Presentation metadata only; live API fields take precedence. No schedule times are duplicated.",
+  "courses": {
+    "大学体育1": {
+      "teacher": "吴磊"
+    },
+    "工程图学1": {
+      "teacher": "王海"
+    },
+    "高等数学I1": {
+      "teacher": "林秋红"
+    },
+    "中国近现代史纲要": {
+      "teacher": "李洋洋"
+    },
+    "人工智能与计算机程序设计": {
+      "teacher": "朱明汉"
+    },
+    "大学英语1": {
+      "teacher": "吴永练"
+    },
+    "车辆工程专业导论": {
+      "teacher": "朱天军"
+    },
+    "职业生涯与发展规划": {
+      "teacher": "陈家泓"
+    },
+    "军事理论": {
+      "teacher": "黎锐楷"
+    },
+    "形势与政策1": {
+      "teacher": "方拥香"
+    }
+  },
+  "sessions": {
+    "70a612711bda4e421eb4@openai-timetable": {
+      "teacher": "吴磊",
+      "location": "31号-体育馆（正门前面）"
+    },
+    "ab1998b9300c47eda1bc@openai-timetable": {
+      "teacher": "吴磊",
+      "location": "31号-体育馆（正门前面）"
+    },
+    "e105898117d97f97e93a@openai-timetable": {
+      "teacher": "吴磊",
+      "location": "31号-体育馆（正门前面）"
+    },
+    "7f02e89fccf670d1330f@openai-timetable": {
+      "teacher": "吴磊",
+      "location": "31号-体育馆（正门前面）"
+    },
+    "a3a8e3b0774522e63681@openai-timetable": {
+      "teacher": "吴磊",
+      "location": "31号-体育馆（正门前面）"
+    },
+    "8ddff5b39b1b971b3254@openai-timetable": {
+      "teacher": "吴磊",
+      "location": "31号-体育馆（正门前面）"
+    },
+    "850991444627eff9c52c@openai-timetable": {
+      "teacher": "吴磊",
+      "location": "31号-体育馆（正门前面）"
+    },
+    "b615d5aa9fd6f932c8b1@openai-timetable": {
+      "teacher": "吴磊",
+      "location": "31号-体育馆（正门前面）"
+    },
+    "2402f53048790e2ee15e@openai-timetable": {
+      "teacher": "吴磊",
+      "location": "31号-体育馆（正门前面）"
+    },
+    "f2b8e58df8dbe712581a@openai-timetable": {
+      "teacher": "吴磊",
+      "location": "31号-体育馆（正门前面）"
+    },
+    "b14a8f20c446426551be@openai-timetable": {
+      "teacher": "吴磊",
+      "location": "31号-体育馆（正门前面）"
+    },
+    "2c3fd18f3fbf9ac74fef@openai-timetable": {
+      "teacher": "吴磊",
+      "location": "31号-体育馆（正门前面）"
+    },
+    "4107bc526970f0acbc8f@openai-timetable": {
+      "teacher": "吴磊",
+      "location": "31号-体育馆（正门前面）"
+    },
+    "8cbefb8fc04a16314285@openai-timetable": {
+      "teacher": "吴磊",
+      "location": "31号-体育馆（正门前面）"
+    },
+    "874ea89a77a86e045c23@openai-timetable": {
+      "teacher": "吴磊",
+      "location": "31号-体育馆（正门前面）"
+    },
+    "e22c823393e9fb033aa9@openai-timetable": {
+      "teacher": "吴磊",
+      "location": "31号-体育馆（正门前面）"
+    },
+    "05c6b17952b485ce39c1@openai-timetable": {
+      "teacher": "吴磊",
+      "location": "31号-体育馆（正门前面）"
+    },
+    "64bf980199c071695791@openai-timetable": {
+      "teacher": "吴磊",
+      "location": "31号-体育馆（正门前面）"
+    },
+    "7976367fc4ffa974d560@openai-timetable": {
+      "teacher": "王海",
+      "location": "1号教学楼113"
+    },
+    "0be7d7df23c4c84df9b0@openai-timetable": {
+      "teacher": "王海",
+      "location": "1号教学楼113"
+    },
+    "b3311e31431202106310@openai-timetable": {
+      "teacher": "王海",
+      "location": "1号教学楼113"
+    },
+    "22c4c05456b188dd9536@openai-timetable": {
+      "teacher": "王海",
+      "location": "1号教学楼113"
+    },
+    "91abf52a45906c686955@openai-timetable": {
+      "teacher": "王海",
+      "location": "1号教学楼113"
+    },
+    "b26d8d12d294882aedab@openai-timetable": {
+      "teacher": "王海",
+      "location": "1号教学楼113"
+    },
+    "6b8a34240dec2d1042b0@openai-timetable": {
+      "teacher": "王海",
+      "location": "1号教学楼113"
+    },
+    "3d1f3984580782edf982@openai-timetable": {
+      "teacher": "王海",
+      "location": "1号教学楼113"
+    },
+    "55e28b8254e294e58722@openai-timetable": {
+      "teacher": "王海",
+      "location": "1号教学楼113"
+    },
+    "a2bd6ea4e3d1fc081a7e@openai-timetable": {
+      "teacher": "王海",
+      "location": "1号教学楼113"
+    },
+    "91f55ee3b63535e82ccd@openai-timetable": {
+      "teacher": "王海",
+      "location": "1号教学楼113"
+    },
+    "c2488a371e0e8d4d1977@openai-timetable": {
+      "teacher": "王海",
+      "location": "1号教学楼113"
+    },
+    "adb671f1854c73a22201@openai-timetable": {
+      "teacher": "林秋红",
+      "location": "1号教学楼110"
+    },
+    "86456e37e3b33bce8b3a@openai-timetable": {
+      "teacher": "林秋红",
+      "location": "1号教学楼110"
+    },
+    "996eaa7ed1d75957f988@openai-timetable": {
+      "teacher": "林秋红",
+      "location": "1号教学楼110"
+    },
+    "69595e83917dbb6375bd@openai-timetable": {
+      "teacher": "林秋红",
+      "location": "1号教学楼110"
+    },
+    "e4ebffa676f4b7793ac8@openai-timetable": {
+      "teacher": "林秋红",
+      "location": "1号教学楼110"
+    },
+    "69aa3e95c15b4e362aab@openai-timetable": {
+      "teacher": "林秋红",
+      "location": "1号教学楼110"
+    },
+    "ecd7e9abac67320f736f@openai-timetable": {
+      "teacher": "林秋红",
+      "location": "1号教学楼110"
+    },
+    "21a403719f582957dac5@openai-timetable": {
+      "teacher": "林秋红",
+      "location": "1号教学楼110"
+    },
+    "5ab6fae5e8b5388baf5c@openai-timetable": {
+      "teacher": "林秋红",
+      "location": "1号教学楼110"
+    },
+    "208b0c424b26a8fc93a1@openai-timetable": {
+      "teacher": "林秋红",
+      "location": "1号教学楼110"
+    },
+    "23084a0027e6669723fa@openai-timetable": {
+      "teacher": "林秋红",
+      "location": "1号教学楼110"
+    },
+    "b0b1e4ec22a328f842cb@openai-timetable": {
+      "teacher": "李洋洋",
+      "location": "新教学楼B302"
+    },
+    "c65fc32cb8f3e108a039@openai-timetable": {
+      "teacher": "李洋洋",
+      "location": "新教学楼B302"
+    },
+    "d004279fcb04fdb1a4a2@openai-timetable": {
+      "teacher": "李洋洋",
+      "location": "新教学楼B302"
+    },
+    "4f44d574178b3b337e37@openai-timetable": {
+      "teacher": "李洋洋",
+      "location": "新教学楼B302"
+    },
+    "2ce14b96e96955fa254e@openai-timetable": {
+      "teacher": "李洋洋",
+      "location": "新教学楼B302"
+    },
+    "ad8fafc190fc3914b8b6@openai-timetable": {
+      "teacher": "李洋洋",
+      "location": "新教学楼B302"
+    },
+    "399c778f8c4b3d3ad5bf@openai-timetable": {
+      "teacher": "李洋洋",
+      "location": "新教学楼B302"
+    },
+    "2b7169e0bbcee97fd0b7@openai-timetable": {
+      "teacher": "李洋洋",
+      "location": "新教学楼B302"
+    },
+    "c04be64876c65463f707@openai-timetable": {
+      "teacher": "李洋洋",
+      "location": "新教学楼B302"
+    },
+    "8e927dc2d4b612d2eeae@openai-timetable": {
+      "teacher": "李洋洋",
+      "location": "新教学楼B302"
+    },
+    "855814d3b0026e5b6638@openai-timetable": {
+      "teacher": "李洋洋",
+      "location": "新教学楼B302"
+    },
+    "e3800178aa5f5d419496@openai-timetable": {
+      "teacher": "李洋洋",
+      "location": "新教学楼B302"
+    },
+    "45e13e4330d38df75185@openai-timetable": {
+      "teacher": "朱明汉",
+      "location": "新教学楼B310"
+    },
+    "75fafe5dd09017d1ba76@openai-timetable": {
+      "teacher": "朱明汉",
+      "location": "新教学楼B310"
+    },
+    "6812d865f5dca671a0ef@openai-timetable": {
+      "teacher": "朱明汉",
+      "location": "新教学楼B310"
+    },
+    "b5d1b49bd0830ce618a1@openai-timetable": {
+      "teacher": "朱明汉",
+      "location": "新教学楼B310"
+    },
+    "0cf26f646a0248aef016@openai-timetable": {
+      "teacher": "朱明汉",
+      "location": "新教学楼B310"
+    },
+    "b0afedfb5c9109a4237b@openai-timetable": {
+      "teacher": "朱明汉",
+      "location": "新教学楼B310"
+    },
+    "2a87a530e49bcbee0424@openai-timetable": {
+      "teacher": "朱明汉",
+      "location": "新教学楼B310"
+    },
+    "ea75b00a9a74b0fc2ebe@openai-timetable": {
+      "teacher": "朱明汉",
+      "location": "新教学楼B310"
+    },
+    "1b9fa7aa9dbeff7315a6@openai-timetable": {
+      "teacher": "朱明汉",
+      "location": "新教学楼B310"
+    },
+    "8f8612564ff197c055b0@openai-timetable": {
+      "teacher": "朱明汉",
+      "location": "新教学楼B310"
+    },
+    "cbec1415cb6a27afe6d5@openai-timetable": {
+      "teacher": "朱明汉",
+      "location": "新教学楼B310"
+    },
+    "a391b4c935ffdf9ddc0c@openai-timetable": {
+      "teacher": "林秋红",
+      "location": "1号教学楼110"
+    },
+    "a6e3f91e8d2673c95be0@openai-timetable": {
+      "teacher": "林秋红",
+      "location": "1号教学楼110"
+    },
+    "91e74a3d679fba5e09e1@openai-timetable": {
+      "teacher": "林秋红",
+      "location": "1号教学楼110"
+    },
+    "375636d1239bd3612250@openai-timetable": {
+      "teacher": "林秋红",
+      "location": "1号教学楼110"
+    },
+    "ed2ca0a9a2174a8d5801@openai-timetable": {
+      "teacher": "林秋红",
+      "location": "1号教学楼110"
+    },
+    "f44f870f3726dc744c80@openai-timetable": {
+      "teacher": "林秋红",
+      "location": "1号教学楼110"
+    },
+    "a6da9cd92a3651e7aea0@openai-timetable": {
+      "teacher": "林秋红",
+      "location": "1号教学楼110"
+    },
+    "851ee0ae1cfd155eb0b1@openai-timetable": {
+      "teacher": "林秋红",
+      "location": "1号教学楼110"
+    },
+    "64060d06568f90207b25@openai-timetable": {
+      "teacher": "林秋红",
+      "location": "1号教学楼110"
+    },
+    "2da96ef39f317acf1585@openai-timetable": {
+      "teacher": "林秋红",
+      "location": "1号教学楼110"
+    },
+    "bf096ead231a0ec011d0@openai-timetable": {
+      "teacher": "林秋红",
+      "location": "1号教学楼110"
+    },
+    "7983e9dfbb7d40deb6d9@openai-timetable": {
+      "teacher": "林秋红",
+      "location": "1号教学楼110"
+    },
+    "504917efc45d6c90241b@openai-timetable": {
+      "teacher": "吴永练",
+      "location": "2号教学楼201"
+    },
+    "77967eee73076673c6a3@openai-timetable": {
+      "teacher": "吴永练",
+      "location": "2号教学楼201"
+    },
+    "0784dae4ed1264e4d078@openai-timetable": {
+      "teacher": "吴永练",
+      "location": "2号教学楼201"
+    },
+    "4b9cf9d2519778e33c8d@openai-timetable": {
+      "teacher": "吴永练",
+      "location": "2号教学楼201"
+    },
+    "6b46f9663e161674fcae@openai-timetable": {
+      "teacher": "吴永练",
+      "location": "2号教学楼201"
+    },
+    "207df34aec7861513c45@openai-timetable": {
+      "teacher": "吴永练",
+      "location": "2号教学楼201"
+    },
+    "d1313173c2f86fa7ed1b@openai-timetable": {
+      "teacher": "吴永练",
+      "location": "2号教学楼201"
+    },
+    "0a998245d458c1c71ffb@openai-timetable": {
+      "teacher": "吴永练",
+      "location": "2号教学楼201"
+    },
+    "3a82084742b279d927be@openai-timetable": {
+      "teacher": "吴永练",
+      "location": "2号教学楼201"
+    },
+    "138e60308ec4d311f9ea@openai-timetable": {
+      "teacher": "吴永练",
+      "location": "2号教学楼201"
+    },
+    "8c0b1df26207bdf8f85f@openai-timetable": {
+      "teacher": "吴永练",
+      "location": "2号教学楼201"
+    },
+    "d0d694fe9a058bb02319@openai-timetable": {
+      "teacher": "朱天军",
+      "location": "1号教学楼216"
+    },
+    "fc4b25c3a98feee987b4@openai-timetable": {
+      "teacher": "朱天军",
+      "location": "1号教学楼216"
+    },
+    "a474451518e010529e0e@openai-timetable": {
+      "teacher": "朱天军",
+      "location": "1号教学楼216"
+    },
+    "c207ec87711ccc87e92e@openai-timetable": {
+      "teacher": "朱天军",
+      "location": "1号教学楼216"
+    },
+    "dd90a11fd34496f04b79@openai-timetable": {
+      "teacher": "朱天军",
+      "location": "1号教学楼216"
+    },
+    "ffd64057aef12bd0fa0c@openai-timetable": {
+      "teacher": "朱天军",
+      "location": "1号教学楼216"
+    },
+    "76e25549d804eceffac8@openai-timetable": {
+      "teacher": "朱天军",
+      "location": "1号教学楼216"
+    },
+    "f50a088caf923911b694@openai-timetable": {
+      "teacher": "朱天军",
+      "location": "1号教学楼216"
+    },
+    "b48c1752f7accfb01767@openai-timetable": {
+      "teacher": "林秋红",
+      "location": "1号教学楼110"
+    },
+    "092aeed0a3ff524325d3@openai-timetable": {
+      "teacher": "林秋红",
+      "location": "1号教学楼110"
+    },
+    "3c397d40f5b1d6ff55a3@openai-timetable": {
+      "teacher": "林秋红",
+      "location": "1号教学楼110"
+    },
+    "be0a45b2f7941d480d86@openai-timetable": {
+      "teacher": "林秋红",
+      "location": "1号教学楼110"
+    },
+    "c6b13d086e27a7998db6@openai-timetable": {
+      "teacher": "林秋红",
+      "location": "1号教学楼110"
+    },
+    "3c87c446fc930e251210@openai-timetable": {
+      "teacher": "林秋红",
+      "location": "1号教学楼110"
+    },
+    "f8bfc1e92f2a7c354db2@openai-timetable": {
+      "teacher": "林秋红",
+      "location": "1号教学楼110"
+    },
+    "9611279f32a081467127@openai-timetable": {
+      "teacher": "林秋红",
+      "location": "1号教学楼110"
+    },
+    "a999b3529e662d665067@openai-timetable": {
+      "teacher": "林秋红",
+      "location": "1号教学楼110"
+    },
+    "bf73bc327115ad5bbf43@openai-timetable": {
+      "teacher": "林秋红",
+      "location": "1号教学楼110"
+    },
+    "4e0afe029083deb1b47e@openai-timetable": {
+      "teacher": "林秋红",
+      "location": "1号教学楼110"
+    },
+    "01f1bd2fb90e4871d44d@openai-timetable": {
+      "teacher": "王海",
+      "location": "新教学楼B310"
+    },
+    "2238eab52f47f2ec9586@openai-timetable": {
+      "teacher": "王海",
+      "location": "新教学楼B310"
+    },
+    "bf69f5cf4f3449c6e15e@openai-timetable": {
+      "teacher": "王海",
+      "location": "新教学楼B310"
+    },
+    "6d7b766eb7ca3a53d987@openai-timetable": {
+      "teacher": "王海",
+      "location": "新教学楼B310"
+    },
+    "8a2c69c70c5a6e947091@openai-timetable": {
+      "teacher": "王海",
+      "location": "新教学楼B310"
+    },
+    "c70999b7908c8a27c228@openai-timetable": {
+      "teacher": "王海",
+      "location": "新教学楼B310"
+    },
+    "3e1ca1e08f07acf25c0d@openai-timetable": {
+      "teacher": "王海",
+      "location": "新教学楼B310"
+    },
+    "6a1ec935a4a246c22815@openai-timetable": {
+      "teacher": "王海",
+      "location": "新教学楼B310"
+    },
+    "c31790f8b26976a8d370@openai-timetable": {
+      "teacher": "王海",
+      "location": "新教学楼B310"
+    },
+    "ab0ea7703b1e877dfec7@openai-timetable": {
+      "teacher": "王海",
+      "location": "新教学楼B310"
+    },
+    "16be1c80576ff0d0d59a@openai-timetable": {
+      "teacher": "王海",
+      "location": "新教学楼B310"
+    },
+    "9083c92bb2fb8d6328bc@openai-timetable": {
+      "teacher": "陈家泓",
+      "location": "新教学楼B302"
+    },
+    "90f7938736bd90c57bd4@openai-timetable": {
+      "teacher": "陈家泓",
+      "location": "新教学楼B302"
+    },
+    "386d0a2cd7f10ad8a930@openai-timetable": {
+      "teacher": "陈家泓",
+      "location": "新教学楼B302"
+    },
+    "a992838962729fafdc98@openai-timetable": {
+      "teacher": "陈家泓",
+      "location": "新教学楼B302"
+    },
+    "7d522e3cfff5697c48c2@openai-timetable": {
+      "teacher": "陈家泓",
+      "location": "新教学楼B302"
+    },
+    "37ba2ee5b96f994a408e@openai-timetable": {
+      "teacher": "陈家泓",
+      "location": "新教学楼B302"
+    },
+    "3110182ad1fa96115d92@openai-timetable": {
+      "teacher": "陈家泓",
+      "location": "新教学楼B302"
+    },
+    "5fe41b8046a13b92bcd9@openai-timetable": {
+      "teacher": "陈家泓",
+      "location": "新教学楼B302"
+    },
+    "3e18153d8b11fbbf2b39@openai-timetable": {
+      "teacher": "黎锐楷",
+      "location": "新教学楼A101"
+    },
+    "f4da3e94b554037b2b36@openai-timetable": {
+      "teacher": "黎锐楷",
+      "location": "新教学楼A101"
+    },
+    "719bc865994467552147@openai-timetable": {
+      "teacher": "黎锐楷",
+      "location": "新教学楼A101"
+    },
+    "9764d31c91333c346bad@openai-timetable": {
+      "teacher": "黎锐楷",
+      "location": "新教学楼A101"
+    },
+    "fd1fb537d73bb3b4c788@openai-timetable": {
+      "teacher": "黎锐楷",
+      "location": "新教学楼A101"
+    },
+    "111584d5af92b31aeb51@openai-timetable": {
+      "teacher": "黎锐楷",
+      "location": "新教学楼A101"
+    },
+    "de3f2f913d3f51e8f5fe@openai-timetable": {
+      "teacher": "朱明汉",
+      "location": "科技实训楼504"
+    },
+    "e8b7d8c585d6b34fa22d@openai-timetable": {
+      "teacher": "朱明汉",
+      "location": "科技实训楼504"
+    },
+    "708791baaf28c2fe3946@openai-timetable": {
+      "teacher": "朱明汉",
+      "location": "科技实训楼504"
+    },
+    "22271f400a7ab50ea206@openai-timetable": {
+      "teacher": "朱明汉",
+      "location": "科技实训楼504"
+    },
+    "c630c28eba0bb457ae27@openai-timetable": {
+      "teacher": "方拥香",
+      "location": "2号教学楼201"
+    },
+    "d74fa8ae095e31d046a0@openai-timetable": {
+      "teacher": "方拥香",
+      "location": "2号教学楼201"
+    },
+    "4476e5b629ea02491cf4@openai-timetable": {
+      "teacher": "吴永练",
+      "location": ""
+    },
+    "2322f0f269fd73e653cd@openai-timetable": {
+      "teacher": "吴永练",
+      "location": ""
+    }
+  }
+}

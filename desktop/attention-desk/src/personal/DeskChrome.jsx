@@ -1,4 +1,5 @@
 import { useLayoutEffect, useState } from 'react';
+import CloudChrome from '../cloud/CloudChrome';
 import { Bell, BookOpen, Inbox, CalendarDays, CheckCheck, Globe2, ListTodo, MessageCircle, Monitor, Moon, Plus, Settings2, Sun, History, CircleCheck, Ellipsis } from 'lucide-react';
 
 export default function DeskChrome({ mode, busy, onNavigate, onSwitchScreen, cloud = false }) {
@@ -8,13 +9,14 @@ export default function DeskChrome({ mode, busy, onNavigate, onSwitchScreen, clo
   });
   useLayoutEffect(() => {
     const media = window.matchMedia('(prefers-color-scheme: dark)');
-    const update = () => { document.documentElement.dataset.deskTheme = theme === 'system' ? media.matches ? 'dark' : 'light' : theme; };
+    const update = () => { const resolved=theme === 'system' ? media.matches ? 'dark' : 'light' : theme; document.documentElement.dataset.deskTheme = resolved; document.querySelector('meta[name="theme-color"]')?.setAttribute('content',resolved==='dark'?'#141416':'#f2f2f7'); };
     update(); media.addEventListener('change', update);
     try { localStorage.setItem('attention-desk-theme', theme); } catch { /* Appearance still works without persistent storage. */ }
     return () => media.removeEventListener('change', update);
   }, [theme]);
   const routes = cloud ? [['today','Today',Sun],['courses','课程',BookOpen],['inbox','Inbox',Inbox],['reviews','Review',CircleCheck],['recent','最近',History],['learning','学习',BookOpen],['tasks','事项',ListTodo]] : [['today', '今天', Sun], ['learning', 'Learning', BookOpen], ['eric-inbox', 'Inbox', Inbox], ['wechat-inbox', '待确认', Bell], ['list', '所有事项', ListTodo], ['calendar', '日历', CalendarDays]];
   const phoneRoutes = [['today','Today',Sun],['capture','Capture',Plus],['inbox','Inbox',Inbox],['reviews','Review',CircleCheck],['more','更多',Ellipsis]];
+  if (cloud) return <CloudChrome mode={mode} busy={busy} onNavigate={onNavigate} theme={theme} setTheme={setTheme}/>;
   const settings = /settings|user-context/.test(mode);
   const learningIntake = ['learning', 'school', 'eric-inbox'].includes(mode);
   return <><aside className={`desk-navigation${cloud?' cloud-navigation':''}`}><a className="desk-brand" href={cloud?'?view=today':'?personal_view=today'}><span><CheckCheck size={21} /></span>{cloud?'Eric OS':'Attention Desk'}</a>

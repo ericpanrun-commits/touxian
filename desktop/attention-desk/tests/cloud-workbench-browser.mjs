@@ -59,6 +59,7 @@ async function environment(browser,viewport,label){
     const body=req.postDataJSON?(()=>{try{return req.postDataJSON();}catch{return null;}})():null;
     if(path==='/session')return send({device:{id:device,label:'隔离测试 '+label,platform:label==='desktop'?'windows':label==='tablet'?'ipad':'iphone'},account:user,timezone:'Asia/Shanghai'});
     if(path==='/system')return send({cloud_available:true,processing_online:state.windows,last_processed_at:NOW,cursor:state.revision,waiting:0});
+    if(path==='/planning/upcoming')return send({items:[],total:0,today:'2026-10-29',timezone:'Asia/Shanghai'});
     if(path==='/changes')return send({items:state.changes.filter(item=>item.revision>Number(url.searchParams.get('after')||0)),cursor:state.revision,more:false});
     if(path==='/activity')return send({items:[...state.commands.values()]});
     if(path==='/dashboard')return send({today:'2026-10-29',timezone:'Asia/Shanghai',classes:[{uid:'synthetic-class',title:'隔离测试 · 高数课',start:'2026-10-29T13:30:00+08:00',end:'2026-10-29T15:00:00+08:00',state:'upcoming',course_id:course.id}],deadlines:[],tasks:event.tasks.filter(task=>task.status!=='done').map(task=>({...task,event_id:event.id,event_title:event.title,event_version:1})),reviews:state.read?[]:[{id:'review-synthetic',title:lecture.title,version:1,lecture_date:lecture.lecture_date}],review_count:state.read?0:1,needs_confirmation:0,next_action:{kind:'review',title:'读一份课堂复盘',id:'review-synthetic'}});
@@ -134,7 +135,7 @@ async function environment(browser,viewport,label){
   await expect(page.getByRole('heading',{name:'Eric OS',exact:true})).toBeVisible();
   if(label==='phone')await shot(page,'phone-login.png');
   await page.getByLabel('邮箱',{exact:true}).fill('synthetic@example.test');await page.getByLabel('密码',{exact:true}).fill('synthetic-password-only-in-mock');await page.getByRole('button',{name:'登录 Eric OS',exact:true}).click();
-  await expect(page.getByRole('heading',{name:'Today',exact:true})).toBeVisible({timeout:15000});await expect(page.getByText('隔离测试 · 高数课',{exact:true})).toBeVisible();
+  await expect(page.getByRole('heading',{name:'Today',exact:true})).toBeVisible({timeout:15000});await expect(page.locator('.today-timeline').getByText('隔离测试 · 高数课',{exact:true})).toBeVisible();
   return {context,page,label,setOffline:async value=>{
     network.offline=value;
     if(process.env.ERIC_WEB_ENGINE==='webkit'){
@@ -215,14 +216,14 @@ try {
   await expect(desktop.page.getByRole('heading',{name:'安装到桌面或主屏幕',exact:true})).toBeVisible();
   await shot(desktop.page,'desktop-system.png');
   reports.push({canonical_lecture:'notes, source preview, contextual export and device status use the cloud adapter'});
-  await phone.page.getByRole('button',{name:'Review',exact:true}).click();await expect(phone.page.getByRole('heading',{name:'课堂复盘',exact:true})).toBeVisible();
+  await phone.page.getByRole('navigation',{name:'主要导航'}).getByRole('button',{name:'更多',exact:true}).click();await phone.page.getByRole('button',{name:'Review',exact:true}).click();await expect(phone.page.getByRole('heading',{name:'课堂复盘',exact:true})).toBeVisible();
   await phone.page.getByRole('button',{name:/隔离测试课堂/}).click();await expect(phone.page.getByRole('button',{name:'标记已读',exact:true})).toBeVisible();
   await phone.page.getByRole('button',{name:'标记已读',exact:true}).click();await expect(phone.page.getByRole('button',{name:'标为未读',exact:true})).toBeVisible({timeout:20000});
   await shot(phone.page,'phone-review.png');
   await tablet.page.getByRole('button',{name:'Review',exact:true}).click();await tablet.page.getByRole('button',{name:/隔离测试课堂/}).click();await expect(tablet.page.getByRole('button',{name:'标为未读',exact:true})).toBeVisible({timeout:15000});
   await desktop.page.getByRole('button',{name:'Review',exact:true}).click();await desktop.page.getByRole('button',{name:/隔离测试课堂/}).click();await expect(desktop.page.getByRole('button',{name:'标为未读',exact:true})).toBeVisible();
   reports.push({shared_reading_progress:'three independent browser stores agree while Windows is off'});
-  await phone.page.getByRole('button',{name:'Capture',exact:true}).click();await expect(phone.page.getByLabel('内容',{exact:true})).toBeVisible();
+  await phone.page.getByRole('button',{name:'新建 Capture',exact:true}).click();await expect(phone.page.getByLabel('内容',{exact:true})).toBeVisible();
   await shot(phone.page,'phone-capture.png');
   await phone.page.getByLabel('标题（可选）',{exact:true}).fill('返回保护测试');
   await phone.page.goBack();await expect(phone.page.getByRole('dialog')).toBeVisible();
@@ -278,7 +279,7 @@ try {
   await shot(phone.page,'phone-retained-copy.png');
   await desktop.page.goto(BASE+'/?view=inbox');await expect(desktop.page.getByRole('heading',{name:'Inbox',exact:true})).toBeVisible();await expect(desktop.page.getByText('隔离测试输入',{exact:true})).toBeVisible();await shot(desktop.page,'desktop-inbox.png');
   await phone.page.setViewportSize({width:320,height:740});await phone.page.emulateMedia({colorScheme:'dark',reducedMotion:'reduce'});await phone.page.goto(BASE+'/?view=today');await expect(phone.page.getByRole('heading',{name:'Today',exact:true})).toBeVisible();
-  await expect(phone.page.getByRole('heading',{name:'今天的课',exact:true})).toBeVisible();
+  await expect(phone.page.getByRole('heading',{name:/^今日课程/})).toBeVisible();
   await expect.poll(()=>phone.page.evaluate(()=>document.documentElement.dataset.deskTheme)).toBe('dark');
   await phone.page.evaluate(async()=>{await document.fonts.ready;await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));});
   assert.ok(await phone.page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));await phone.page.keyboard.press('Tab');await shot(phone.page,'phone-320-dark-keyboard.png');

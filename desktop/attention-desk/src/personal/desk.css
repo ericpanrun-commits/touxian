@@ -1,25 +1,10 @@
-/* Attention Desk daily workspace. Runtime token owner; mirrored in DESIGN.md. */
-:root:has(.desk-shell) {
-  --ink: #1d1d1f; --paper: #f5f5f7; --panel: #ffffff; --soft: #eeeef2;
-  --muted: #6e6e73; --subtle: #77777e; --line: #d2d2d7; --line-soft: #e5e5ea;
-  --blue: #0066d6; --blue-soft: #eaf3ff; --green: #237347; --green-soft: #edf7f0;
-  --red: #c93434; --red-soft: #fff0ee; --yellow: #915800; --yellow-soft: #fff5e6;
-  --scrollbar-thumb: #c5c5cc; --scrollbar-track: #f5f5f7; --scrollbar-hover: #97979f; --scrollbar-active: #6e6e73;
-  --desk-radius: 18px; --desk-control-radius: 10px; --desk-nav-width: 216px;
-  --desk-shadow: 0 12px 60px #00000016;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei UI", "PingFang SC", sans-serif;
-  font-size: 14px; color-scheme: light;
-}
-:root[data-desk-theme="dark"]:has(.desk-shell) {
-  --ink: #f5f5f7; --paper: #141416; --panel: #202023; --soft: #2b2b30;
-  --muted: #adadb5; --subtle: #9898a2; --line: #46464c; --line-soft: #35353b;
-  --blue: #72b4ff; --blue-soft: #1e3550; --green: #8bd4a3; --green-soft: #23382b;
-  --red: #ff9c95; --red-soft: #462825; --yellow: #f8c773; --yellow-soft: #3b3021;
-  --scrollbar-thumb: #494951; --scrollbar-track: #141416; --scrollbar-hover: #686873; --scrollbar-active: #92929b;
-  color-scheme: dark;
-}
+@import './design-tokens.css';
+/* Shared legacy surfaces inherit Eric OS tokens; feature layout migrates gradually. */
 body:has(.desk-shell) { min-width: 320px; background: var(--paper); }
 .desk-shell { background: var(--paper); color: var(--ink); }
+/* Invalidate inherited text and canvas together when the theme selector changes. */
+:root[data-desk-theme="dark"] .desk-shell,
+:root[data-desk-theme="dark"] body:has(.desk-shell) { background: var(--paper); color: var(--ink); }
 .desk-shell .personal-source-image, .desk-sheet .personal-source-image { width: fit-content; max-width: 100%; }
 .desk-shell .personal-source-image img, .desk-sheet .personal-source-image img { width: auto; max-width: 100%; }
 .desk-shell > .sidebar { display: none; }
@@ -57,10 +42,14 @@ body:has(.desk-shell) { min-width: 320px; background: var(--paper); }
 .desk-shell .personal-section-heading { align-items: center; margin-bottom: 18px; }
 .desk-shell .personal-section-heading p { margin-bottom: 0; }
 .desk-shell .personal-meta, .desk-sheet .personal-meta { line-height: 1.65; }
+.desk-shell .personal-text-button, .desk-sheet .personal-text-button,
+.desk-shell .desk-date-state, .desk-shell .personal-status.needs_action, .desk-shell .personal-status.in_progress { color: var(--blue-text); }
+.desk-shell .personal-field-error { color: var(--red-text); }
+.desk-shell .personal-feedback, .desk-shell .personal-complete-note { color: var(--green-text); }
 .desk-shell .personal-section .personal-section, .desk-sheet .personal-section { box-shadow: none; border: 0; padding: 0; margin-top: 18px; background: transparent; }
 .desk-shell .button, .desk-sheet .button, .personal-confirm-dialog .button { min-height: 39px; padding: 9px 15px; border: 1px solid var(--line-soft); border-radius: var(--desk-control-radius); font-weight: 500; font-size: 13px; letter-spacing: 0; transition: background-color .15s, color .15s; }
-.desk-shell .button-primary, .desk-sheet .button-primary, .personal-confirm-dialog .button-primary { background: var(--blue); color: var(--panel); border-color: transparent; }
-.desk-shell .button-primary:hover, .desk-sheet .button-primary:hover, .personal-confirm-dialog .button-primary:hover { background: color-mix(in srgb, var(--blue), var(--ink) 15%); }
+.desk-shell .button-primary, .desk-sheet .button-primary, .personal-confirm-dialog .button-primary { background: var(--action-fill); color: var(--action-ink); border-color: transparent; }
+.desk-shell .button-primary:hover, .desk-sheet .button-primary:hover, .personal-confirm-dialog .button-primary:hover { background: color-mix(in srgb, var(--action-fill), var(--ink) 15%); }
 .desk-shell .button-quiet, .desk-sheet .button-quiet, .personal-confirm-dialog .button-quiet { background: var(--panel); color: var(--ink); }
 .desk-shell .button-quiet:hover, .desk-sheet .button-quiet:hover, .personal-confirm-dialog .button-quiet:hover { background: var(--soft); border-color: var(--line); }
 .desk-shell .button:active, .desk-sheet .button:active { transform: translateY(1px); }
@@ -119,7 +108,7 @@ body:has(.desk-shell) { min-width: 320px; background: var(--paper); }
 .desk-shell .personal-event-row small { margin-top: 7px; }
 .desk-shell .personal-status { font-size: 12px; border: 0; border-radius: 7px; background: var(--soft); color: var(--muted); padding: 5px 9px; }
 .desk-shell .personal-status.needs_review { color: var(--yellow); background: var(--yellow-soft); }
-.desk-shell .personal-status.done { color: var(--green); background: var(--green-soft); }
+.desk-shell .personal-status.done { color: var(--green-text); background: var(--green-soft); }
 .desk-shell .personal-detail-grid { gap: 22px; }
 .desk-shell .personal-date-value { font: 600 21px/1.5 inherit; font-family: inherit; letter-spacing: -.5px; margin: 10px 0; }
 .desk-shell .personal-event-header h1 { max-width: 800px; }
@@ -146,7 +135,7 @@ body:has(.desk-shell) { min-width: 320px; background: var(--paper); }
 .desk-sheet .personal-field input, .desk-sheet .personal-field select, .desk-sheet .personal-field textarea { width: 100%; }
 .desk-sheet .personal-field-help { font-size: 12px; }
 .desk-sheet .personal-checkbox-label { display: flex; align-items: center; gap: 9px; font-size: 13px; line-height: 1.6; }
-.desk-sheet .personal-field-error { color: var(--red); font-size: 12px; line-height: 1.6; }
+.desk-sheet .personal-field-error { color: var(--red-text); font-size: 12px; line-height: 1.6; }
 .desk-form-section { border-top: 1px solid var(--line-soft); padding-top: 19px; }
 .desk-form-section > .personal-section-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
 .desk-form-section > .personal-section-heading > h3 { margin: 0; font-size: 13px; font-weight: 500; }

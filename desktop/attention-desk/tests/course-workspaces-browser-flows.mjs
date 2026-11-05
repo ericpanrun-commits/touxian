@@ -133,7 +133,7 @@ export async function courseWorkspaceFlows({desktop,tablet,phone,BASE,state,book
   await expect(tablet.page.getByRole('button',{name:'识别 / 继续这一节',exact:true})).toBeVisible({timeout:20000});
   await shot(tablet.page,'tablet-general-textbook.png');
   const other=dto('textbook','book-history',{...book,id:'book-history',course_id:otherCourse.id,title:'隔离测试 · 历史原书',sections:[]},++state.revision);books.set(other.id,other);changed('textbook',other.id);
-  await tablet.page.getByLabel('课程',{exact:true}).selectOption(otherCourse.id);
+  await tablet.page.locator('select[name="textbook_course"]').selectOption(otherCourse.id);
   await expect(tablet.page.getByRole('heading',{name:other.title+' · 第 1 页',exact:true})).toBeVisible();
   await expect(tablet.page.getByLabel('PDF 页码',{exact:true})).toHaveValue('1');
   await expect(tablet.page.getByText('隔离测试 · 条件与循环',{exact:true})).toHaveCount(0);

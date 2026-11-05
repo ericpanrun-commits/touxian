@@ -3,6 +3,24 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {runInNewContext} from 'node:vm';
 
+test('Generated course artwork loads from the public shell cache offline; private image paths never enter it',async()=>{
+  const origin='https://eric-fixture.example',events=new Map(),path='/assets/course-atlas-test.webp';
+  const source=await readFile(new URL('../src/cloud/service-worker.js',import.meta.url),'utf8');
+  let network=0;
+  runInNewContext(source,{
+    ERIC_SW:{cache:'eric-os-shell-artwork',files:[path],shell:[path],entry:'/assets/index.js'},URL,Request,Response,Headers,
+    self:{location:{origin},addEventListener(name,handler){events.set(name,handler);}},
+    caches:{async open(){return {async match(key){return key===path?new Response('cached-webp-bytes',{headers:{'Content-Type':'image/webp'}}):null;}};}},
+    fetch(){network++;throw new Error('Offline');},
+  });
+  let response;
+  events.get('fetch')({request:new Request(origin+path),respondWith(value){response=value;}});
+  assert.equal(await (await response).text(),'cached-webp-bytes');assert.equal(network,0);
+  let intercepted=false;
+  events.get('fetch')({request:new Request(origin+'/api/private.webp'),respondWith(){intercepted=true;}});
+  assert.equal(intercepted,false);
+});
+
 test('Legacy cleanup finishes activation without navigating any existing document',async()=>{
   const origin='https://eric-fixture.example',events=new Map(),removed=[];
   let claimed=false,rootNavigation=false,captureNavigation=false,finishNavigation;

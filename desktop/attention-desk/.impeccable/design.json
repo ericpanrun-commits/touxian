@@ -1,0 +1,491 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-03T11:57:06.245Z",
+  "title": "Design System: Eric OS",
+  "extensions": {
+    "colorMeta": {
+      "ink": {
+        "role": "neutral",
+        "displayName": "Study Ink",
+        "canonical": "#1c1c1e",
+        "tonalRamp": [
+          "oklch(15% 0.0038 286.09)",
+          "oklch(26% 0.0038 286.09)",
+          "oklch(38% 0.0038 286.09)",
+          "oklch(50% 0.0038 286.09)",
+          "oklch(62% 0.0038 286.09)",
+          "oklch(74% 0.0038 286.09)",
+          "oklch(86% 0.0038 286.09)",
+          "oklch(95% 0.0038 286.09)"
+        ]
+      },
+      "paper": {
+        "role": "neutral",
+        "displayName": "Cool Canvas",
+        "canonical": "#f2f2f7",
+        "tonalRamp": [
+          "oklch(15% 0.0066 286.27)",
+          "oklch(26% 0.0066 286.27)",
+          "oklch(38% 0.0066 286.27)",
+          "oklch(50% 0.0066 286.27)",
+          "oklch(62% 0.0066 286.27)",
+          "oklch(74% 0.0066 286.27)",
+          "oklch(86% 0.0066 286.27)",
+          "oklch(95% 0.0066 286.27)"
+        ]
+      },
+      "panel": {
+        "role": "neutral",
+        "displayName": "White Surface",
+        "canonical": "#ffffff",
+        "tonalRamp": [
+          "oklch(15% 0.0000 89.88)",
+          "oklch(26% 0.0000 89.88)",
+          "oklch(38% 0.0000 89.88)",
+          "oklch(50% 0.0000 89.88)",
+          "oklch(62% 0.0000 89.88)",
+          "oklch(74% 0.0000 89.88)",
+          "oklch(86% 0.0000 89.88)",
+          "oklch(95% 0.0000 89.88)"
+        ]
+      },
+      "soft": {
+        "role": "neutral",
+        "displayName": "Soft Gray",
+        "canonical": "#eeeef3",
+        "tonalRamp": [
+          "oklch(15% 0.0067 286.27)",
+          "oklch(26% 0.0067 286.27)",
+          "oklch(38% 0.0067 286.27)",
+          "oklch(50% 0.0067 286.27)",
+          "oklch(62% 0.0067 286.27)",
+          "oklch(74% 0.0067 286.27)",
+          "oklch(86% 0.0067 286.27)",
+          "oklch(95% 0.0067 286.27)"
+        ]
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "Secondary Text",
+        "canonical": "#63636b",
+        "tonalRamp": [
+          "oklch(15% 0.0126 285.94)",
+          "oklch(26% 0.0126 285.94)",
+          "oklch(38% 0.0126 285.94)",
+          "oklch(50% 0.0126 285.94)",
+          "oklch(62% 0.0126 285.94)",
+          "oklch(74% 0.0126 285.94)",
+          "oklch(86% 0.0126 285.94)",
+          "oklch(95% 0.0126 285.94)"
+        ]
+      },
+      "subtle": {
+        "role": "neutral",
+        "displayName": "Quiet Text",
+        "canonical": "#707079",
+        "tonalRamp": [
+          "oklch(15% 0.0138 285.93)",
+          "oklch(26% 0.0138 285.93)",
+          "oklch(38% 0.0138 285.93)",
+          "oklch(50% 0.0138 285.93)",
+          "oklch(62% 0.0138 285.93)",
+          "oklch(74% 0.0138 285.93)",
+          "oklch(86% 0.0138 285.93)",
+          "oklch(95% 0.0138 285.93)"
+        ]
+      },
+      "line": {
+        "role": "neutral",
+        "displayName": "Field Line",
+        "canonical": "#c7c7cc",
+        "tonalRamp": [
+          "oklch(15% 0.0069 286.25)",
+          "oklch(26% 0.0069 286.25)",
+          "oklch(38% 0.0069 286.25)",
+          "oklch(50% 0.0069 286.25)",
+          "oklch(62% 0.0069 286.25)",
+          "oklch(74% 0.0069 286.25)",
+          "oklch(86% 0.0069 286.25)",
+          "oklch(95% 0.0069 286.25)"
+        ]
+      },
+      "line-soft": {
+        "role": "neutral",
+        "displayName": "Surface Line",
+        "canonical": "#e5e5ea",
+        "tonalRamp": [
+          "oklch(15% 0.0067 286.27)",
+          "oklch(26% 0.0067 286.27)",
+          "oklch(38% 0.0067 286.27)",
+          "oklch(50% 0.0067 286.27)",
+          "oklch(62% 0.0067 286.27)",
+          "oklch(74% 0.0067 286.27)",
+          "oklch(86% 0.0067 286.27)",
+          "oklch(95% 0.0067 286.27)"
+        ]
+      },
+      "blue": {
+        "role": "primary",
+        "displayName": "System Blue",
+        "canonical": "#007aff",
+        "tonalRamp": [
+          "oklch(15% 0.2177 257.42)",
+          "oklch(26% 0.2177 257.42)",
+          "oklch(38% 0.2177 257.42)",
+          "oklch(50% 0.2177 257.42)",
+          "oklch(62% 0.2177 257.42)",
+          "oklch(74% 0.2177 257.42)",
+          "oklch(86% 0.2177 257.42)",
+          "oklch(95% 0.2177 257.42)"
+        ]
+      },
+      "blue-text": {
+        "role": "primary",
+        "displayName": "Readable Blue",
+        "canonical": "#0063cf",
+        "tonalRamp": [
+          "oklch(15% 0.1845 257.10)",
+          "oklch(26% 0.1845 257.10)",
+          "oklch(38% 0.1845 257.10)",
+          "oklch(50% 0.1845 257.10)",
+          "oklch(62% 0.1845 257.10)",
+          "oklch(74% 0.1845 257.10)",
+          "oklch(86% 0.1845 257.10)",
+          "oklch(95% 0.1845 257.10)"
+        ]
+      },
+      "blue-soft": {
+        "role": "primary",
+        "displayName": "Quiet Blue",
+        "canonical": "#e5f0ff",
+        "tonalRamp": [
+          "oklch(15% 0.0234 256.10)",
+          "oklch(26% 0.0234 256.10)",
+          "oklch(38% 0.0234 256.10)",
+          "oklch(50% 0.0234 256.10)",
+          "oklch(62% 0.0234 256.10)",
+          "oklch(74% 0.0234 256.10)",
+          "oklch(86% 0.0234 256.10)",
+          "oklch(95% 0.0234 256.10)"
+        ]
+      },
+      "action-fill": {
+        "role": "primary",
+        "displayName": "Action Blue",
+        "canonical": "#0063cf",
+        "tonalRamp": [
+          "oklch(15% 0.1845 257.10)",
+          "oklch(26% 0.1845 257.10)",
+          "oklch(38% 0.1845 257.10)",
+          "oklch(50% 0.1845 257.10)",
+          "oklch(62% 0.1845 257.10)",
+          "oklch(74% 0.1845 257.10)",
+          "oklch(86% 0.1845 257.10)",
+          "oklch(95% 0.1845 257.10)"
+        ]
+      },
+      "action-ink": {
+        "role": "neutral",
+        "displayName": "Action Foreground",
+        "canonical": "#ffffff",
+        "tonalRamp": [
+          "oklch(15% 0.0000 89.88)",
+          "oklch(26% 0.0000 89.88)",
+          "oklch(38% 0.0000 89.88)",
+          "oklch(50% 0.0000 89.88)",
+          "oklch(62% 0.0000 89.88)",
+          "oklch(74% 0.0000 89.88)",
+          "oklch(86% 0.0000 89.88)",
+          "oklch(95% 0.0000 89.88)"
+        ]
+      },
+      "green": {
+        "role": "secondary",
+        "displayName": "Completion Green",
+        "canonical": "#34c759",
+        "tonalRamp": [
+          "oklch(15% 0.1944 147.44)",
+          "oklch(26% 0.1944 147.44)",
+          "oklch(38% 0.1944 147.44)",
+          "oklch(50% 0.1944 147.44)",
+          "oklch(62% 0.1944 147.44)",
+          "oklch(74% 0.1944 147.44)",
+          "oklch(86% 0.1944 147.44)",
+          "oklch(95% 0.1944 147.44)"
+        ]
+      },
+      "green-text": {
+        "role": "secondary",
+        "displayName": "Readable Green",
+        "canonical": "#217a38",
+        "tonalRamp": [
+          "oklch(15% 0.1302 148.05)",
+          "oklch(26% 0.1302 148.05)",
+          "oklch(38% 0.1302 148.05)",
+          "oklch(50% 0.1302 148.05)",
+          "oklch(62% 0.1302 148.05)",
+          "oklch(74% 0.1302 148.05)",
+          "oklch(86% 0.1302 148.05)",
+          "oklch(95% 0.1302 148.05)"
+        ]
+      },
+      "green-soft": {
+        "role": "secondary",
+        "displayName": "Quiet Green",
+        "canonical": "#edf8ef",
+        "tonalRamp": [
+          "oklch(15% 0.0166 151.11)",
+          "oklch(26% 0.0166 151.11)",
+          "oklch(38% 0.0166 151.11)",
+          "oklch(50% 0.0166 151.11)",
+          "oklch(62% 0.0166 151.11)",
+          "oklch(74% 0.0166 151.11)",
+          "oklch(86% 0.0166 151.11)",
+          "oklch(95% 0.0166 151.11)"
+        ]
+      },
+      "red": {
+        "role": "secondary",
+        "displayName": "Error Red",
+        "canonical": "#ff3b30",
+        "tonalRamp": [
+          "oklch(15% 0.2321 28.66)",
+          "oklch(26% 0.2321 28.66)",
+          "oklch(38% 0.2321 28.66)",
+          "oklch(50% 0.2321 28.66)",
+          "oklch(62% 0.2321 28.66)",
+          "oklch(74% 0.2321 28.66)",
+          "oklch(86% 0.2321 28.66)",
+          "oklch(95% 0.2321 28.66)"
+        ]
+      },
+      "red-text": {
+        "role": "secondary",
+        "displayName": "Readable Red",
+        "canonical": "#cb241b",
+        "tonalRamp": [
+          "oklch(15% 0.2023 29.03)",
+          "oklch(26% 0.2023 29.03)",
+          "oklch(38% 0.2023 29.03)",
+          "oklch(50% 0.2023 29.03)",
+          "oklch(62% 0.2023 29.03)",
+          "oklch(74% 0.2023 29.03)",
+          "oklch(86% 0.2023 29.03)",
+          "oklch(95% 0.2023 29.03)"
+        ]
+      },
+      "red-soft": {
+        "role": "secondary",
+        "displayName": "Quiet Red",
+        "canonical": "#fff0ee",
+        "tonalRamp": [
+          "oklch(15% 0.0165 26.65)",
+          "oklch(26% 0.0165 26.65)",
+          "oklch(38% 0.0165 26.65)",
+          "oklch(50% 0.0165 26.65)",
+          "oklch(62% 0.0165 26.65)",
+          "oklch(74% 0.0165 26.65)",
+          "oklch(86% 0.0165 26.65)",
+          "oklch(95% 0.0165 26.65)"
+        ]
+      },
+      "yellow": {
+        "role": "secondary",
+        "displayName": "Review Amber",
+        "canonical": "#8a5900",
+        "tonalRamp": [
+          "oklch(15% 0.1081 72.38)",
+          "oklch(26% 0.1081 72.38)",
+          "oklch(38% 0.1081 72.38)",
+          "oklch(50% 0.1081 72.38)",
+          "oklch(62% 0.1081 72.38)",
+          "oklch(74% 0.1081 72.38)",
+          "oklch(86% 0.1081 72.38)",
+          "oklch(95% 0.1081 72.38)"
+        ]
+      },
+      "yellow-soft": {
+        "role": "secondary",
+        "displayName": "Quiet Amber",
+        "canonical": "#fff5e6",
+        "tonalRamp": [
+          "oklch(15% 0.0225 78.22)",
+          "oklch(26% 0.0225 78.22)",
+          "oklch(38% 0.0225 78.22)",
+          "oklch(50% 0.0225 78.22)",
+          "oklch(62% 0.0225 78.22)",
+          "oklch(74% 0.0225 78.22)",
+          "oklch(86% 0.0225 78.22)",
+          "oklch(95% 0.0225 78.22)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "sans": {
+        "displayName": "Local System Sans",
+        "purpose": "Platform-native body text and Chinese fallbacks without font downloads."
+      },
+      "display": {
+        "displayName": "Today Greeting",
+        "purpose": "Time-aware greeting, scaled down across tablet and phone."
+      },
+      "title": {
+        "displayName": "Study Group Title",
+        "purpose": "Compact headings inside Today groups."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Task, navigation and reading content."
+      },
+      "label": {
+        "displayName": "Supporting Label",
+        "purpose": "Quiet metadata and action labels."
+      }
+    },
+    "shadows": [
+      {
+        "name": "desk-shadow",
+        "value": "0 16px 56px #00000018",
+        "purpose": "Shared sheets and confirmation overlays."
+      },
+      {
+        "name": "segmented-selection",
+        "value": "0 1px 3px #0000000d",
+        "purpose": "Structural separation of the selected course scope."
+      }
+    ],
+    "motion": [
+      {
+        "name": "spring",
+        "value": "cubic-bezier(.2,.8,.2,1.15)",
+        "purpose": "Next-action and course-card press feedback; removed for reduced motion."
+      },
+      {
+        "name": "press-scale",
+        "value": ".985",
+        "purpose": "Brief pressed state for next action and course cards."
+      },
+      {
+        "name": "course-transition",
+        "value": "220ms",
+        "purpose": "Course-card press transition."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "tablet-min",
+        "value": "640px"
+      },
+      {
+        "name": "tablet-portrait-max",
+        "value": "820px"
+      },
+      {
+        "name": "tablet-max",
+        "value": "1100px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The shared primary action uses its own accessible fill and foreground pair.",
+      "html": "<button class=\"ds-button-primary\" type=\"button\">收集</button>",
+      "css": ".ds-button-primary{min-height:44px;padding:9px 15px;border:1px solid var(--line-soft,#e5e5ea);border-radius:var(--desk-control-radius,11px);font:500 13px -apple-system,BlinkMacSystemFont,\"Segoe UI Variable\",\"Segoe UI\",\"Microsoft YaHei UI\",\"PingFang SC\",sans-serif;cursor:pointer;transition:background-color .15s,color .15s}.ds-button-primary:disabled{opacity:.5;cursor:not-allowed}.ds-button-primary:focus-visible{outline:3px solid var(--blue,#007aff);outline-offset:3px}.ds-button-primary:active{transform:translateY(1px)}@media(prefers-reduced-motion:reduce){.ds-button-primary{transition:none}}.ds-button-primary{background:var(--action-fill,#0063cf);color:var(--action-ink,#ffffff);border-color:transparent}@media(hover:hover){.ds-button-primary:hover{background:color-mix(in srgb,var(--action-fill,#0063cf),var(--ink,#1c1c1e) 15%)}}"
+    },
+    {
+      "name": "Quiet Button",
+      "kind": "button",
+      "refersTo": "button-quiet",
+      "description": "Secondary actions remain on a white surface with a subtle boundary.",
+      "html": "<button class=\"ds-button-quiet\" type=\"button\">取消</button>",
+      "css": ".ds-button-quiet{min-height:44px;padding:9px 15px;border:1px solid var(--line-soft,#e5e5ea);border-radius:var(--desk-control-radius,11px);font:500 13px -apple-system,BlinkMacSystemFont,\"Segoe UI Variable\",\"Segoe UI\",\"Microsoft YaHei UI\",\"PingFang SC\",sans-serif;cursor:pointer;transition:background-color .15s,color .15s}.ds-button-quiet:disabled{opacity:.5;cursor:not-allowed}.ds-button-quiet:focus-visible{outline:3px solid var(--blue,#007aff);outline-offset:3px}.ds-button-quiet:active{transform:translateY(1px)}@media(prefers-reduced-motion:reduce){.ds-button-quiet{transition:none}}.ds-button-quiet{background:var(--panel,#ffffff);color:var(--ink,#1c1c1e)}@media(hover:hover){.ds-button-quiet:hover{background:var(--soft,#eeeef3);border-color:var(--line,#c7c7cc)}}"
+    },
+    {
+      "name": "Text Field",
+      "kind": "input",
+      "refersTo": "field",
+      "description": "A labeled shared field; native control ownership and retained-input behavior stay in Forms.",
+      "html": "<label class=\"ds-field-label\" for=\"ds-course-name\">课程名称</label><input class=\"ds-field\" id=\"ds-course-name\" type=\"text\" value=\"高等数学I1\">",
+      "css": ".ds-field-label{display:block;margin-bottom:7px;color:var(--ink,#1c1c1e);font:500 13px -apple-system,BlinkMacSystemFont,\"Segoe UI Variable\",\"Segoe UI\",\"Microsoft YaHei UI\",\"PingFang SC\",sans-serif}.ds-field{display:block;max-width:100%;min-height:43px;padding:10px 12px;border:1px solid var(--line,#c7c7cc);border-radius:var(--desk-control-radius,11px);background:var(--panel,#ffffff);color:var(--ink,#1c1c1e);font:14px -apple-system,BlinkMacSystemFont,\"Segoe UI Variable\",\"Segoe UI\",\"Microsoft YaHei UI\",\"PingFang SC\",sans-serif}.ds-field:focus-visible{outline:3px solid var(--blue,#007aff);outline-offset:3px}.ds-field:disabled{opacity:.5}@media(hover:hover){.ds-field:hover{border-color:var(--muted,#63636b)}}@media(max-width:639px){.ds-field{font-size:16px}}"
+    },
+    {
+      "name": "Selected Navigation",
+      "kind": "nav",
+      "refersTo": "navigation-current",
+      "description": "Current-page navigation uses readable blue text and a quiet blue field.",
+      "html": "<nav class=\"ds-navigation\" aria-label=\"工作台导航\"><button class=\"ds-nav-item\" type=\"button\" aria-current=\"page\"><svg aria-hidden=\"true\" width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\"><path d=\"m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1Z\"/></svg><span>Today</span></button></nav>",
+      "css": ".ds-navigation{width:184px}.ds-nav-item{display:flex;align-items:center;gap:12px;width:100%;min-height:46px;padding:11px 13px;border:0;border-radius:var(--desk-control-radius,11px);background:var(--blue-soft,#e5f0ff);color:var(--blue-text,#0063cf);font:600 14px -apple-system,BlinkMacSystemFont,\"Segoe UI Variable\",\"Segoe UI\",\"Microsoft YaHei UI\",\"PingFang SC\",sans-serif;text-align:left;cursor:pointer}.ds-nav-item:focus-visible{outline:3px solid var(--blue,#007aff);outline-offset:3px}@media(hover:hover){.ds-nav-item:hover{background:var(--soft,#eeeef3);color:var(--ink,#1c1c1e)}}"
+    },
+    {
+      "name": "Completion Status",
+      "kind": "chip",
+      "refersTo": "status-complete",
+      "description": "Completion stays explicit in text as well as color.",
+      "html": "<span class=\"ds-status-complete\">已完成</span>",
+      "css": ".ds-status-complete{display:inline-block;padding:5px 9px;border-radius:7px;background:var(--green-soft,#edf8ef);color:var(--green-text,#217a38);font:12px -apple-system,BlinkMacSystemFont,\"Segoe UI Variable\",\"Segoe UI\",\"Microsoft YaHei UI\",\"PingFang SC\",sans-serif}"
+    },
+    {
+      "name": "Study Group",
+      "kind": "card",
+      "refersTo": "study-group",
+      "description": "The quiet white reading container used by Today.",
+      "html": "<section class=\"ds-study-group\"><div class=\"ds-group-heading\"><h2>今日课程</h2><button class=\"ds-group-link\" type=\"button\">课程<svg aria-hidden=\"true\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\"><path d=\"m9 18 6-6-6-6\"/></svg></button></div><p class=\"ds-group-note\">今天没有排课，按自己的节奏学习。</p></section>",
+      "css": ".ds-study-group{max-width:420px;padding:20px 22px;border:0;border-radius:var(--desk-radius,18px);background:var(--panel,#ffffff);color:var(--ink,#1c1c1e);font:14px -apple-system,BlinkMacSystemFont,\"Segoe UI Variable\",\"Segoe UI\",\"Microsoft YaHei UI\",\"PingFang SC\",sans-serif}.ds-group-heading{display:flex;justify-content:space-between;align-items:center;gap:10px;min-height:30px;margin-bottom:12px}.ds-group-heading h2{margin:0;font-size:17px;font-weight:650;line-height:1.5;letter-spacing:-.3px}.ds-group-link{display:inline-flex;align-items:center;gap:4px;min-height:44px;border:0;background:none;color:var(--blue-text,#0063cf);font:12px -apple-system,BlinkMacSystemFont,\"Segoe UI Variable\",\"Segoe UI\",\"Microsoft YaHei UI\",\"PingFang SC\",sans-serif;cursor:pointer}.ds-group-note{margin:12px 0;color:var(--muted,#63636b);font-size:13px;line-height:1.8}.ds-group-link:focus-visible{outline:3px solid var(--blue,#007aff);outline-offset:3px}@media(hover:hover){.ds-group-link:hover{text-decoration:underline;text-underline-offset:3px}}"
+    },
+    {
+      "name": "Task Row",
+      "kind": "custom",
+      "refersTo": "task-row",
+      "description": "Native checkbox semantics inside a 44px target; completion and restore reuse the existing task owner.",
+      "html": "<div class=\"ds-task-row\"><label class=\"ds-task-target\" for=\"ds-task-preview\"><input id=\"ds-task-preview\" type=\"checkbox\"><span class=\"ds-task-circle\" aria-hidden=\"true\"><svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3\"><path d=\"m5 12 4 4L19 6\"/></svg></span><span class=\"ds-task-label\">完成：复习课堂笔记</span></label><button class=\"ds-task-title\" type=\"button\">复习课堂笔记</button></div>",
+      "css": ".ds-task-row{display:flex;align-items:center;gap:5px;min-height:52px;color:var(--ink,#1c1c1e);font:14px -apple-system,BlinkMacSystemFont,\"Segoe UI Variable\",\"Segoe UI\",\"Microsoft YaHei UI\",\"PingFang SC\",sans-serif}.ds-task-target{position:relative;display:grid;place-items:center;width:44px;height:44px;flex:0 0 44px;cursor:pointer}.ds-task-target input{position:absolute;width:22px;height:22px;margin:0;opacity:0}.ds-task-circle{display:grid;place-items:center;width:21px;height:21px;border:1.5px solid var(--line,#c7c7cc);border-radius:50%;background:var(--panel,#ffffff)}.ds-task-circle svg{visibility:hidden}.ds-task-target input:checked+.ds-task-circle{background:var(--green,#34c759);border-color:var(--green,#34c759);color:#11351b}.ds-task-target input:checked+.ds-task-circle svg{visibility:visible}.ds-task-target input:focus-visible+.ds-task-circle{outline:3px solid var(--blue,#007aff);outline-offset:4px}.ds-task-label{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}.ds-task-title{min-height:44px;border:0;background:none;padding:10px 0;color:var(--ink,#1c1c1e);font:inherit;cursor:pointer;text-align:left}.ds-task-title:focus-visible{outline:3px solid var(--blue,#007aff);outline-offset:3px}@media(hover:hover){.ds-task-title:hover{color:var(--blue-text,#0063cf)}}@media(forced-colors:active){.ds-task-circle{border-color:ButtonText}.ds-task-target input:checked+.ds-task-circle{background:Highlight;color:HighlightText}}"
+    },
+    {
+      "name": "Course Scope Control",
+      "kind": "custom",
+      "description": "Native pressed buttons switch the Today course subset without changing course facts.",
+      "html": "<div class=\"ds-segmented\" role=\"group\" aria-label=\"课程范围\"><button class=\"ds-segment\" type=\"button\" aria-pressed=\"true\">全部</button><button class=\"ds-segment\" type=\"button\" aria-pressed=\"false\">今天</button></div>",
+      "css": ".ds-segmented{display:inline-flex;padding:3px;gap:2px;border-radius:9px;background:var(--soft,#eeeef3)}.ds-segment{min-width:48px;min-height:30px;padding:5px 10px;border:0;border-radius:7px;background:transparent;color:var(--muted,#63636b);font:12px -apple-system,BlinkMacSystemFont,\"Segoe UI Variable\",\"Segoe UI\",\"Microsoft YaHei UI\",\"PingFang SC\",sans-serif;cursor:pointer}.ds-segment[aria-pressed=\"true\"]{background:var(--panel,#ffffff);color:var(--ink,#1c1c1e);box-shadow:0 1px 3px #0000000d}.ds-segment:focus-visible{outline:3px solid var(--blue,#007aff);outline-offset:3px}@media(hover:hover){.ds-segment:hover{color:var(--ink,#1c1c1e)}}@media(pointer:coarse){.ds-segment{min-height:44px}}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Daily Study Desk",
+    "overview": "A calm personal university study workspace, with the clarity of an Apple HIG-inspired tool and the familiar controls of the device in use. Restrained gray, white and blue keep coursework readable; coherent subject covers give courses a recognizable identity. The interface uses a real web application shell with platform-aware navigation, keyboard and touch behavior. Reference images and the generated concept set direction; they are not pixel-copy specifications or sources of product facts.\n\nThe owner's November 3, 2026 redesign authorization supersedes earlier task-scoped prohibitions on new colors, imagery, navigation and dashboard composition. It preserves business, evidence and confirmation rules in UX-CONTRACT.md. The canonical runtime token owner is `src/personal/design-tokens.css`, imported by `src/personal/desk.css`; this document mirrors that source. Update the runtime and this mirror together. The shared system is being applied incrementally, as recorded below.",
+    "keyCharacteristics": [
+      "Restrained neutral surfaces, sparse blue actions and explicit written states.",
+      "Local system typography and a coherent subject-cover signature.",
+      "Responsive navigation that supports mouse, keyboard and touch.",
+      "Existing interaction owners and real records throughout the redesign."
+    ],
+    "rules": [
+      {
+        "name": "The Separate Roles Rule",
+        "body": "Do not substitute the decorative accent for a text or primary-button token. In light mode the primary action uses Readable Blue with white; dark mode uses its own light-blue fill and dark foreground. The full light/dark values and scrollbar colors remain in the canonical runtime file.",
+        "section": "colors"
+      },
+      {
+        "name": "The Quiet Surface Rule",
+        "body": "Reading groups stay calm at rest. Use depth to identify an overlay or selected control, and keep ordinary content on tonal surfaces.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "**Do** update canonical runtime tokens and this mirror together.",
+      "**Do** use readable text and action pairs for their intended surfaces in light and dark appearance.",
+      "**Do** reuse the shared course artwork, task row, sheets, forms, read states and navigation guard.",
+      "**Do** preserve real course identity, immutable evidence and the existing confirmation boundary.",
+      "**Do** keep keyboard focus visible, touch targets usable and reduced-motion behavior intact.",
+      "**Do** report the migration scope and real-device verification limits accurately."
+    ],
+    "donts": [
+      "**Don't** turn a reference image or generated concept into product facts, rooms, schedules or progress.",
+      "**Don't** choose course imagery by record ID or treat decorative artwork as evidence.",
+      "**Don't** add task deletion, weather, remote fonts or new confirmation owners through this visual change.",
+      "**Don't** claim that token inheritance completes the redesign of a deeper screen.",
+      "**Don't** claim physical-device installation, safe-area acceptance or public deployment from browser tests."
+    ]
+  }
+}

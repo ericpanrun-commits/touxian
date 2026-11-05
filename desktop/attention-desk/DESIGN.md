@@ -1,198 +1,243 @@
 ---
-version: alpha
-name: Attention Desk daily workspace
-description: A calm Chinese personal inbox, calendar and action desk with explicit human review.
+name: Eric OS study workspace
+description: A calm, platform-aware university study desk for Windows, iPad and iPhone.
 colors:
-  primary: "#1d1d1f"
-  background: "#f5f5f7"
+  ink: "#1c1c1e"
+  paper: "#f2f2f7"
   panel: "#ffffff"
-  soft: "#eeeef2"
-  muted: "#6e6e73"
-  subtle: "#77777e"
-  border: "#e5e5ea"
-  fieldBorder: "#d2d2d7"
-  focus: "#0066d6"
-  focusSoft: "#eaf3ff"
-  action: "#c93434"
-  actionSoft: "#fff0ee"
-  success: "#237347"
-  successSoft: "#edf7f0"
-  highlight: "#915800"
-  highlightSoft: "#fff5e6"
+  soft: "#eeeef3"
+  muted: "#63636b"
+  subtle: "#707079"
+  line: "#c7c7cc"
+  line-soft: "#e5e5ea"
+  blue: "#007aff"
+  blue-text: "#0063cf"
+  blue-soft: "#e5f0ff"
+  action-fill: "#0063cf"
+  action-ink: "#ffffff"
+  green: "#34c759"
+  green-text: "#217a38"
+  green-soft: "#edf8ef"
+  red: "#ff3b30"
+  red-text: "#cb241b"
+  red-soft: "#fff0ee"
+  yellow: "#8a5900"
+  yellow-soft: "#fff5e6"
 typography:
   sans:
-    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei UI", "PingFang SC", sans-serif'
-  mono:
-    fontFamily: '"Cascadia Mono", "SFMono-Regular", Consolas, monospace'
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI Variable", "Segoe UI", "Microsoft YaHei UI", "PingFang SC", sans-serif'
+    fontSize: "14px"
+  display:
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI Variable", "Segoe UI", "Microsoft YaHei UI", "PingFang SC", sans-serif'
+    fontSize: "32px"
+    fontWeight: 650
+    lineHeight: 1.25
+    letterSpacing: "-0.9px"
+  title:
+    fontSize: "17px"
+    fontWeight: 650
+    lineHeight: 1.5
+    letterSpacing: "-0.3px"
+  body:
+    fontSize: "14px"
+  label:
+    fontSize: "12px"
 rounded:
-  DEFAULT: "18px"
+  desk-radius: "18px"
+  desk-control-radius: "11px"
+  sheet: "20px"
+  cover: "11px"
+  status: "7px"
 spacing:
-  section-gap: "22px"
-  section-padding: "27px"
-  content-max: "1208px"
+  space-1: "4px"
+  space-2: "8px"
+  space-3: "12px"
+  space-4: "16px"
+  space-5: "20px"
+  space-6: "24px"
+  space-8: "32px"
 components:
-  button:
-    backgroundColor: "{colors.focus}"
-    textColor: "{colors.panel}"
+  button-primary:
+    backgroundColor: "{colors.action-fill}"
+    textColor: "{colors.action-ink}"
+    rounded: "{rounded.desk-control-radius}"
+    padding: "9px 15px"
+    height: "44px"
+  button-quiet:
+    backgroundColor: "{colors.panel}"
+    textColor: "{colors.ink}"
+    rounded: "{rounded.desk-control-radius}"
+    padding: "9px 15px"
+    height: "44px"
   field:
     backgroundColor: "{colors.panel}"
-  helpText:
-    textColor: "{colors.muted}"
-  focusIndicator:
-    backgroundColor: "{colors.focus}"
-  dialog:
+    textColor: "{colors.ink}"
+    rounded: "{rounded.desk-control-radius}"
+    padding: "10px 12px"
+    height: "43px"
+  navigation-current:
+    backgroundColor: "{colors.blue-soft}"
+    textColor: "{colors.blue-text}"
+    rounded: "{rounded.desk-control-radius}"
+    padding: "11px 13px"
+    height: "46px"
+  status-complete:
+    backgroundColor: "{colors.green-soft}"
+    textColor: "{colors.green-text}"
+    rounded: "{rounded.status}"
+  study-group:
     backgroundColor: "{colors.panel}"
-  pressedRow:
-    backgroundColor: "{colors.soft}"
-  subduedIcon:
-    textColor: "{colors.subtle}"
-  separator:
-    backgroundColor: "{colors.border}"
-  fieldBorder:
-    backgroundColor: "{colors.fieldBorder}"
-  evidenceQuote:
-    backgroundColor: "{colors.focusSoft}"
-  urgent:
-    textColor: "{colors.action}"
-    backgroundColor: "{colors.actionSoft}"
-  done:
-    textColor: "{colors.success}"
-    backgroundColor: "{colors.successSoft}"
-  review:
-    textColor: "{colors.highlight}"
-    backgroundColor: "{colors.highlightSoft}"
+    textColor: "{colors.ink}"
+    rounded: "{rounded.desk-radius}"
+    padding: "20px 22px"
+  task-row:
+    textColor: "{colors.ink}"
+    height: "52px"
 ---
 
-# Attention Desk design context
-
-## Daily friction reduction (Phase 4.1 Lite)
-
-Today and Learning share LearningFocus, a read-only projection of existing evidence. Show the actual latest learning day, preview/classroom known and pending results, at most three priorities and retest groups, and at most two verified delayed successes. A newly received note must not borrow yesterday's preview score. Keep provenance, technical fields and the full cycle under the existing disclosure. Today keeps its agenda and deadlines directly below the learning brief. No charts, new palette, new navigation or new notification is introduced.
-
-The single Learning sync button starts one bounded read of the owner's existing Edge course window. Native focus restrictions are explained once in the inline progress. Errors retain originals and leave the button usable; reading never fills an answer, submits, opens media or saves credentials. Notes conflicts reuse DeskSheet and Field, native selects, typed ISO dates, existing mutation feedback and source links. Ordinary successful note sharing has no extra confirmation. The temporary notes connection only uploads notes and cannot act as a Collector session.
-
-## Learning daily brief (Phase 4)
-
-Ordinary mistake details reuse Sources for the actual attempt's Inbox original and related textbook pages. Repeated questions across classes retain separate attempt-source links. Source links remain inside a closed disclosure; no homepage field or new navigation destination. Local conservative suggestions are labeled as local rules, never as a model call.
-
-Learning extends the incumbent cool gray, white, system-sans daily desk. Reuse the existing colors, typography, 18px reading surface, 10px controls, document scroll, DeskSheet, Field/SubmitButton/useDraft, ConfirmDialog, SourceImage and usePersonalResource. No new visual tokens, remote fonts or image assets. The October 28 usage correction makes preview results the first plain score line, followed by pre-class weaknesses, related notes and after-class retest status, one next step, recent progress and a quiet historical count. Classroom exercises are optional and collapsed. No metric tiles, charts, IDs, percentages or evidence counters in the first viewport.
-
-PreviewEvidence and ExerciseScore are shared read-only business variants for Learning and Lecture Review. Material counts say exposure; exercise counts retain every known correct, incorrect and unknown result. “Class notes received” is distinct from claiming the teacher covered every item. A pre-class error to post-class independent-success line appears only with chronological and related-note evidence. Session/record sources reuse the existing disclosure and original Inbox links, without another form or page.
-
-Today adds a quiet learning entry only when a real weakness or due followup exists. Learning is the sixth rail destination; narrow navigation shares seven equal destinations including Settings, each retaining a minimum 44px target at supported 320px width. Course opens the existing School workspace. Batch historical confirmation is an ordinary local metadata action; it does not open another confirmation dialog. Diagnostic and retest answers are initially blank and reference answers remain server-side until a real submission. Uncertainty, missing submission date and missing sources remain explicit. An ordinary question with no reasoning does not justify a confident careless/concept-error label.
-
-Learning sources and external review stay in disclosures/sheets. Generated summaries are prominently labeled as retrospective textbook material, with exact PDF page links. External review only stores a second opinion. Bookmark intake is user invoked, reads visible/selected text, omits query strings and credentials, consumes transient URL fragment data immediately, and sends no platform answer. The user explicitly authorized the stated official DeepSeek learning-text scope on October 28. A compact explanation and pause/resume action live inside the existing closed collection disclosure, never a new settings page or daily confirmation. Source originals, passwords and browser sessions are excluded. Each analysis is one-shot; missing or partial usage retains the model-specific maximum-cost reservation. A source-verified local retest can survive a failed cloud cause suggestion; an unknown skill never earns an unrelated replacement question.
-
-## School pilot variant (Phase 3)
-
-Phase 3.2 keeps the same reading surface and canonical owners. JobStatus names evidence verification, composition and at most one targeted repair without fake percentages. The existing confirmation shows the real bounded request count and estimate. ReviewIssues is the School variant of the existing inline quality block: localized item labels and persistent reasons, never raw schema diagnostics. Automatically validated versions remain Needs Review with source uncertainty visible; adoption still requires the existing explicit action.
-
-The Math II classroom is a nested workspace reached from Eric Inbox. Keep the six existing narrow navigation destinations. Course → paginated Lectures → Lecture → versioned Review reuses DeskChrome, document scrolling, Field/SubmitButton/useDraft, typed ISO class dates, native selects/checkboxes, ConfirmDialog, DeskSheet and SourceImage. No new visual tokens or dialog owner. Canonical SourceImage adds document_id/page for learning PDFs (up to 2000 physical pages), retaining the attachment variant. Source labels and page links are assigned by the backend. A quiet textbook metadata panel names the exact user-confirmed edition; missing real PDF and fixture-only acceptance remain explicit.
-
-Ten review sections are reading surfaces, with sparse source links, native answer disclosures and explicit adoption/feedback. Suggested actions enter the existing draft/batch-confirm flow only on user request. Generation and selected-page Vision require the existing confirmation dialog with scope/cost; local import, mapping, export and feedback remain ordinary saves. Preserve original pages on parsing or AI failure. Do not equate saved PDF, extracted text and understood math. Search inside a Lecture is transient exploratory evidence (business override: no URL query persistence); explicit submit, immediate clear and stale-safe usePersonalResource reads.
+# Design System: Eric OS
 
 ## Overview
 
-The October 23 user brief explicitly replaces the former paper-and-ink personal workbench with an Apple/iOS-inspired daily tool. Its job is to reveal today's commitments, approaching dates, unconfirmed WeChat notices and required actions within seconds. No charts, fake metrics, enterprise-dashboard density or always-open analysis forms. The visual signature is a quiet daily agenda above a compact review inbox, with focused reading/edit sheets.
+**Creative North Star: "The Daily Study Desk"**
 
-Audience: one Chinese-speaking student on Windows and iPhone, zh-CN, Asia/Shanghai for WeChat and push policy. No Japan-market scope. Preserve IANA zones in formal data, civil date precision, exact immutable sources and explicit human participation. Existing chat archive, official feed and paired phone intake keep their domain behavior.
+A calm personal university study workspace, with the clarity of an Apple HIG-inspired tool and the familiar controls of the device in use. Restrained gray, white and blue keep coursework readable; coherent subject covers give courses a recognizable identity. The interface uses a real web application shell with platform-aware navigation, keyboard and touch behavior. Reference images and the generated concept set direction; they are not pixel-copy specifications or sources of product facts.
 
-`src/personal/desk.css` is the runtime owner for the daily workspace, scoped by `.desk-shell`. Its first root block maps the frontmatter to existing CSS variables: primary→ink, background→paper, border→line-soft, fieldBorder→line, focus→blue, focusSoft→blue-soft, action→red, success→green, highlight→yellow and corresponding soft variants. Shared shape/geometry tokens are desk-radius, desk-control-radius and desk-nav-width. Existing `styles.css` owns the baseline outside this scope. No generated token adapter or remote font dependency.
+The owner's November 3, 2026 redesign authorization supersedes earlier task-scoped prohibitions on new colors, imagery, navigation and dashboard composition. It preserves business, evidence and confirmation rules in UX-CONTRACT.md. The canonical runtime token owner is `src/personal/design-tokens.css`, imported by `src/personal/desk.css`; this document mirrors that source. Update the runtime and this mirror together. The shared system is being applied incrementally, as recorded below.
+
+**Key Characteristics:**
+
+- Restrained neutral surfaces, sparse blue actions and explicit written states.
+- Local system typography and a coherent subject-cover signature.
+- Responsive navigation that supports mouse, keyboard and touch.
+- Existing interaction owners and real records throughout the redesign.
 
 ## Colors
 
-Cool gray canvas, true white reading surfaces, near-black content and sparse blue actions. Red means urgent/overdue; green means success; orange means review. Status always includes text. Dark mode uses ink #f5f5f7, paper #141416, panel #202023, soft #2b2b30, muted #adadb5, subtle #9898a2, line #46464c, line-soft #35353b, blue #72b4ff, blue-soft #1e3550, green #8bd4a3, green-soft #23382b, red #ff9c95, red-soft #462825, yellow #f8c773 and yellow-soft #3b3021. `DeskChrome` supports light, dark and system, persisting only the appearance preference. High-contrast/forced-colors keeps system controls operable.
+Cool gray canvas, white surfaces and near-black text form the neutral field. Blue signals navigation and action; green, red and amber communicate completion, error/urgency and review with accompanying text.
+
+### Primary
+
+- **System Blue** (`blue`): accent marks, focus outlines and decorative active indicators.
+- **Readable Blue** (`blue-text`): small action text and selected navigation labels.
+- **Action Blue / Action Foreground** (`action-fill` / `action-ink`): the primary-button pair. The foreground is chosen for its fill, independently of the decorative accent.
+- **Quiet Blue** (`blue-soft`): selected rows, action icons and evidence context.
+
+### Secondary
+
+- **Completion Green** (`green`) and **Readable Green** (`green-text`): completion marks and completion text respectively, with `green-soft` behind quiet success states.
+- **Error Red** (`red`) and **Readable Red** (`red-text`): error/urgent marks and error text respectively, with `red-soft` behind quiet warnings.
+- **Review Amber** (`yellow` / `yellow-soft`): review and uncertainty, with a written reason.
+
+### Neutral
+
+- **Study Ink** (`ink`): primary content.
+- **Cool Canvas / White Surface** (`paper` / `panel`): page ground and reading groups.
+- **Soft Gray** (`soft`): subdued controls and pressed/hover states.
+- **Secondary / Quiet Text** (`muted` / `subtle`): supporting text, kept readable on the intended surface.
+- **Field / Surface Lines** (`line` / `line-soft`): control boundaries and subtle separators.
+
+**The Separate Roles Rule.** Do not substitute the decorative accent for a text or primary-button token. In light mode the primary action uses Readable Blue with white; dark mode uses its own light-blue fill and dark foreground. The full light/dark values and scrollbar colors remain in the canonical runtime file.
+
+Light, dark and system appearance share semantic roles; only the appearance preference is persisted by DeskChrome. Forced-colors modes retain visible system controls and focus. Status never depends on color alone.
 
 ## Typography
 
-Local system sans throughout; display 38px desktop / 33px narrow, page titles 30px / 26px, groups 18px, candidate titles 17px, body 14px, metadata 12–13px with generous line-height. Native forms become 16px inside narrow sheets. No decorative type, all-caps section labels or font downloads. Source text preserves whitespace and is never truncated; only the compact inbox summary clamps to two lines, with the full value in details.
+**Display Font / Body Font:** the local system stack in the frontmatter. Windows prefers Segoe UI Variable, then Segoe UI and Microsoft YaHei UI; Apple devices resolve their local system face and Chinese fallback. No font download is required.
+
+**Character:** compact, clear and familiar. Chinese is the primary product language; existing Today/Inbox/Review labels and the time-aware English greeting are retained where implemented. Dense evidence remains readable text, separate from ordinary navigation.
+
+### Hierarchy
+
+- **Display:** Today's greeting uses the display role, reducing through tablet sizes to 27px on phones.
+- **Headline:** existing page headings retain their established 30px scale and responsive variants; the legacy local Today heading remains 38px / 33px.
+- **Title:** Today group headings use the title role; course/task titles use 13–15px and moderate weight.
+- **Body:** the system body role, with generous line height for learning and source reading.
+- **Label:** supporting labels use 11–13px; clocks and progress counts use tabular numbers.
+- **Fields:** narrow form controls and the search input use 16px text to remain usable on mobile.
+
+Full source text preserves whitespace and is not summarized away. Compact course names and inbox summaries may clamp; the existing detail/source route retains the complete value.
 
 ## Layout
 
-216px navigation rail (184px mid-size), content max 1208px including 44px desktop side padding; 18px narrow padding. At 760px the rail becomes five labeled bottom actions. Today has two agenda groups, a three-candidate inbox preview and a bounded action list. Historical overdue dates remain accessible without dominating today. All-items pages load 50; inbox pages 20; filters/page remain URL state.
+The cloud Web/PWA shell is owned by CloudChrome, rendered by the cloud branch of DeskChrome. `src/cloud/responsive.css` owns shell adaptation; `src/cloud/today.css` owns Today's composition. The local legacy branch keeps its existing structure and breakpoints while consuming the shared tokens.
 
-Sheets are 520px right panels (680px wide variant), 16px viewport inset, 20px radius and internally scrollable bodies with sticky footer actions. Narrow sheets occupy the viewport below a 12px top inset and respect safe areas. The document owns scrolling elsewhere. Native select popups and typed ISO dates retain existing platform ownership rather than adding custom date widgets.
+- **Desktop, above 1100px:** a permanent 216px rail, content width up to 1480px with 32px side padding, and a multi-column Today. Schedule and courses span the broad area; supporting focus, tasks, progress and upcoming groups sit alongside it.
+- **Tablet, 640–1100px:** a 76px icon rail expands to 208px, with two-column Today. At 640–820px, the schedule spans both columns and the secondary groups rearrange for the narrower portrait workspace.
+- **Phone, below 640px:** a single column and five labeled bottom tabs: Today, 课程, 学习, Inbox, 更多. Today orders schedule, tasks, progress, courses, focus, upcoming and reviews after its next-action strip. The course gallery scrolls horizontally with 145px cards; the full catalogue stays a two-column grid.
+- **Safe areas:** the cloud shell uses 100dvh and `env(safe-area-inset-*)` for content, toolbar and bottom navigation. Browser emulation does not prove hardware notch, keyboard or installed-PWA behavior.
+- **Input:** primary cloud actions and task hit areas are at least 44px; coarse-pointer rules enlarge smaller search, theme and segmented controls. Hover feedback is scoped separately from coarse-pointer behavior.
+- **Sheets:** DeskSheet remains a 520px right panel with a 680px wide variant, viewport insets, internal body scrolling and sticky actions. Narrow sheets fill the width below a 12px top inset. Ordinary pages retain document scrolling.
 
-Saved media uses the existing evidence disclosure and sheet. Today shows one quiet text entry only while attachments need processing; it disappears when resolved. Inbox cards add only “包含 N 份附件”. Inside evidence, original files precede verbose message metadata, with inline image preview and download. Cache thumbnails are labeled, and OCR, literal Vision transcription and nonliteral visual descriptions stay distinct. Failed or unavailable media remains outside the action inbox with a plain-language reason and automatic retry timing; no manual reanalysis is required.
+### Incremental migration ledger
+
+| Surface | Implemented state |
+|---|---|
+| Web/PWA Today | New responsive composition using existing dashboard, course, learning and upcoming projections |
+| Cloud navigation | Shared CloudChrome rail, tablet expansion, phone tabs, More and course/page search |
+| Cloud course catalogue/detail | Shared CourseCard/CourseArtwork covers and presentation metadata |
+| Cloud task rows | Shared TaskRow with reversible completion/restore affordances |
+| Shared styles and PWA presentation | Canonical light/dark tokens, manifest theme, Apple touch icon and public hashed-image shell caching |
+| Learning, Lecture, Review, Inbox, Capture, Textbooks and system forms | Existing layouts retained; shared tokens and established interaction owners consumed |
+| Local desktop TodayDesk and local legacy shell | Existing composition retained; shared tokens consumed |
+
+This ledger records the shipped UI scope; it does not claim that every deeper screen has been redesigned. The generated concept and user references do not override it.
 
 ## Elevation & Depth
 
-Fine 1px separators and surface contrast supply structure. No decorative card shadows. Modal sheets alone have a quiet shadow and dim/blur backdrop, using the browser top layer and inert background. A confirmation can appear over a dirty sheet. Global scrollbar styles remain inherited from styles.css, with theme token overrides in desk.css.
+White reading groups and subtle separators provide most structure. The cloud navigation rail and phone tab bar use restrained translucent backgrounds with backdrop blur. Sheets and confirmations use the shared diffuse shadow (`--desk-shadow`); selected segmented controls use only a small structural shadow. Course artwork supplies visual richness without adding decorative shadows to every card.
+
+**The Quiet Surface Rule.** Reading groups stay calm at rest. Use depth to identify an overlay or selected control, and keep ordinary content on tonal surfaces.
+
+Press feedback on the next action and course cards uses the shared scale and spring easing. Reduced-motion preferences remove animation and transitions. Focus outlines remain visible independently of motion.
 
 ## Shapes
 
-18px panels, 13px inbox cards, 10px controls, 7px status labels. Consistent thin Lucide icons, normally 15–20px. No imagery is needed in the product; the generated concept is a design reference, not a bitmap UI asset.
+Gently rounded reading groups use the shared surface radius; controls use the shared control radius. Sheets use 20px corners, course covers 11px, and compact status labels 7px. Phone Today groups use the implemented 17px adaptation. Thin Lucide icons support text labels; the native checkbox remains the task control beneath its circular visual.
+
+Course covers use one coherent generated atlas rather than unrelated photos. `src/personal/courseVisuals.js` maps ten subject families plus study/general fallbacks by subject name or an optional course object's `visualTheme`. Record IDs never select imagery. 体育 uses a running track, not basketball. The 12-cell atlas is `src/assets/course-atlas.webp`; its exact generation prompt and creation provenance are retained in `src/assets/course-atlas.webp.json`.
 
 ## Components
 
-Canonical shell/appearance: DeskChrome. Canonical overlay: DeskSheet, an app-owned native dialog, with focus return, Escape and scroll lock. Serious/discard prompts retain ConfirmDialog. Canonical field/submit/error owner remains Forms.Field/SubmitButton + useDraft; typed dates use validTime, evidence uses exactSpan. PersonalRequest/usePersonalResource own bounded abortable reads and persistent errors. Success remains inline, not a transient toast.
+### Buttons and fields
 
-WeChatInbox displays title, one-sentence summary, source group/time, written priority/state and an actual deadline only when present. Ignore/edit/confirm are the primary actions. CandidateSheet is the focused WeChat variant of the existing raw-review contract; it uses the existing draft/confirm APIs and preserves sibling drafts. Five core fields are title, type, dates, place, action. Summary/relevance and additional details are disclosures; participation remains visible when it changes task creation. Unknown years are never invented. Sources, sender, AI reasons and quotes use WeChatEvidence/OriginalNotice in a closed disclosure.
+Primary buttons use the action fill/foreground pair; quiet buttons use the white surface and ink. Hover changes are subtle, focus uses a visible 3px outline, and pending actions disable duplicate submissions. Existing Forms.Field/SubmitButton and useDraft remain the field, validation, retained-input and submit owners. Native selects and typed ISO dates retain platform ownership.
 
-Formal items emphasize title, summary, time, action and source. Date precision, evidence, analysis, context, ICS and history occupy secondary disclosures. Formal edits reuse existing forms inside DeskSheet, never a second event store. Participation and original evidence semantics are unchanged.
+### Navigation and search
 
-Bark phone settings show the candidate switch, HTTPS server, masked Device Key and explicit connection test. Shared Field labels remain associated with actual inputs. Show/hide is keyboard accessible; saving clears transient input. An empty key means keep the existing encrypted/environment key; no key is returned or stored in browser storage. Official/cloud Bark settings remain a separate disclosure and keep their existing policy.
+CloudChrome replaces only the cloud shell branch. Navigation still goes through the existing route and dirty-change guard. More preserves access to Review, tasks, textbooks, settings and other secondary tools. Ctrl+K or Meta+K opens the existing DeskSheet search. It searches saved course names and navigation pages only; its query is transient, clearable, and absent from URL or persistent storage.
 
-Paired phone intake, documents/OCR, long-document extraction, source updates, ICS and reminder settings retain their original contracts. New body-level theme tokens do not migrate these domain rules. Collection status and operational counters belong in settings or a closed status disclosure, not the default home.
+### CourseCard / CourseArtwork
+
+The same artwork owner is used by Today, the cloud catalogue and course detail. Covers are decorative and hidden from assistive technology; visible course names remain the meaningful labels. `coursePresentation.js` uses live location/teacher fields first, then presentation-only metadata keyed to the owner's iCalendar UIDs. No second set of schedule times is stored. The explicit late-study location is 一教420; a cover or concept never supplies a class time, teacher or room.
+
+### TaskRow
+
+TaskRow reuses the existing TaskCheck, cloud progress and durable local outbox owners. A labeled native checkbox keeps mouse/keyboard access. A left swipe reveals the same completion or restore action; the affordance does not delete a task. Pending, offline and failed changes retain their existing truthful state and recovery behavior.
+
+### Reading, forms and overlays
+
+TodayPage composes existing data and ReadState behavior. DeskSheet remains the shared native-dialog owner with Escape, focus return and scroll locking; ConfirmDialog remains the confirmation/discard owner. Existing evidence/source viewers, LearningFocus and form owners retain their semantics. Loading, empty, offline and error states describe the actual read or saved intention. Reading, generated content, adoption and demonstrated mastery remain distinct.
+
+### PWA presentation
+
+The public manifest uses the shared light canvas theme and existing standalone display. The Apple 180px icon and viewport-fit metadata are present. The service worker permits hashed public image assets for the shell; this does not add private-source caching or establish native app installation. No weather dependency is introduced.
 
 ## Do's and Don'ts
 
-- Do keep attention on what, when, next action and source.
-- Do require explicit confirmation before formal records, exact evidence spans and deliberate participation.
-- Do preserve entered values after failures, show actionable errors, prevent duplicate saves and restore focus.
-- Do respect reduced motion, native keyboard controls, narrow layouts, safe areas and visible scrollbars.
-- Do preserve the verified read-only DB increment, dedupe, evidence and human confirmation boundaries. Metadata discovery, per-room grants and scoped queue orchestration extend these boundaries under the explicit multigroup brief.
-- Do not show model confidence/schema/diagnostics by default or send them to the phone.
-- Do not infer a withdrawn message's content, fabricate missing years or treat a push as formal confirmation.
+### Do:
 
-## Authorized WeChat groups · October 23 extension
+- **Do** update canonical runtime tokens and this mirror together.
+- **Do** use readable text and action pairs for their intended surfaces in light and dark appearance.
+- **Do** reuse the shared course artwork, task row, sheets, forms, read states and navigation guard.
+- **Do** preserve real course identity, immutable evidence and the existing confirmation boundary.
+- **Do** keep keyboard focus visible, touch targets usable and reduced-motion behavior intact.
+- **Do** report the migration scope and real-device verification limits accurately.
 
-Collection settings uses a compact health summary above independent group cards. A 400px minimum card column gives a balanced two-column desktop view and a single narrow column. Cards show the exact display name, written priority/enabled state, latest scan, new/important counts and pending reviews; room IDs, per-shard cursor, errors and AI counts remain in a disclosure. Enable/disable, priority and removal save immediately with revision checks. A separate schedule/budget form keeps its explicit save/discard ownership; dirty budget input blocks conflicting group mutations.
+### Don't:
 
-Adding a group uses DeskSheet + Field/native search/select and a concrete ConfirmDialog. Search debounces 350ms, respects IME, aborts stale reads and only queries metadata. The selected room ID is verified again before granting; same names and later pages cannot select another room. New grants read only the last 24 hours. Escape from the search field dismisses the sheet unless IME is active. Search failure keeps the query and offers retry. No ungranted body, preview or message shard is read during discovery.
-
-High/medium/low priority adjusts conservative local triage and low-priority phone suppression. Bark uses meaningful explicit actions with validated evidence as well as task/deadline category labels; a required exam submission must not be lost because the model chose “exam”. Ordinary information remains in the desk. Exact push title is `Attention Desk · 微信`; the body is a concise title with a known deadline when available and the source is a subtitle. Model diagnostics stay off the phone.
-
-## Attention quality · October 23 extension
-
-Only complete, explicitly relevant Action items occupy the inbox and its home preview. FYI appears in a quiet “值得知道” section after actionable work. Its default feed shows the last seven days, ordered by source time, with a compact recent/archive switch. Up to three rows appear initially; more information is server-paged. Pinning keeps an item for thirty days. Archive and ignore are reversible, with written feedback and Undo. FYI never requires routine confirmation and never triggers candidate Bark. Chatter, duplicate participation lists, unrelated awards and unfollowed optional events stay out of these surfaces. Empty inbox copy describes the absence of actionable items without claiming unresolved information has been confirmed.
-
-FYI details keep sources in the existing disclosure. “转为事项” explicitly opens the canonical CandidateSheet conversion variant; it starts as a Notice without invented dates or actions, preserves typed input on failure, guards dirty closure and only creates a formal item after “保存为事项”. The classification stays FYI, so this manual action cannot cause a candidate push. Converted items link to the existing formal detail. Unresolved/media sheets remain read-only. Scope source identity by account, chat and shard: a display name is never proof of identity. Unknown senders are shown with their raw ID; system records are labeled as system messages.
-
-Questions and incomplete notices wait in a collapsed context area. An explicit confirmation can combine the held question and new fact from the same group/topic; both immutable sources remain available. Unreadable continuous images occupy one attachment group in a separate collapsed “未解析附件” area. Its sheet contains explanation and source disclosure, never an actionable candidate placeholder or confirmation button. A readable derived source must pass the same quality gate before becoming Action/FYI. Partial collection health says “部分群暂未更新”; it must not look healthy while a group is blocked.
-
-## Phase 1 course association
-
-Reuse CourseField (Forms.Field + native select) in review and formal course editing. Suggestions remain visibly unconfirmed until chosen and confirmed. Course is optional; errors do not discard inputs or block an empty association. Today adds the confirmed course name only when present, using existing metadata typography. No new layout, tokens or domain lifecycle changes.
-
-## Anywhere Notes Ingest
-
-The owner's 2026-10-29 scope explicitly permits private Supabase transit for shared classroom notes while the Windows desk is offline. This is a narrow evolution of the prior LAN-only note entry; other sources and model-send permissions remain unchanged. MobileCollectorSettings leads with cloud note sharing and keeps LAN controls in the existing closed disclosure. No visual tokens or navigation destinations change. Notes enter the same local Inbox and course/lecture pipeline after durable hash-verified receipt.
-
-The cloud setup page offers one generic signed Shortcut download plus one upload-only connection to paste during import. The signed artifact is decoded and its actions and permissions compared with the reviewed unsigned source; it contains no owner credential or note. Its device-local pending folder is saved before upload and only its queued copy is deleted after `saved: true`. Installation and true cellular sharing require owner device verification before claiming acceptance. A manual guide stays closed as fallback; iOS background retry is described without promising execution after an arbitrary network failure.
-
-First-setup correction: cloud QR codes carry a 15-minute, random setup nonce in a retained query, not the device upload capability. A same-origin, non-cacheable LAN exchange returns the capability to memory. Repeated preview, reload and Code Scanner → Safari handoff work without shared cookies; invalid, replaced, expired and revoked setups fail closed. The installer has one clearly labeled empty connection question. Its raw-PDF request uses typed text headers and ISO 8601 including time; only queued copies are eligible for deletion after saved confirmation.
-
-The one-time mobile setup page owns the fixed HTTPS endpoint, masked upload credential with copy/reveal, and pending-file retry instructions. It must not claim an installable signed Shortcut when only Windows and iPhone/iPad are available. It distinguishes cloud “已接收” from later local processing. iOS background retry is not guaranteed: a preserved file is retried on the next share/run, with optional Wi-Fi personal automation. Device management reuses DeskSheet, usePersonalResource and ConfirmDialog; revocation names the loss of future upload access and preserves already received notes. No new completion notifications are added to the desktop.
-
-## Phase 2 Eric Inbox
-
-EricInbox uses the existing desk shell, event rows, native selects, Forms, useDraft, persistent inline feedback and DeskSheet. It is a product surface for receiving material, without a visual rebrand. Original, Extracted, Linked, Analysis, Actions and Evidence are sections in the existing wide sheet. Original bytes and immutable source text retain their existing viewing/download owners. Dense processing metadata is kept in a disclosure; user-facing states stay in Chinese.
-
-The list has four status filters, a source-scope select and bounded pages of 20. Source scope defaults to active submissions; all authorized Attention sources remain accessible through the same underlying RawItem projection. On phones, five navigation destinations and Settings share six equal touch targets; each remains at least 44 px. Existing Today, Candidate and formal-item behavior is retained.
-
-Receipt success, PDF readability and content quality are distinct. OCR output never earns a complete-understanding label. Unverified/low-quality OCR shows a visible reason and Needs Review while keeping original preview/download usable. Image decoding and PDF preview do not require successful OCR. Local classification is labeled as a suggestion. CourseField owns manual association, including change/clear; the Project field is a plain optional local filing label. No new tokens, icon family or elevation rules are introduced.
-
-
-Phase 3.1: the existing textbook surface also lists the registered companion lower volume. Canonical-library import verifies the fixed Eric OS manifest and keeps original files in that directory without a second upload/copy. Upper volume remains primary for this Lecture. Acceptance is a persisted result, not a hardcoded Pending label. Reuse existing controls, tokens, inline errors and source preview; no primary-navigation or aesthetic changes.
-
-Phase 4.1 connection scope confirmed by Eric: a 90-day notes-only verifier may survive restart, and the existing Collector may resume only on the previously selected exact private Wi-Fi/interface/address. Store only the verifier digest; browser-pairing sessions remain temporary. Manual stop, device revocation or network changes stop reception and revoke the notes connection. No public listener, firewall change, processing-complete notification or new service is introduced.
-
-
-## Notes intake experience · 2026-10-29
-
-Owner policy: preserve the physically proven raw-PDF upload endpoint and device capability. The owner confirmed week one Monday as 2026-08-31. The 139-session timetable is local evidence, including unregistered competing courses, and creates neither course records nor attendance/mastery. Existing same-document and human course links take priority. High-confidence course routing requires independent content/context evidence; medium confidence recommends a course in the existing CaptureSheet without preselecting it; low confidence keeps the existing confirmation path. Timetable, textbook and recent-lecture content are correlated conservatively; a lone word or timetable slot cannot auto-assign. Delayed phone retries and offline desktop downloads retain their source clocks.
-
-The existing native pending folder remains. A saved=true response and valid receipt permit a hash/name-bound local acknowledgement marker, never a per-share delete. Repeated runs skip acknowledged unchanged files. Optional explicit batch maintenance requires both a marker proving the cache was generated by this workflow and a matching acknowledged content hash; iOS owns the batch deletion confirmation. Legacy unowned files and all unacknowledged or changed files remain. No system deletion setting is bypassed. Mobile success is the truthful immediate cloud receipt, “Eric OS 已接收”; course resolution remains asynchronous on the existing Inbox/Learning screen. No cloud course database, new analysis, notification stream, overlay or runtime style token is introduced.
-
-Verification: server/test_note_course.py, server/test_notes_shortcut_cache.py, server/test_notes_anywhere.py, server/test_phase41_notes.py and the current isolated Chromium/WebKit captures. Native cache execution tests and cryptographically verified signing are technical evidence; installing/running the new workflow on an actual iPhone remains a separate acceptance step.
+- **Don't** turn a reference image or generated concept into product facts, rooms, schedules or progress.
+- **Don't** choose course imagery by record ID or treat decorative artwork as evidence.
+- **Don't** add task deletion, weather, remote fonts or new confirmation owners through this visual change.
+- **Don't** claim that token inheritance completes the redesign of a deeper screen.
+- **Don't** claim physical-device installation, safe-area acceptance or public deployment from browser tests.

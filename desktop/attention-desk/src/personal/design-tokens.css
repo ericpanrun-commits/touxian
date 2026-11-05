@@ -1,0 +1,30 @@
+/* Canonical Eric OS tokens. DESIGN.md mirrors this file (runtime ownership). */
+:root:has(.desk-shell) {
+  --ink: #1c1c1e; --paper: #f2f2f7; --panel: #ffffff; --soft: #eeeef3;
+  --muted: #63636b; --subtle: #707079; --line: #c7c7cc; --line-soft: #e5e5ea;
+  --blue: #007aff; --blue-text: #0063cf; --blue-soft: #e5f0ff;
+  --action-fill: #0063cf; --action-ink: #ffffff;
+  --green: #34c759; --green-text: #217a38; --green-soft: #edf8ef;
+  --red: #ff3b30; --red-text: #cb241b; --red-soft: #fff0ee;
+  --yellow: #8a5900; --yellow-soft: #fff5e6;
+  --scrollbar-thumb: #b8b8c0; --scrollbar-track: #f2f2f7; --scrollbar-hover: #8b8b96; --scrollbar-active: #63636b;
+  --desk-radius: 18px; --desk-control-radius: 11px; --desk-nav-width: 216px;
+  --desk-shadow: 0 16px 56px #00000018;
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-5: 20px; --space-6: 24px; --space-8: 32px;
+  --press-scale: .985; --spring: cubic-bezier(.2,.8,.2,1.15);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI Variable", "Segoe UI", "Microsoft YaHei UI", "PingFang SC", sans-serif;
+  font-size: 14px; color-scheme: light;
+}
+:root[data-desk-theme="dark"]:has(.desk-shell) {
+  --ink: #f5f5f7; --paper: #141416; --panel: #202023; --soft: #2b2b30;
+  --muted: #b0b0b9; --subtle: #aaaab4; --line: #56565e; --line-soft: #38383f;
+  --blue: #64aaff; --blue-text: #8bbfff; --blue-soft: #1e3550;
+  --action-fill: #64aaff; --action-ink: #141416;
+  --green: #32d74b; --green-text: #8bd4a3; --green-soft: #23382b;
+  --red: #ff6961; --red-text: #ff9c95; --red-soft: #462825; --yellow: #f8c773; --yellow-soft: #3b3021;
+  --scrollbar-thumb: #55555e; --scrollbar-track: #141416; --scrollbar-hover: #767681; --scrollbar-active: #92929b;
+  color-scheme: dark;
+}
+@media (forced-colors: active) {
+  :root:has(.desk-shell) { --blue-text: LinkText; --green-text: CanvasText; --red-text: CanvasText; }
+}

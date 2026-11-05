@@ -5,6 +5,7 @@ import '../styles.css';
 import '../personal/personal.css';
 import '../personal/desk.css';
 import './cloud.css';
+import './responsive.css';
 import {registerWorker} from './register-worker';
 
 class RecoveryBoundary extends React.Component {

@@ -3,7 +3,7 @@ const {cache:CACHE,files:FILES,shell:SHELL,entry:ENTRY}=ERIC_SW;
 const PREFIX='eric-os-shell-';
 const authKeys=['code','access_token','refresh_token','token_hash','error','error_description'];
 const appUrl=url=>['/','/index.html'].includes(url.pathname)&&!authKeys.some(key=>url.searchParams.has(key))&&!/access_token=|refresh_token=/.test(url.hash);
-const staticUrl=url=>url.origin===self.location.origin&&(/^\/assets\/[A-Za-z0-9_.-]+\.(js|mjs|css)$/.test(url.pathname)||/^\/pdfjs-[\d.]+\//.test(url.pathname)||/^\/icon(?:-[A-Za-z0-9-]+)?\.(png|svg)$/.test(url.pathname)||url.pathname==='/manifest.webmanifest');
+const staticUrl=url=>url.origin===self.location.origin&&(/^\/assets\/[A-Za-z0-9_.-]+\.(js|mjs|css|png|webp|svg|jpg|jpeg|avif)$/.test(url.pathname)||/^\/pdfjs-[\d.]+\//.test(url.pathname)||/^\/icon(?:-[A-Za-z0-9-]+)?\.(png|svg)$/.test(url.pathname)||url.pathname==='/manifest.webmanifest');
 const safeAsset=response=>response&&response.status===200&&!response.redirected&&!['opaque','opaqueredirect'].includes(response.type)&&!response.headers.get('Content-Type')?.includes('text/html');
 
 function cleanResponse(response,body=response.body){
