@@ -1,38 +1,191 @@
+"""Range and cache behavior of the Omen11 CloudSync downloader.
+
+Origin does not yet contain every module the full processor imports. Missing
+modules are stubbed here so these tests can call the real ``download_capture``
+without replacing that class.
+"""
+from __future__ import annotations
+
+import asyncio
 import hashlib
+import importlib
+import importlib.util
+import sys
+import types
 from pathlib import Path
 
 import httpx
 import pytest
 
-from server.cloud_sync.service import CHUNK_BYTES, FULL_DOWNLOAD_LIMIT, CloudSyncError, CloudSyncService
+
+def _ensure(name, **attrs):
+    """Import ``name``, or install an in-memory stub when this checkout lacks it."""
+    try:
+        return importlib.import_module(name)
+    except ModuleNotFoundError:
+        module = sys.modules.get(name)
+        if module is None:
+            module = types.ModuleType(name)
+            module.__package__ = name.rpartition('.')[0]
+            module.__path__ = []
+            sys.modules[name] = module
+            parent_name, _, child = name.rpartition('.')
+            if parent_name:
+                parent = _ensure(parent_name)
+                setattr(parent, child, module)
+        for key, value in attrs.items():
+            setattr(module, key, value)
+        return module
 
 
-SHA = 'ab' * 32
-OTHER = 'cd' * 32
-RESOURCE = 'textbook:demo'
-BASE = 'https://example.test/functions/v1/eric-app-api'
+def _install_origin_gaps():
+    _ensure('server.notes_anywhere.settings', BASE='https://example.test')
+    _ensure('server.recovery_controls', cloud_uploads_held=lambda path: False)
+    _ensure('server.course_api', CourseInput=object, CourseAssociationInput=object)
+    _ensure('server.courses', CourseStore=object)
+    _ensure('server.inbox_api', LinkInput=object)
+    school = {
+        'server.school.artifacts': ['ReviewArtifacts'],
+        'server.school.models': [
+            'FeedbackInput', 'LectureInput', 'SectionLinks', 'BookMetadataInput', 'BookFileInput', 'SectionInput',
+        ],
+        'server.school.store': ['SchoolStore'],
+        'server.school.documents': ['ReadDocuments'],
+        'server.school.context': ['ContextBuilder'],
+        'server.school.retrieval': ['Retrieval'],
+        'server.school.service': ['SchoolService'],
+    }
+    for module_name, class_names in school.items():
+        _ensure(module_name, **{class_name: type(class_name, (), {}) for class_name in class_names})
+    _ensure(
+        'server.learning.store',
+        LearningStore=object,
+        unpack=lambda *args, **kwargs: None,
+        capture_projection=lambda *args, **kwargs: None,
+    )
+
+
+_install_origin_gaps()
+
+import server.cloud_sync.service as cloud_sync
+from server.cloud_sync.service import FULL_DOWNLOAD_LIMIT, PART_BYTES, CloudSync, SyncError
+
+
 KEY = 'ework_' + 'k' * 43
+RESOURCE = 'textbook:demo'
 
 
 def digest(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
-def service(tmp_path: Path, handler, **kwargs) -> CloudSyncService:
-    options = {'range_limit': 8, 'chunk_bytes': 4, **kwargs}
-    return CloudSyncService(BASE, KEY, tmp_path, transport=httpx.MockTransport(handler), **options)
+def capture_for(payload: bytes, *, resource_id=RESOURCE, capture_id='cap-1', filename='notes.bin', sha=None):
+    return {
+        'id': capture_id,
+        'files': [{
+            'resource_id': resource_id,
+            'sha256': sha or digest(payload),
+            'bytes': len(payload),
+            'filename': filename,
+            'mime': 'application/octet-stream',
+        }],
+    }
 
 
-def content_url(resource_id=RESOURCE):
-    return BASE + '/worker/files/' + resource_id + '/content'
+def cache_file(root: Path, capture_id: str, sha: str) -> Path:
+    return root / f'{capture_id}-{sha}.download'
 
 
-def test_limits_match_the_edge_function_contract():
+def open_sync(tmp_path: Path, handler) -> CloudSync:
+    sync = CloudSync.__new__(CloudSync)
+    sync.cache = tmp_path
+    sync.config = {'worker_key': KEY}
+    sync.client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler),
+        timeout=httpx.Timeout(60, connect=10),
+        follow_redirects=False,
+    )
+    return sync
+
+
+def run_download(sync: CloudSync, capture):
+    async def go():
+        try:
+            return await sync.download_capture(capture)
+        finally:
+            await sync.client.aclose()
+
+    return asyncio.run(go())
+
+
+def slice_range(payload: bytes, header: str) -> httpx.Response:
+    begin, end = header.removeprefix('bytes=').split('-')
+    begin, end = int(begin), int(end)
+    body = payload[begin:end + 1]
+    return httpx.Response(206, content=body, headers={'Content-Range': f'bytes {begin}-{end}/{len(payload)}'})
+
+
+def test_limits_match_the_downloader_contract():
     assert FULL_DOWNLOAD_LIMIT == 50 * 1024 * 1024
-    assert CHUNK_BYTES == 4 * 1024 * 1024
+    assert PART_BYTES == 4_000_000
 
 
-def test_matching_cache_is_reused_and_kept_when_ack_fails(tmp_path):
+def test_over_limit_assembles_with_ranges(tmp_path, monkeypatch):
+    monkeypatch.setattr(cloud_sync, 'FULL_DOWNLOAD_LIMIT', 8)
+    monkeypatch.setattr(cloud_sync, 'PART_BYTES', 4)
+    payload = b'0123456789'
+    calls = []
+
+    def handler(request):
+        calls.append((request.headers.get('range'), request.headers.get('x-eric-worker-key')))
+        assert request.headers['range']
+        return slice_range(payload, request.headers['range'])
+
+    sync = open_sync(tmp_path, handler)
+    files = run_download(sync, capture_for(payload))
+    filename, mime, path = files[0]
+    assert filename == 'notes.bin'
+    assert mime == 'application/octet-stream'
+    assert path.read_bytes() == payload
+    assert [item[0] for item in calls] == ['bytes=0-3', 'bytes=4-7', 'bytes=8-9']
+    assert all(item[1] == KEY for item in calls)
+    assert not path.with_name(path.name + '.partial').exists()
+
+
+def test_http_416_assembles_with_ranges(tmp_path, monkeypatch):
+    monkeypatch.setattr(cloud_sync, 'FULL_DOWNLOAD_LIMIT', 50)
+    monkeypatch.setattr(cloud_sync, 'PART_BYTES', 4)
+    payload = b'abcdefghij'
+    calls = []
+
+    def handler(request):
+        calls.append(request.headers.get('range'))
+        if request.headers.get('range') is None:
+            return httpx.Response(416)
+        return slice_range(payload, request.headers['range'])
+
+    sync = open_sync(tmp_path, handler)
+    path = run_download(sync, capture_for(payload))[0][2]
+    assert path.read_bytes() == payload
+    assert calls == [None, 'bytes=0-3', 'bytes=4-7', 'bytes=8-9']
+
+
+def test_small_file_uses_one_get(tmp_path, monkeypatch):
+    monkeypatch.setattr(cloud_sync, 'FULL_DOWNLOAD_LIMIT', 50)
+    payload = b'12345'
+    calls = []
+
+    def handler(request):
+        calls.append(request.headers.get('range'))
+        return httpx.Response(200, content=payload)
+
+    sync = open_sync(tmp_path, handler)
+    path = run_download(sync, capture_for(payload))[0][2]
+    assert path.read_bytes() == payload
+    assert calls == [None]
+
+
+def test_matching_cache_is_reused(tmp_path):
     payload = b'cached-bytes'
     sha = digest(payload)
     calls = []
@@ -41,120 +194,89 @@ def test_matching_cache_is_reused_and_kept_when_ack_fails(tmp_path):
         calls.append(request)
         raise AssertionError('cache hit must not download')
 
-    sync = service(tmp_path, handler)
-    cached = sync.cache_file(RESOURCE, sha)
-    cached.parent.mkdir(parents=True)
+    sync = open_sync(tmp_path, handler)
+    cached = cache_file(tmp_path, 'cap-1', sha)
     cached.write_bytes(payload)
-    leftover = cached.with_name(cached.name + '.partial')
-    leftover.write_bytes(b'stale-partial')
-
-    def fail(_path):
-        raise CloudSyncError('ack_failed', 'ack failed')
-
-    with pytest.raises(CloudSyncError):
-        sync.download_capture(RESOURCE, sha, size=len(payload), ack=fail)
-    assert cached.read_bytes() == payload
-    assert not leftover.exists()
-    assert calls == []
-    sync.close()
-
-
-def test_large_download_uses_ranges_and_keeps_cache_on_later_failure(tmp_path):
-    payload = b'0123456789'  # 10 bytes, limit 8, chunks of 4 -> 0-3, 4-7, 8-9
-    sha = digest(payload)
-    calls = []
-
-    def handler(request):
-        calls.append((request.headers.get('range'), request.headers.get('x-eric-worker-key')))
-        assert request.headers['range']
-        begin, end = request.headers['range'].removeprefix('bytes=').split('-')
-        begin, end = int(begin), int(end)
-        body = payload[begin:end + 1]
-        return httpx.Response(206, content=body, headers={'Content-Range': f'bytes {begin}-{end}/{len(payload)}'})
-
-    sync = service(tmp_path, handler)
-    path = sync.download_capture(RESOURCE, sha, size=len(payload))
-    assert path.read_bytes() == payload
-    assert [item[0] for item in calls] == ['bytes=0-3', 'bytes=4-7', 'bytes=8-9']
-    assert all(item[1] == KEY for item in calls)
-
-    def fail(_path):
-        raise RuntimeError('ack failed after a good file')
-
-    with pytest.raises(RuntimeError):
-        sync.download_capture(RESOURCE, sha, size=len(payload), ack=fail)
-    assert path.read_bytes() == payload
-    assert len(calls) == 3
-    sync.close()
-
-
-def test_http_416_falls_back_to_ranges_and_a_failed_chunk_keeps_other_cache(tmp_path):
-    payload = b'abcdefghij'
-    sha = digest(payload)
-    neighbor = sync_neighbor(tmp_path)
-    calls = []
-
-    def handler(request):
-        calls.append(request.headers.get('range'))
-        if request.headers.get('range') is None:
-            return httpx.Response(416, json={'detail': {'code': 'range_required', 'message': 'range'}})
-        begin, end = request.headers['range'].removeprefix('bytes=').split('-')
-        begin, end = int(begin), int(end)
-        if begin >= 4:
-            return httpx.Response(503)
-        body = payload[begin:end + 1]
-        return httpx.Response(206, content=body, headers={'Content-Range': f'bytes {begin}-{end}/{len(payload)}'})
-
-    sync = service(tmp_path, handler, range_limit=50)
-    with pytest.raises(CloudSyncError) as error:
-        sync.download_capture(RESOURCE, sha, size=len(payload))
-    assert error.value.code == 'download_unavailable'
-    cached = sync.cache_file(RESOURCE, sha)
     partial = cached.with_name(cached.name + '.partial')
-    assert not cached.exists()
+    partial.write_bytes(b'stale-partial')
+    path = run_download(sync, capture_for(payload, sha=sha))[0][2]
+    assert path == cached
+    assert cached.read_bytes() == payload
     assert not partial.exists()
-    assert neighbor.read_bytes() == b'keep-me'
-    assert calls[0] is None
-    assert calls[1] == 'bytes=0-3'
-    sync.close()
+    assert calls == []
 
 
-def test_small_file_still_uses_one_get(tmp_path):
-    payload = b'12345'
-    sha = digest(payload)
-    calls = []
-
-    def handler(request):
-        calls.append(request.headers.get('range'))
-        return httpx.Response(200, content=payload, headers={'Content-Length': str(len(payload))})
-
-    sync = service(tmp_path, handler, range_limit=50)
-    path = sync.download_capture(RESOURCE, sha, size=len(payload))
-    assert path.read_bytes() == payload
-    assert calls == [None]
-    sync.close()
-
-
-def test_unknown_size_reads_manifest_then_ranges(tmp_path):
+def test_failed_download_deletes_only_partial(tmp_path, monkeypatch):
+    monkeypatch.setattr(cloud_sync, 'FULL_DOWNLOAD_LIMIT', 8)
+    monkeypatch.setattr(cloud_sync, 'PART_BYTES', 4)
     payload = b'0123456789'
     sha = digest(payload)
+    neighbor = cache_file(tmp_path, 'cap-keep', 'ab' * 32)
+    neighbor.write_bytes(b'keep-me')
+    neighbor_partial = neighbor.with_name(neighbor.name + '.partial')
+    neighbor_partial.write_bytes(b'other-partial')
 
     def handler(request):
-        if request.url.path.endswith('/manifest'):
-            return httpx.Response(200, json={'bytes': len(payload), 'sha256': sha})
-        assert request.headers.get('range')
-        begin, end = request.headers['range'].removeprefix('bytes=').split('-')
-        begin, end = int(begin), int(end)
-        body = payload[begin:end + 1]
-        return httpx.Response(206, content=body, headers={'Content-Range': f'bytes {begin}-{end}/{len(payload)}'})
+        begin = int(request.headers['range'].removeprefix('bytes=').split('-')[0])
+        if begin >= 4:
+            return httpx.Response(503)
+        return slice_range(payload, request.headers['range'])
 
-    sync = service(tmp_path, handler)
-    assert sync.download_capture(RESOURCE, sha).read_bytes() == payload
-    sync.close()
+    sync = open_sync(tmp_path, handler)
+    with pytest.raises(SyncError) as error:
+        run_download(sync, capture_for(payload, sha=sha))
+    assert error.value.code == 'download_unavailable'
+    target = cache_file(tmp_path, 'cap-1', sha)
+    assert not target.exists()
+    assert not target.with_name(target.name + '.partial').exists()
+    assert neighbor.read_bytes() == b'keep-me'
+    assert neighbor_partial.read_bytes() == b'other-partial'
 
 
-def test_replay_script_samples_with_range_and_assembles_without_a_full_get(tmp_path):
-    import importlib.util
+def test_process_finally_keeps_verified_cache(tmp_path, monkeypatch):
+    monkeypatch.setattr(cloud_sync, 'record', lambda *args, **kwargs: None)
+    payload = b'0123456789'
+    sha = digest(payload)
+    calls = []
+
+    def handler(request):
+        calls.append(request.headers.get('range'))
+        return httpx.Response(200, content=payload)
+
+    sync = open_sync(tmp_path, handler)
+    sync.epoch = 'epoch-1'
+    sync.generation = 3
+    sync.workspace = 'ws-1'
+    sync.personal = types.SimpleNamespace(path=tmp_path / 'personal.db')
+
+    async def boom(*args, **kwargs):
+        raise RuntimeError('after a verified download')
+
+    async def finish(*args, **kwargs):
+        calls.append('finish')
+        return {}
+
+    sync.intake = types.SimpleNamespace(submit=lambda *args, **kwargs: {'queued': True}, bridge=boom)
+    sync.request = finish
+    item = capture_for(payload, sha=sha)
+    item.update(text_content='', title='t', shared_at='2026-11-05T00:00:00Z', purpose='study', lease_token='lease-1')
+
+    async def go():
+        try:
+            await sync._process('captures', item)
+        finally:
+            await sync.client.aclose()
+
+    asyncio.run(go())
+    cached = cache_file(tmp_path, 'cap-1', sha)
+    assert cached.read_bytes() == payload
+    assert not cached.with_name(cached.name + '.partial').exists()
+    assert calls == [None, 'finish']
+
+
+def test_replay_script_assembles_with_ranges_and_reuses_cache(tmp_path, monkeypatch):
+    monkeypatch.setattr(cloud_sync, 'FULL_DOWNLOAD_LIMIT', 8)
+    monkeypatch.setattr(cloud_sync, 'PART_BYTES', 4)
     script = Path(__file__).resolve().parents[1] / 'scripts' / 'verify-shortcuts-cloud-replay.py'
     spec = importlib.util.spec_from_file_location('verify_shortcuts_cloud_replay', script)
     module = importlib.util.module_from_spec(spec)
@@ -167,27 +289,19 @@ def test_replay_script_samples_with_range_and_assembles_without_a_full_get(tmp_p
     def handler(request):
         calls.append(request.headers.get('range'))
         assert request.headers.get('range')
-        begin, end = request.headers['range'].removeprefix('bytes=').split('-')
-        begin, end = int(begin), int(end)
-        body = payload[begin:end + 1]
-        return httpx.Response(206, content=body, headers={'Content-Range': f'bytes {begin}-{end}/{len(payload)}'})
+        return slice_range(payload, request.headers['range'])
 
-    sync = service(tmp_path, handler, chunk_bytes=4, range_limit=8)
-    sampled = module.replay(sync, RESOURCE, len(payload), window=4)
-    assert sampled['mode'] == 'sample'
-    assert sampled['windows'] == [(0, 3), (8, 11)]
-    assert b''.join(sampled['parts']) == b'0123' + b'89ab'
-    assembled = module.replay(sync, RESOURCE, len(payload), sha256=sha, assemble=True)
+    sync = open_sync(tmp_path, handler)
+    assembled = module.replay(sync, capture_for(payload, sha=sha))
     assert assembled['mode'] == 'assemble'
+    assert assembled['sha256'] == sha
     assert Path(assembled['path']).read_bytes() == payload
     assert None not in calls
-    sync.close()
 
+    def fail(request):
+        raise AssertionError('replay must reuse the verified cache')
 
-def sync_neighbor(tmp_path: Path) -> Path:
-    placeholder = CloudSyncService(BASE, KEY, tmp_path, transport=httpx.MockTransport(lambda request: httpx.Response(500)))
-    path = placeholder.cache_file('textbook:other', OTHER)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(b'keep-me')
-    placeholder.close()
-    return path
+    sync.client = httpx.AsyncClient(transport=httpx.MockTransport(fail))
+    again = module.replay(sync, capture_for(payload, sha=sha))
+    assert Path(again['path']).read_bytes() == payload
+    asyncio.run(sync.client.aclose())
