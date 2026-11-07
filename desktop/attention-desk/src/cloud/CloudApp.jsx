@@ -8,6 +8,7 @@ import {auth,restoreIdentity,currentIdentity,signOut,startSync,stopSync,subscrib
 import {cloudRequest,cloudFile,cloudPdfSource} from './transport';
 import {guardHistory} from './navigation';
 import {Connectivity} from './Connectivity';
+import {getPendingUpdate,subscribeToWorkerUpdates,refreshToUpdate} from './register-worker';
 const Pages=lazy(()=>import('./Pages'));
 const PendingChanges=lazy(()=>import('./PendingChanges'));
 setPersonalTransport(cloudRequest);setPersonalFileResolver(cloudFile);setPersonalPdfResolver(cloudPdfSource);
@@ -19,6 +20,8 @@ function readRoute(){const query=new URLSearchParams(location.search),view=query
 export default function CloudApp() {
   const [account,setAccount]=useState(null),[starting,setStarting]=useState(true),[error,setError]=useState(''),[route,setRoute]=useState(readRoute),[online,setOnline]=useState(navigator.onLine),[dirty,setDirty]=useState(false),[dialog,setDialog]=useState(null),[notice,setNotice]=useState(''),[queue,setQueue]=useState({captures:0,commands:0});
   const restoring=useRef(false),heading=useRef(null),dirtyRef=useRef(dirty);
+  const [pendingUpdate,setPendingUpdate]=useState(getPendingUpdate);
+  useEffect(()=>subscribeToWorkerUpdates(setPendingUpdate),[]);
   dirtyRef.current=dirty;
   const markDirty=useCallback(value=>{dirtyRef.current=value;setDirty(value);},[]);
   const restore=useCallback(async()=>{
@@ -61,11 +64,25 @@ export default function CloudApp() {
     if(dirty&&!options.saved)setDialog({title:'离开当前编辑？',message:'当前修改尚未提交。Capture 草稿会留在此设备；其他未保存输入会放弃。',confirmLabel:'离开当前编辑',action:move});else move();
   };
   const exit=()=>setDialog({title:'退出此设备？',message:queue.captures?'还有待发送的收集，原件将保留在此设备。请先完成发送，再退出可方便日后继续。':'其他设备仍保持登录，已经保存的资料会保留。',confirmLabel:'退出此设备',action:async()=>{try{await signOut();setAccount(null);setDialog(null);}catch(value){setDialog(null);setNotice(value.message||'尚未退出，请恢复连接后重试。');}}});
+  const updateNotice = pendingUpdate ? (
+    <div className="cloud-feedback" role="status" aria-live="polite">
+      <span>{dirty ? '新版本已就绪，请先保存当前编辑。' : '新版本已就绪。'}</span>{' '}
+      <button
+        type="button"
+        className="personal-text-button"
+        disabled={dirty || Boolean(dialog)}
+        onClick={() => {
+          if (!dirtyRef.current && !dialog) refreshToUpdate();
+        }}
+      >刷新更新</button>
+    </div>
+  ) : null;
   if(starting)return <div className="desk-shell cloud-shell"><main className="cloud-auth"><p role="status"><LoaderCircle size={20} className="spin"/>正在打开 Eric OS…</p></main></div>;
-  if(!account)return <div className="desk-shell cloud-shell"><Login error={error} onReady={restore}/></div>;
+  if(!account)return <div className="desk-shell cloud-shell"><Login error={error} onReady={restore} updateNotice={updateNotice}/></div>;
   return <div className="desk-shell cloud-shell" data-view={route.view}><div className="personal-workspace"><DeskChrome cloud mode={route.view} onNavigate={navigate}/><main key={account.owner+':'+account.device.id} className="personal-content" id="main-content">
     <a className="cloud-skip-link" href="#page-heading">跳到当前内容</a>
     <div className="cloud-connection" role="status">{!online?'当前离线，收集会保存在此设备。':queue.captures?`${queue.captures} 份收集正在自动发送。`:queue.commands?`${queue.commands} 项修改已保存，正在接续处理。`:null}</div>
+    {updateNotice}
     {notice?<p className="cloud-feedback" role="status" aria-live="polite">{notice}</p>:null}
     <Suspense fallback={null}><PendingChanges navigate={navigate}/></Suspense>
     <h1 ref={heading} id="page-heading" className={`cloud-page-title${route.view==='today'?' sr-only':''}`} tabIndex={-1}>{names[route.view]}</h1>
@@ -73,7 +90,7 @@ export default function CloudApp() {
   </main>{dialog?<ConfirmDialog {...dialog} onCancel={()=>setDialog(null)} onConfirm={()=>void dialog.action()}/>:null}</div></div>;
 }
 
-function Login({error:externalError,onReady}) {
+function Login({error:externalError,onReady,updateNotice}) {
   const [email,setEmail]=useState(''),[password,setPassword]=useState(''),[show,setShow]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState('');
   const pending=useRef(false),emailRef=useRef(null);
   const submit=async event=>{
@@ -84,7 +101,7 @@ function Login({error:externalError,onReady}) {
     catch(value){window.dispatchEvent(new CustomEvent('eric-auth-error',{detail:{type:value.name,code:value.code||'unavailable'}}));setError(value.name==='AuthRetryableFetchError'||value instanceof TypeError?'暂时无法连接，请检查网络后重试。':value.code==='invalid_credentials'?'邮箱或密码不正确，请核对后重试。':'登录暂未完成，请稍后重试；已有资料会保留。');}
     finally{pending.current=false;setBusy(false);}
   };
-  return <main className="cloud-auth"><section className="personal-section cloud-login-panel"><h1>Eric OS</h1><p className="personal-intro">课程、笔记与今天要做的事，随时接着用。</p><form className="personal-form" noValidate onSubmit={submit}>
+  return <main className="cloud-auth"><section className="personal-section cloud-login-panel"><h1>Eric OS</h1><p className="personal-intro">课程、笔记与今天要做的事，随时接着用。</p>{updateNotice}<form className="personal-form" noValidate onSubmit={submit}>
     <fieldset disabled={busy}><Field name="owner_email" label="邮箱"><input ref={emailRef} type="email" autoComplete="username" inputMode="email" value={email} onChange={e=>setEmail(e.target.value)}/></Field>
     <div className="cloud-password"><Field name="owner_password" label="密码"><input type={show?'text':'password'} autoComplete="current-password" value={password} onChange={e=>setPassword(e.target.value)}/></Field><button type="button" className="desk-icon-button" aria-label={show?'隐藏密码':'显示密码'} aria-pressed={show} onClick={()=>setShow(v=>!v)}>{show?<EyeOff size={18}/>:<Eye size={18}/>}</button></div></fieldset>
     {error||externalError?<p className="personal-field-error" role="alert">{error||externalError}</p>:null}<SubmitButton busy={busy}>登录 Eric OS</SubmitButton><p className="personal-meta">此设备将保持登录，你可以在“设备与状态”中单独撤销访问。</p>
