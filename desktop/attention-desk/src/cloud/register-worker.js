@@ -54,6 +54,8 @@ export function registerWorker() {
   let latestVersion;
   let lastCheck = 0;
   let checking = false;
+  let starting = false;
+  let reconnectCheck = false;
 
   const receiveVersion = data => {
     if (data?.type !== VERSION_MESSAGE || typeof data.version !== 'string' ||
@@ -89,7 +91,15 @@ export function registerWorker() {
   };
 
   const update = async ({ force = false } = {}) => {
-    if (!registration || checking || document.visibilityState === 'hidden' ||
+    if (!registration) {
+      void start();
+      return;
+    }
+    if (checking) {
+      if (force) reconnectCheck = true;
+      return;
+    }
+    if (document.visibilityState === 'hidden' ||
         navigator.onLine === false || (!force && Date.now() - lastCheck < CHECK_THROTTLE)) return;
     checking = true;
     lastCheck = Date.now();
@@ -98,6 +108,10 @@ export function registerWorker() {
       await inspectActive();
     } finally {
       checking = false;
+      if (reconnectCheck) {
+        reconnectCheck = false;
+        void update({ force: true });
+      }
     }
   };
 
@@ -110,10 +124,18 @@ export function registerWorker() {
   };
 
   const start = async () => {
+    if (starting) return;
+    starting = true;
     try {
-      registration = await navigator.serviceWorker.register('/sw.js', {
-        scope: '/', updateViaCache: 'none',
-      });
+      registration = await navigator.serviceWorker.getRegistration('/');
+      try {
+        registration = await navigator.serviceWorker.register('/sw.js', {
+          scope: '/', updateViaCache: 'none',
+        });
+      } catch {
+        // An existing installed Worker remains usable when its update fetch fails.
+      }
+      if (!registration) return;
       registration.addEventListener('updatefound', watchInstallation);
       watchInstallation();
       void update({ force: true });
@@ -121,6 +143,8 @@ export function registerWorker() {
       setInterval(update, CHECK_INTERVAL);
     } catch {
       // Opening the app offline keeps its existing registration and local data.
+    } finally {
+      starting = false;
     }
   };
 
