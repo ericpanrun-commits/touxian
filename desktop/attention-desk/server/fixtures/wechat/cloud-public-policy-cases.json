@@ -1,0 +1,22 @@
+[
+  {"text":"违规报名将被列入黑名单。","safe":true},
+  {"text":"无故缺席会被拉入黑名单；","safe":true},
+  {"text":"5.❗报名前需确认好本人空闲时间，报名成功后不得随意更改，随意取消活动将被拉入黑名单；","safe":true},
+  {"text":"晚上好！\n违规报名将被列入黑名单。\n请全体同学提前确认参加时间。","safe":true},
+  {"text":"黑名单：张三","safe":false},
+  {"text":"张三违规报名将被列入黑名单。","safe":false},
+  {"text":"违规报名将被列入黑名单：张三","safe":false},
+  {"text":"张三\n违规报名将被列入黑名单。","safe":false},
+  {"text":"1. 张三\n违规报名将被列入黑名单。","safe":false},
+  {"text":"张三。\n违规报名将被列入黑名单。","safe":false},
+  {"text":"违规报名将被列入黑名单。\n13800000000","safe":false},
+  {"text":"违规报名将被列入黑名单。\n张三同学请联系老师。","safe":false},
+  {"text":"违规报名将被列入黑名单。\n名单另附","safe":false},
+  {"text":"违规报名将被列入黑名单。\nhttps://example.invalid/private","safe":false},
+  {"text":"违规报名将被列入黑名单，张三除外。","safe":false},
+  {"text":"报名前联系张三，违规报名将被列入黑名单。","safe":false},
+  {"text":"张\u200b三\n违规报名将被列入黑名单。","safe":false},
+  {"text":"违规报名将被列入黑名单。\n１３８００００００００","safe":false},
+  {"text":"违规报名将被列入黑名单。\nfoo%40example%2Etest","safe":false},
+  {"text":"12345678.违规报名将被列入黑名单。","safe":false}
+]

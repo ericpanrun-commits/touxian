@@ -1,6 +1,6 @@
 --- /dev/null
-+++ b/eric-app-api/guarded_wechat_publish.ts
-@@ -0,0 +1,188 @@
++++ b/guarded_wechat_publish.ts
+@@ -0,0 +1,203 @@
 +import { AppFault, SHA, UUID, hash, stable } from './store.ts';
 +
 +// Candidate only: this helper is not wired to a deployed API or local worker.
@@ -29,6 +29,18 @@
 +  return typeof value==='string' && /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$/.test(value) &&
 +    Number.isFinite(Date.parse(value));
 +}
++const GENERIC_POLICY=/^\s*(?:[0-9]{1,2}[.、]\s*)?(?:[!！❗\ufe0f]\s*)*(?:报名前需确认好本人空闲时间[，,]\s*)?(?:报名成功后不得随意更改[，,]\s*)?(?:随意取消活动|无故缺席|违规报名)(?:将会|将|会)(?:被)?(?:拉入|列入)黑名单[。；;！!]?\s*$/;
++const GENERIC_SHORT=new Set(['通知','注意事项','温馨提示','大家好','晚上好','上午好','下午好','谢谢','谢谢配合','工作时间','工作地点','服装要求','报名方式']);
++function privacyScanText(text:string):string|null {
++  const lines=text.split(/\r\n|[\n\r\v\f\x1c-\x1e\x85\u2028\u2029]/),matched=lines.map(line=>GENERIC_POLICY.test(line));
++  if(matched.some(Boolean)) {
++    for(let i=0;i<lines.length;i++) {
++      const short=lines[i].match(/^\s*(?:[0-9]{1,2}[.、]\s*)?([\u4e00-\u9fff]{2,4})[。；;！!]?\s*$/);
++      if(!matched[i]&&short&&!GENERIC_SHORT.has(short[1]))return null;
++    }
++  }
++  return lines.map((line,i)=>matched[i]?'通用报名纪律要求':line).join('\n');
++}
 +function safeText(value: any): boolean {
 +  if (typeof value!=='string' || value.length>16000) return false;
 +  if (/&(?:#(?:x[0-9a-f]{1,6}|[0-9]{1,7});?|[a-z][a-z0-9]{1,31};)|%[0-9a-f]{2}|\\u[0-9a-f]{4}/i.test(value)) return false;
@@ -36,8 +48,11 @@
 +  // for residual sensitive text. Joining the surrounding text first also
 +  // prevents a marker from splitting and hiding a phone number or email.
 +  // A lookalike or encoded marker is not trusted and remains subject to checks.
-+  const canonical=value.replaceAll('[姓名已去除]','').normalize('NFKC').replace(/\p{Cf}/gu,'');
++  let canonical=value.replaceAll('[姓名已去除]','').normalize('NFKC').replace(/\p{Cf}/gu,'');
 +  if (canonical.includes('[敏感内容待核对]')) return false;
++  const scanned=privacyScanText(canonical);
++  if(scanned===null)return false;
++  canonical=scanned;
 +  const unnamed=canonical.replace(/各位同学|全体同学|所有同学|同学们|老师们/g,'');
 +  if (/@[^\s@，,：:。；;！!\n]{1,40}/.test(canonical) ||
 +      /[a-z0-9._%+-]+[ \t]*@[ \t]*[a-z0-9-]+(?:[ \t]*\.[ \t]*[a-z0-9-]+)+/i.test(canonical) ||
@@ -69,7 +84,7 @@
 +      summary.input_kind!=='text' || summary.preview_source!=='text' || summary.title!==raw.title || !safeText(summary.preview) ||
 +      summary.original_snapshot_id!==body.snapshot_id || summary.snapshot_id!==body.snapshot_id ||
 +      summary.redacted_excerpt!==true || summary.needs_manual!==true || summary.managed!==false ||
-+      summary.processing_status!=='needs_review' || summary.processing_stage!=='review' || summary.review_status!=='pending' ||
++      summary.processing_status!=='needs_review' || summary.processing_stage!=='review' || !['pending','archived'].includes(summary.review_status) ||
 +      summary.vision_notice!==null || summary.ocr_preview!==null || summary.project_ref!==null ||
 +      summary.classification!==null || summary.error!==null || summary.proposal_count!==0 || !empty(summary.attachments) ||
 +      !integer(summary.version,1) || summary.version!==raw.inbox_version) invalid();
@@ -80,7 +95,7 @@
 +      !equal(detail.extraction_quality.reasons,['redacted_excerpt']) || detail.extraction_quality.meaning!=='脱敏文字节选') invalid();
 +  // Course metadata is a separate local association, outside this text scope.
 +  if (summary.course!==null || raw.inbox_course_id!==null) invalid();
-+  if (review.raw_snapshot_id!==body.snapshot_id || review.title_hint!==raw.title || review.status!=='pending' ||
++  if (review.raw_snapshot_id!==body.snapshot_id || review.title_hint!==raw.title || review.status!==summary.review_status ||
 +      !timestamp(review.created_at) || !timestamp(review.updated_at) ||
 +      !integer(review.version,1) || review.extraction_id!==null || review.draft!==null || review.extraction!==null ||
 +      !empty(review.confirmed_event_ids) || !empty(review.wechat_candidates) || !object(review.course_suggestions,[]) ||
@@ -190,7 +205,7 @@
 +  };
 +}
 --- /dev/null
-+++ b/eric-app-api/guarded_wechat_reconcile.ts
++++ b/guarded_wechat_reconcile.ts
 @@ -0,0 +1,82 @@
 +import { AppFault, SHA, UUID, hash, stable } from './store.ts';
 +import { LOCK_SQL, PROCESSOR_SQL, WORKER_SQL, clientFor } from './guarded_wechat_publish.ts';
@@ -275,7 +290,7 @@
 +  };
 +}
 --- /dev/null
-+++ b/eric-app-api/guarded_wechat_session.ts
++++ b/guarded_wechat_session.ts
 @@ -0,0 +1,49 @@
 +import { AppFault, UUID } from './store.ts';
 +import { LOCK_SQL, PROCESSOR_SQL, WORKER_SQL, clientFor } from './guarded_wechat_publish.ts';
@@ -326,8 +341,8 @@
 +    }
 +  };
 +}
---- a/eric-app-api/handler.ts
-+++ b/eric-app-api/handler.ts
+--- a/handler.ts
++++ b/handler.ts
 @@ -68,7 +68,7 @@
    return {id:uuid(value.id),device_id:device,resource_key,method:value.method,path,body:value.body,expected_revision:expected};
  }
@@ -356,8 +371,8 @@
      }
      if(path==='/worker/hello'&&req.method==='POST') {const body=await boundedJson(req,2000);await store.rpc('begin_publish',{p_workspace:workspace,p_epoch:uuid(body.epoch)});await store.db('eric_app_processors?id=eq.'+principal.device.id,'PATCH',{last_seen_at:store.clock().toISOString()});return json({workspace_id:workspace,part_bytes:PART_BYTES,record_catalogue:true});}
      if(path==='/worker/resources'&&req.method==='GET') {const {offset}=paging(url);return json({items:await store.db('eric_app_resources?workspace_id=eq.'+workspace+'&complete=eq.true&select=id,sha256,bytes&order=id.asc&limit=500&offset='+offset),offset,limit:500});}
---- a/eric-app-api/index.ts
-+++ b/eric-app-api/index.ts
+--- a/index.ts
++++ b/index.ts
 @@ -8,6 +8,27 @@
        return await reader(workspace);
      };
@@ -387,7 +402,7 @@
    origins:['https://eric-os-workbench-ericpanrun.choicechar22.chatgpt.site',...(Deno.env.get('ERIC_APP_ALLOWED_ORIGINS')||'').split(',').map((x: string)=>x.trim()).filter(Boolean)]});
  Deno.serve(handler);
 --- /dev/null
-+++ b/eric-app-api/receipt_fence_experiment.ts
++++ b/receipt_fence_experiment.ts
 @@ -0,0 +1,223 @@
 +// Isolated experiment only. This module is not registered in the deployed API.
 +// It reuses the existing workspace lock and receipts table; it does not prove

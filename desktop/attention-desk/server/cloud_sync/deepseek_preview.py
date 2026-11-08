@@ -13,6 +13,7 @@ from ..wechat_collect.analysis import PROMPT_VERSION, primary_message_ids, snaps
 from ..wechat_collect.deepseek_content_gate import prepare_authorized_projection, minimize_notice
 from .minimization import selected_text_preview
 from .minimized_projection import minimized_projection_preview
+from .wechat_outbound_validation import validate_outbound
 
 
 class _ReadSnapshot:
@@ -47,7 +48,7 @@ def build_deepseek_preview(connection, grant, job_id):
 
     Caller supplies a separately read DeepSeek grant only to recheck analyzed
     source scope. That grant cannot authorize any of the returned cloud records.
-    The caller must still apply the cloud outbound validator and obtain approval.
+    The sender must revalidate under its source lock and obtain separate approval.
     """
     personal=_ReadSnapshot(connection)
     if not connection.in_transaction:
@@ -112,8 +113,16 @@ def build_deepseek_preview(connection, grant, job_id):
     if sample['payload']['text']!=_normalized('\n'.join(expected_text)) or sample['payload']['title']!=_normalized(title):
         raise ValueError('cloud_minimization_changed_meaning')
     bundle=minimized_projection_preview(personal,preview)
+    raw=connection.execute('SELECT * FROM raw_item WHERE id=?',(batch['raw_item_id'],)).fetchone()
+    review=connection.execute('SELECT * FROM raw_review WHERE raw_snapshot_id=?',(job['snapshot_id'],)).fetchone()
+    # Local journal fingerprints are never included in the outgoing records.
+    bundle['local_guards']=[{'raw_id':batch['raw_item_id'],'snapshot_id':job['snapshot_id'],
+        'raw_guard':hashlib.sha256(encode(dict(raw)).encode()).hexdigest(),
+        'review_guard':hashlib.sha256(encode(dict(review)).encode()).hexdigest()}]
+    records={record['kind']:record for record in bundle['records']}
+    validate_outbound(records,batch['raw_item_id'],job['snapshot_id'],records['raw_item']['payload']['source_id'])
     return {'preview_only':True,'upload_authorized':False,'job_id':job_id,
         'analysis_receipt_sha256':hashlib.sha256(encode([job_id,attempts[0]['id'],attempts[0]['raw_output']]).encode()).hexdigest(),
         'notice_count':len(selected),'mandatory_action_count':sum(bool(i['action_required']) for i in selected),
-        'samples':preview,'bundle':bundle,'requires_cloud_outbound_validation':True,
+        'samples':preview,'bundle':bundle,'cloud_outbound_validation':'passed','requires_cloud_outbound_validation':True,
         'requires_separate_upload_authorization':True}
