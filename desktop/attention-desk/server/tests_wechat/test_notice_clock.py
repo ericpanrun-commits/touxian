@@ -1,7 +1,7 @@
 import pytest
 import json
 
-from server.wechat_collect.analysis import resolve_clock, validate_output
+from server.wechat_collect.analysis import resolve_clock, validate_output, verified_calendar
 from server.tests_wechat.test_pipeline import output_for
 
 
@@ -54,3 +54,15 @@ def test_declared_unknown_time_cannot_smuggle_a_date():
     assert parsed['items'][0]['start_time']['value'] is None
     assert parsed['items'][0]['start_time']['precision']=='unknown'
     assert 'unknown_time_value_cleared' in warnings
+
+
+def test_calendar_uses_source_week_and_shanghai_not_system_today():
+    calendar=verified_calendar({'source_time':'2026-11-08T10:00:00+08:00','time_reliability':'reliable'})
+    assert calendar['下周二']=='2026-11-10'
+    assert calendar['本周日']=='2026-11-08'
+    assert calendar['明天']=='2026-11-09'
+    shifted=verified_calendar({'source_time':'2026-11-08T23:00:00-04:00','time_reliability':'reliable'})
+    assert shifted['今天']=='2026-11-09'
+    assert shifted['下周二']=='2026-11-17'
+    assert verified_calendar({'source_time':'2026-11-08T10:00:00+08:00','time_reliability':'unverified'})=={}
+    assert verified_calendar({'source_time':'broken','time_reliability':'reliable'})=={}

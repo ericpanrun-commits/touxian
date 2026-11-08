@@ -1,0 +1,113 @@
+{
+  "schema_version": "wechat.v1",
+  "batch_id": "h01",
+  "items": [
+    {
+      "id": "i1",
+      "important": true,
+      "relevant": true,
+      "action_required": true,
+      "attention_level": "action",
+      "information_complete": true,
+      "await_more_context": false,
+      "category": "task",
+      "title": "完成高等数学作业",
+      "summary": "通知全班在下周二中午12点前完成高等数学作业。",
+      "start_time": null,
+      "end_time": null,
+      "deadline": {
+        "value": "2026-11-10T12:00",
+        "end_value": null,
+        "precision": "minute",
+        "range_precision": null,
+        "timezone": "Asia/Shanghai",
+        "original_text": "下周二中午12点前",
+        "anchor_message_id": "m1",
+        "uncertain": false,
+        "evidence_ids": [
+          "e1"
+        ]
+      },
+      "location": null,
+      "action": "在下周二中午12点前完成高等数学作业",
+      "target_people": [
+        "全班同学"
+      ],
+      "priority": "P1",
+      "confidence": 0.95,
+      "evidence_message_ids": [
+        "m1"
+      ],
+      "reason": "明确面向全班布置作业并给出截止时间。",
+      "time_text": "下周二中午12点前",
+      "needs_review": false,
+      "participation": "required",
+      "notice_kind": "new",
+      "related_candidate_id": null,
+      "deadlines": [
+        {
+          "id": "d1",
+          "role": "完成高等数学作业",
+          "relation": "current",
+          "time": {
+            "value": "2026-11-10T12:00",
+            "end_value": null,
+            "precision": "minute",
+            "range_precision": null,
+            "timezone": "Asia/Shanghai",
+            "original_text": "下周二中午12点前",
+            "anchor_message_id": "m1",
+            "uncertain": false,
+            "evidence_ids": [
+              "e1"
+            ]
+          }
+        }
+      ],
+      "actions": [
+        {
+          "id": "a1",
+          "title": "完成高等数学作业",
+          "kind": "explicit",
+          "deadline_ids": [
+            "d1"
+          ],
+          "evidence_ids": [
+            "e1"
+          ]
+        }
+      ],
+      "evidence_mapping": [
+        {
+          "field": "deadline",
+          "evidence_ids": [
+            "e1"
+          ]
+        },
+        {
+          "field": "action",
+          "evidence_ids": [
+            "e1"
+          ]
+        },
+        {
+          "field": "target_people",
+          "evidence_ids": [
+            "e1"
+          ]
+        }
+      ],
+      "uncertainties": []
+    }
+  ],
+  "evidence": [
+    {
+      "id": "e1",
+      "message_id": "m1",
+      "block_id": "b1",
+      "quote": "同学们，请在下周二中午12点前完成高等数学作业。",
+      "start": 0,
+      "end": 24
+    }
+  ]
+}
