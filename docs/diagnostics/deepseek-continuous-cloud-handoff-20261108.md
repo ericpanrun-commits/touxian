@@ -2,6 +2,8 @@
 
 ## 21:15 新增通知已自动分析，快照关联修复；名单/二维码文字继续暂留
 
+修复提交为`f721b47`。21:27:52重新只读核对API v25和原发布身份后，保留原许可文件及全部账本，仅更新软件核验记录（旧记录保存为`release-before-f721b47.json`）。21:29:33恢复隐藏消费者：启动器PID49732、实际子进程PID20360，宿主查询确认存活。21:30原采集完成no_change，子进程继续idle；新通知仍为held、模型总请求仍1次、云发布尝试0、状态查询计费仍2次。没有清除暂留记录或退款/重置额度。证据`artifacts/deepseek-cloud-continuous-20261108/{snapshot-release-upgrade,after-snapshot-fix}.json`。目前不存在可安全发布的新通知，尚不能完成实际自动云增量验收。
+
 21:15:00–18原采集周期返回changed，实际新增一条文字及同批文件、图片，序号80/81/82，均晚于独立云许可边界。文字ID`b0a6ec5a-fe97-4af8-9f05-1146c30f392d`，来源时间21:09，作业`10d8a5fc-6c16-42a5-a5a0-055e12c0923b`于21:15:32自动入队、21:15:35解析保存；仅1次文字模型请求、4,525 tokens。识别为学校通知/fyi，relevant=null，action_required=false；同批文件和图片未发往模型或云端。
 
 21:16消费者发现作业但将其held，发布账本和DispatchAuthority尝试均为0。只读重建定位第一处真实兼容问题：附件清单归档在分析完成后复制了文字与审核状态，创建新快照并更新batch.snapshot_id，而已完成job.snapshot_id仍指向原快照。投影此前要求二者相同，抛出existing_projection_owner_missing。没有修改Collector/file_evidence或生产消息/分析记录。
