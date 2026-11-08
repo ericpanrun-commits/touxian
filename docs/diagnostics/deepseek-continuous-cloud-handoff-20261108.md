@@ -1,5 +1,23 @@
 # DeepSeek 云端验收与持续模式交接（2026-11-08 20:50）
 
+## 21:05 续轮：独立持续许可获批、本人页面通过，已启用等待新增通知
+
+本节优先于下文此前的“尚待授权/登录/部署”。用户直接回复`call_a4a95e36b4754527b6a0a5c78592857b`批准持续云传输及必要部署；适用范围、字段、限额、不补历史及保持全量暂停均沿用该问题。没有再询问DeepSeek费用，也没有将旧单条许可扩展使用。
+
+用户要求重开窗口。检查发现旧控制进程存活但浏览器没有标签页/可见窗口；只结束这一特定空页面等待进程，以新端口9239重新打开。一次恢复脚本因含browser.close被自动审批拒绝（可能影响登录会话），随后移除关闭操作，使用只显示窗口的安全方式，不绕过审批。本人随后正常登录；20:56:58真实owner API的Inbox和Raw读取均200，通知正文逐字相等，无附件。实际页面来源筛选→打开通知→原始通知文字比较通过，标题Inbox · Eric OS、1440×1000、无页面异常、无框架覆盖层，截图已人工查看。页面另有4次无关文件ticket请求被只读验收拦截，不影响这条无附件通知；未把附件流也声称为通过。脚本完成后按原约定清理浏览器会话，没有导出令牌。
+
+证据：`artifacts/deepseek-cloud-20261108/owner-api-inbox-acceptance.json`；截图为仓库外`C:/Users/ericp/Desktop/reference/deepseek-cloud-evidence-20261108/owner-notice.png`。没有UI修改。Browser plugin not available，使用Playwright。
+
+已部署批准候选为**API v25**，部署摘要`cf55d35a484499b6d7d488ca8bc5999649de5766b29b1c78be0576c957a78821`。部署前v24与基准逐文件一致；部署后读回13文件与候选逐字一致。保持原verify_jwt=false及handler内的现有身份检查，不修改数据库架构。现有发布epoch和generation=1未改变，处理器未撤销。实际健康GET=200/ready，匿名状态GET=401，现有处理器状态GET=200且身份全匹配。匿名负向探针和认证状态读取两次均保守计入本地状态检查额度；内容POST=0。官方[身份头文档](https://supabase.com/docs/guides/functions/auth-headers)复核平台检查与自有认证的区别；没有降低现有应用认证条件。
+
+独立许可已在20:59:51建立：`9004a187-be21-4dd9-bfda-930c29f4838b`，边界`2026-11-08T12:59:51.806983+00:00`。五来源水位分别为db_a3fb9b271808bceb=155、room_4d6381262cf288d0294f=79、room_b6e5744b89c559a1d1e1=368、room_d407e66634bc907b861e=150、room_f31dddc4734ffef8c4e4=24。此前单条云测试许可保持撤销，不重发旧通知。首次一次性检查idle/discovered=0/requests=0，未补历史。
+
+21:00:26启动独立隐藏消费者，venv启动器PID45756，实际Python子进程PID49704；21:03宿主查询确认二者存活。实际子进程每分钟心跳，状态idle，发布尝试0。原DeepSeek消费者PID23216继续运行，原全量上传暂停和全局付费暂停保留，专用DeepSeek开关不变。原采集21:00:02–08完成no_change，没有触发额外Collector采集或重启桌面服务。
+
+新证据：`artifacts/deepseek-cloud-continuous-20261108/{authorization-record,deployment-proof,live-api-status-acceptance,activation-acceptance}.json`。首次activation-acceptance快照的status_checks=1发生在额外匿名探针保守计费之前；最新状态查询验收记账为2，不能把旧快照当当前余额。
+
+**剩余验收是启用边界之后的真实新增通知**：等待它进入原15分钟队列、被DeepSeek分析、由新消费者自动发布，并验证云端记录/来源去重。当前没有可发送新内容，不能用启用前消息或手工造真实群消息替代，不能将idle视为实际自动增量已完成。Goal继续active；必要内容授权和本人登录阻塞已解除。
+
 ## 实际已完成
 
 阶段一、二结果保留：七条已审阅真实通知测试通过；现有真实标签关联不完整，不能宣称完整真实误报/漏报率。专用 DeepSeek 消费者复用原15分钟采集队列，已自动分析一条真实新增文字、保存并在后续周期避免重复调用。该条为学校自愿活动，不应成为强制待办。未发送同批图片、未调用Qwen。

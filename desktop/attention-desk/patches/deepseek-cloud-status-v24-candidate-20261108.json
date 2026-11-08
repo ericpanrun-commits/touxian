@@ -1,5 +1,5 @@
 {
-  "status": "offline_candidate_not_deployed",
+  "status": "deployed_continuous_scope_active_waiting_new_notice",
   "baseline_version": 24,
   "baseline_bundle_sha256": "5f10fd193763a060f4a70c409b05ea8213fd1c1066bc87c63c7a76c439fbcc06",
   "baseline_files": {
@@ -44,5 +44,10 @@
     "passed": 89,
     "excluded_legacy_test": 1,
     "new_status_tests": 11
-  }
+  },
+  "deployed_candidate_version": 25,
+  "deployed_candidate_bundle_sha256": "cf55d35a484499b6d7d488ca8bc5999649de5766b29b1c78be0576c957a78821",
+  "authorization_record": "call_a4a95e36b4754527b6a0a5c78592857b",
+  "owner_inbox_verified": true,
+  "continuous_scope_activated_at": "2026-11-08T12:59:51.806983+00:00"
 }

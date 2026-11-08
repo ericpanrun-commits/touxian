@@ -36,11 +36,9 @@
     "views.ts": "c8eceb4c761cb4a056e72dda8dabbc5403266f2b006bfd06f6b59be78dda9949",
     "vision.ts": "2b14c18e414ecb73527d784edd45e8942ab9e5fb57dd1c368f091fc0274ecc23"
   },
-  "status": "reviewed_notice_published_revoked_inbox_login_pending",
+  "status": "reviewed_notice_published_revoked_owner_inbox_verified",
   "remaining_requirements": [
-    "Actual owner Inbox rendered verification; four approved database payloads and hashes match",
-    "Separate continuous cloud-content authorization",
-    "Continuous incremental runtime acceptance"
+    "Actual future-notice continuous incremental acceptance under separate approved scope"
   ],
   "legacy_test_limitation": "The unrouted createGuardedWechatReconciler still fails unrelated-publisher preservation; routed entrypoints use createReceiptFenceReconciler instead.",
   "patch_reconstruction": "12 runtime TypeScript files byte-identical; unchanged deno.json retained",
