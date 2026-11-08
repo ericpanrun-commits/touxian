@@ -1,0 +1,20 @@
+--- a/handler.ts
++++ b/handler.ts
+@@ -164,6 +164,17 @@
+   async function workerRoute(req: Request,url: URL,path: string): Promise<Response> {
+     if(path.startsWith('/worker/vision/')) return visionRoute(store,req,url,path,options.visionSecret||'',json);
+     const principal=await store.worker(req),workspace=principal.workspace.id;
++    if(path==='/worker/wechat-status'&&req.method==='GET') {
++      if(!options.guardedWechatPublish||!options.guardedWechatReconcile||!options.guardedWechatSession)
++        throw new AppFault(503,'scoped_publish_unavailable','同步保护暂时不可用，内容仍保留在本机。');
++      const rows=await store.db('eric_app_workers?workspace_id=eq.'+workspace+'&select=publisher_epoch,source_generation&limit=2');
++      const current=rows?.[0],generation=current?.source_generation;
++      if(!Array.isArray(rows)||rows.length!==1||typeof current?.publisher_epoch!=='string'||!UUID.test(current.publisher_epoch)||
++          !Number.isSafeInteger(generation)||generation<0)
++        throw new AppFault(503,'publisher_unavailable','发布会话暂时无法确认，内容仍保留在本机。');
++      return json({protocol:'wechat-receipt-fence-v1',workspace_id:workspace,processor_id:principal.device.id,
++        epoch:current.publisher_epoch,generation});
++    }
+     if(path==='/worker/official-health'&&req.method==='GET') {
+       if(!options.officialHealth)throw new AppFault(503,'source_health_not_configured','官网健康状态暂时无法读取。');
+       return json(await options.officialHealth(workspace));

@@ -1,0 +1,48 @@
+{
+  "status": "offline_candidate_not_deployed",
+  "baseline_version": 24,
+  "baseline_bundle_sha256": "5f10fd193763a060f4a70c409b05ea8213fd1c1066bc87c63c7a76c439fbcc06",
+  "baseline_files": {
+    "files.ts": "d24ed367828ab517bdc4459ef98c524ad4a00c8b4b9960d1beaeded74db489ca",
+    "guarded_wechat_publish.ts": "6499539fe33b06db76ac8958a6b0e1502c6ffb18cb142f82bc20c99f4e093947",
+    "guarded_wechat_reconcile.ts": "159516832308ab4446269c99bb60540ae9cd634f11ef0285f35e4b2e08ed4a37",
+    "guarded_wechat_session.ts": "56c195121fbbde8b13c61ea3f9042015cc23b6440f9e8f3be40f90348185c863",
+    "handler.ts": "59b242dfa3a1d9481a14bbe896da74938b3835e1dc69d5d70f70f340ce698f89",
+    "index.ts": "f3ad261e90b7a0d49736c1967a8ceebfa97ccd653b7456cfc10a679ea3869519",
+    "official_health.ts": "fee2a383b4cda042b9d9e2818d5d6411822a42df004b20b7ec627b5c67bcc168",
+    "official_health_db.ts": "23df392cc62895edcf37fc45e3444ac3c38ab4cb28e4f282232a3af046c06221",
+    "receipt_fence_experiment.ts": "9f2ec11303df064dad72e7e1f4a0e5c7a907a7125a46a5da5e0b9220b42515f5",
+    "store.ts": "bed97759d31dc60853e52678915c297f252533c5604ccd8ef38597add79768aa",
+    "views.ts": "c8eceb4c761cb4a056e72dda8dabbc5403266f2b006bfd06f6b59be78dda9949",
+    "vision.ts": "2b14c18e414ecb73527d784edd45e8942ab9e5fb57dd1c368f091fc0274ecc23",
+    "deno.json": "077d20a78a681e54f2b61f2021b1b9b52a942303a995ef3dc9681be05dc0db03"
+  },
+  "files": {
+    "deno.json": "077d20a78a681e54f2b61f2021b1b9b52a942303a995ef3dc9681be05dc0db03",
+    "files.ts": "d24ed367828ab517bdc4459ef98c524ad4a00c8b4b9960d1beaeded74db489ca",
+    "guarded_wechat_publish.ts": "6499539fe33b06db76ac8958a6b0e1502c6ffb18cb142f82bc20c99f4e093947",
+    "guarded_wechat_reconcile.ts": "159516832308ab4446269c99bb60540ae9cd634f11ef0285f35e4b2e08ed4a37",
+    "guarded_wechat_session.ts": "56c195121fbbde8b13c61ea3f9042015cc23b6440f9e8f3be40f90348185c863",
+    "handler.ts": "88de08e0a37c5a69b1d3db668fcfa4230d2686db50ad05b4aa105cea87c33959",
+    "index.ts": "f3ad261e90b7a0d49736c1967a8ceebfa97ccd653b7456cfc10a679ea3869519",
+    "official_health.ts": "fee2a383b4cda042b9d9e2818d5d6411822a42df004b20b7ec627b5c67bcc168",
+    "official_health_db.ts": "23df392cc62895edcf37fc45e3444ac3c38ab4cb28e4f282232a3af046c06221",
+    "receipt_fence_experiment.ts": "9f2ec11303df064dad72e7e1f4a0e5c7a907a7125a46a5da5e0b9220b42515f5",
+    "store.ts": "bed97759d31dc60853e52678915c297f252533c5604ccd8ef38597add79768aa",
+    "views.ts": "c8eceb4c761cb4a056e72dda8dabbc5403266f2b006bfd06f6b59be78dda9949",
+    "vision.ts": "2b14c18e414ecb73527d784edd45e8942ab9e5fb57dd1c368f091fc0274ecc23"
+  },
+  "changed_files": [
+    "handler.ts"
+  ],
+  "patch_sha256": "cbd1bb1ef1d55b1f3e54356a6991a0e2bfc17f10b91a195f084857868b1d7ea3",
+  "offline_tests": 11,
+  "database_migration": false,
+  "authorization": "Requires separate continuous cloud-content and API-deployment approval; fixed one-notice approval is not reused.",
+  "reconstruction": "git -c core.autocrlf=false apply; all 13 files byte-identical",
+  "offline_active_path_tests": {
+    "passed": 89,
+    "excluded_legacy_test": 1,
+    "new_status_tests": 11
+  }
+}

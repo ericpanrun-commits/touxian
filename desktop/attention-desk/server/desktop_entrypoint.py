@@ -44,6 +44,11 @@ def main():
             launch_if_authorized(path.parent)
         except OSError:
             logging.getLogger(__name__).warning('DeepSeek text worker launch failed; holds preserved')
+        from .cloud_sync.deepseek_cloud_launch import launch_if_authorized as launch_scoped_cloud
+        try:
+            launch_scoped_cloud(path.parent)
+        except OSError:
+            logging.getLogger(__name__).warning('Scoped DeepSeek cloud worker launch failed; full sync remains held')
         import uvicorn
         # pythonw has no stdout/stderr. Use the configured rotating file handler;
         # Uvicorn's default console formatter otherwise calls None.isatty().

@@ -33,6 +33,8 @@ class ContinuousLocalEvidence(ReviewedLocalEvidence):
     def parse_approval(self,raw):return continuous_approval(raw)
 
     def descriptor(self,publication):
+        if type(publication) is ContinuousCloudGrant:
+            return publication
         if type(publication) is not ScopedCloudPublication:
             raise DispatchDenied('continuous_publication_required')
         return publication.scope
