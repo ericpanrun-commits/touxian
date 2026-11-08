@@ -64,6 +64,11 @@ def test_validation_failure_keeps_receipt_and_does_not_rebill(evaluator):
     assert len(calls) == 3
     results = json.loads((namespace['OUT']/'results.json').read_text(encoding='utf8'))
     assert all(r['state'] == 'received' and r['validation'] == 'failed' for r in results)
+    namespace['validate_output'] = lambda *args: ({'items':[]}, [])
+    asyncio.run(namespace['main'](True, replay_only=True))
+    results = json.loads((namespace['OUT']/'results.json').read_text(encoding='utf8'))
+    assert len(calls) == 3
+    assert all(r['validation'] == 'passed' and 'validation_error' not in r for r in results)
 
 
 def test_preparation_never_resolves_key_or_calls_model(evaluator):
@@ -72,3 +77,11 @@ def test_preparation_never_resolves_key_or_calls_model(evaluator):
     asyncio.run(namespace['main'](False))
     assert calls == []
     assert not (namespace['OUT']/'evaluation-controls.json').exists()
+
+
+def test_replay_only_never_resolves_credentials_or_fills_missing_receipt(evaluator):
+    namespace, calls = evaluator
+    namespace['AISettings'] = lambda _: SimpleNamespace(_read=lambda: ({}, AIConfig()))
+    with pytest.raises(ValueError, match='saved_response_required'):
+        asyncio.run(namespace['main'](True, replay_only=True))
+    assert calls == []

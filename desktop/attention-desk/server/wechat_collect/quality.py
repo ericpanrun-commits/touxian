@@ -7,7 +7,7 @@ import re
 
 from ..personal_store import encode,now
 
-VERSION='attention-3'
+VERSION='attention-4'
 QUESTION=re.compile(r'是不是|是否改|有没有|请问|好像|听说|据说|貌似|不确定|未确认|可能.{0,8}(?:改|换|在)|我记得|[?？]|吗[。！!]?\s*$')
 HELP=re.compile(r'怎么办|怎么(?:弄|搞|做)|有人知道|求助')
 CONFIRMED=re.compile(r'老师(?:已经|已)?(?:确认|通知)|(?:已经|已|正式)确认|正式通知|确定(?:改|在|为)|确认了|通知[：:]')
@@ -89,6 +89,8 @@ def assess(item,messages,blocks=(),context=None,*,legacy=False):
     named_file=any(m.get('message_type')=='file' and m.get('attachment_available') and m.get('attachment_name') for m in selected)
     if image_only and not usable_text(derived) and not named_file:
         return result('media_pending','附件尚无可核实的正文，等待解析或上下文。',complete=False,awaiting=True)
+    if re.search(r'(?:详见|看|参照|按照|见|按).{0,6}(?:图片|上图|附件)',text) and not usable_text(derived) and not named_file:
+        return result('unresolved','通知依赖尚未提供的图片或附件，保留文字等待完整依据。',complete=False,awaiting=True)
     if not content.strip() or not re.search(r'[\u4e00-\u9fffA-Za-z0-9]',content):
         return result('filtered','没有实际信息。',complete=False)
     from .filtering import ACK,CHATTER

@@ -37,3 +37,20 @@ def test_source_clock_validation_preserves_afternoon_and_rejects_morning(clock, 
     value = parsed['items'][0]['start_time']
     assert value['value'] == ('2026-11-08T14:35' if retained else None)
     assert ('uncertain_time' in warnings) is not retained
+
+
+def test_declared_unknown_time_cannot_smuggle_a_date():
+    text='请明天下午参加课程考试'
+    block={'block_id':'b1','text':text,'source_type':'text'}
+    message={'message_id':'m1','block_id':'b1','raw_text':text,'message_type':'text',
+             'source_time':'2026-11-08T10:00:00+08:00','time_reliability':'reliable'}
+    output=output_for({'batch_id':'batch','blocks':[block],'messages':[message]})
+    output['items'][0]['start_time']=dict(value='2026-11-09',end_value=None,precision='unknown',
+        range_precision=None,timezone='Asia/Shanghai',original_text='明天下午',
+        anchor_message_id='m1',uncertain=True,evidence_ids=['q1'])
+    parsed,warnings=validate_output(json.dumps(output,ensure_ascii=False),
+        {'id':'batch','primary_ids':['m1']},
+        {'blocks':[block],'wechat':{'messages':[message],'warnings':[]}},{})
+    assert parsed['items'][0]['start_time']['value'] is None
+    assert parsed['items'][0]['start_time']['precision']=='unknown'
+    assert 'unknown_time_value_cleared' in warnings

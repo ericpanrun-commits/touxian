@@ -74,7 +74,7 @@ def inputs(sample):
             UserContext().model_dump())
 
 
-async def main(execute):
+async def main(execute, *, replay_only=False):
     OUT.mkdir(parents=True, exist_ok=True)
     samples = prepare()
     settings = AISettings(DATA/'ai-settings.json')
@@ -90,7 +90,7 @@ async def main(execute):
     controls = OUT/'evaluation-controls.json'
     save(controls, {'version':1, 'pause_paid_ai':False, 'hold_cloud_uploads':True})
     os.environ['ATTENTION_RECOVERY_CONTROL_PATH'] = str(controls)
-    _, key = settings.resolved()
+    key = None if replay_only else settings.resolved()[1]
     results = []
     failures = 0
     for sample in samples:
@@ -101,6 +101,8 @@ async def main(execute):
         if journal.exists():
             result = json.loads(journal.read_text(encoding='utf8'))
         else:
+            if replay_only:
+                raise ValueError('saved_response_required_no_network_allowed')
             result = {'sample':sample['id'], 'fingerprint':fingerprint, 'state':'outcome_unknown'}
             # Exclusive creation also prevents concurrent runs dispatching twice.
             with journal.open('x', encoding='utf8') as f:
@@ -114,6 +116,8 @@ async def main(execute):
                 result.update(error=exc.code)
             save(journal, result)
         if result.get('state') == 'received':
+            for field in ('parsed','warnings','validation_error'):
+                result.pop(field, None)
             try:
                 parsed, warnings = validate_output(result['raw'], batch, snapshot, context)
                 result.update(validation='passed', parsed=parsed, warnings=warnings)
@@ -133,4 +137,6 @@ async def main(execute):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--execute', action='store_true')
-    asyncio.run(main(parser.parse_args().execute))
+    parser.add_argument('--replay-only', action='store_true')
+    args = parser.parse_args()
+    asyncio.run(main(args.execute or args.replay_only, replay_only=args.replay_only))
