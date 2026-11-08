@@ -139,12 +139,12 @@ class ReviewedDeepSeekDispatch:
             reconcile=entry['state']=='unconfirmed'
             if reconcile:
                 entry=self.journal.claim_reconciliation(meta['dedupe_key'],at=self.clock(),
-                    daily_limit=grant.max_calls,cycle_limit=1)
+                    daily_limit=grant.max_calls,cycle_limit=grant.max_calls)
                 body=reconciliation_request(entry)
                 path='/worker/wechat-reconcile'
             else:
                 self.journal.claim(meta['dedupe_key'],at=self.clock(),daily_limit=grant.max_calls,
-                    cycle_limit=1,epoch=grant.epoch,generation=generation)
+                    cycle_limit=grant.max_calls,epoch=grant.epoch,generation=generation)
                 body={key:meta[key] for key in ('raw_id','snapshot_id','source_id')}
                 body.update(records=records,epoch=grant.epoch,generation=generation)
                 path='/worker/wechat-publish'

@@ -1,7 +1,7 @@
 {
   "deployed_version": 23,
   "deployed_bundle_sha256": "af2266f06cfe47214ad36588ce73c5415624fa190c3e2ecf95f9f0144e68b240",
-  "deployed": false,
+  "deployed": true,
   "database_migration": false,
   "files": {
     "files.ts": "d24ed367828ab517bdc4459ef98c524ad4a00c8b4b9960d1beaeded74db489ca",
@@ -36,12 +36,11 @@
     "views.ts": "c8eceb4c761cb4a056e72dda8dabbc5403266f2b006bfd06f6b59be78dda9949",
     "vision.ts": "2b14c18e414ecb73527d784edd45e8942ab9e5fb57dd1c368f091fc0274ecc23"
   },
-  "status": "offline_candidate_not_ready_for_deployment",
+  "status": "deployed_pending_reviewed_notice_test",
   "remaining_requirements": [
-    "Cloud-specific content authorization",
-    "Local safe sender integration",
-    "Publisher ownership handoff",
-    "Actual API and Inbox verification"
+    "Actual reviewed-notice API and Inbox verification",
+    "Separate continuous cloud-content authorization",
+    "Continuous incremental runtime acceptance"
   ],
   "legacy_test_limitation": "The unrouted createGuardedWechatReconciler still fails unrelated-publisher preservation; routed entrypoints use createReceiptFenceReconciler instead.",
   "patch_reconstruction": "12 runtime TypeScript files byte-identical; unchanged deno.json retained",
@@ -49,5 +48,8 @@
     "passed": 103,
     "excluded_legacy_test": 1
   },
-  "patch_sha256": "e65bcde3269262b119865e6b921527e9d60fe8fb92740fa220842b8863e151b0"
+  "patch_sha256": "e65bcde3269262b119865e6b921527e9d60fe8fb92740fa220842b8863e151b0",
+  "deployed_candidate_version": 24,
+  "deployed_candidate_bundle_sha256": "5f10fd193763a060f4a70c409b05ea8213fd1c1066bc87c63c7a76c439fbcc06",
+  "local_reviewed_dispatch_tests": 155
 }
