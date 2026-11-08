@@ -435,7 +435,11 @@ class AnalysisQueue:
             media=[]
             try:
                 from urllib.parse import urlsplit
-                if urlsplit(config.base_url).hostname!='api.deepseek.com':
+                endpoint=urlsplit(config.base_url)
+                if (endpoint.scheme!='https' or endpoint.hostname!='api.deepseek.com'
+                        or endpoint.port not in {None,443} or endpoint.username or endpoint.password
+                        or endpoint.query or endpoint.fragment
+                        or endpoint.path.rstrip('/') not in {'','/v1','/chat/completions','/v1/chat/completions'}):
                     raise ExtractionFailure('endpoint_not_approved','微信消息仅使用已批准的官方 DeepSeek 服务。',attempts=0)
                 _,key=self.settings.resolved()
                 if not key.get_secret_value():
