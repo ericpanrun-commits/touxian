@@ -1,7 +1,7 @@
 import EricInbox from './EricInbox';
 import SchoolWorkspace from './SchoolWorkspace';
 import LearningWorkspace from './LearningWorkspace';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowLeft, Check, ClipboardPlus, LoaderCircle, Plus, RefreshCw, RotateCcw } from 'lucide-react';
 import { personalRequest } from './api';
 import { DeadlineForm, EventEditForm, TaskForm } from './Forms';
@@ -24,6 +24,8 @@ import DeskSheet from './DeskSheet';
 import { CourseEditor } from './CourseField';
 import TodayDesk from './TodayDesk';
 import './desk.css';
+
+const EngineeringPortfolio = lazy(() => import('./EngineeringPortfolio'));
 
 const STATUS = { needs_review: '待确认', needs_action: '待行动', in_progress: '进行中', done: '已完成', cancelled: '已取消' };
 const ORIGIN = { explicit: '原文明确要求', suggested: '辅助建议', manual: '我自行添加' };
@@ -59,7 +61,7 @@ export default function PersonalWorkspace({ navigationGuardRef, onSwitchScreen }
   const initialSettings = new URLSearchParams(window.location.search).get('personal_settings') === '1';
   const initialCollector = new URLSearchParams(window.location.search).get('personal_collector') === '1';
   const initialView = new URLSearchParams(window.location.search).get('personal_view');
-  const [mode, setMode] = useState(initialCollector ? 'collector' : initialSettings ? 'settings' : initialId ? 'detail' : initialRaw ? 'review' : ['today', 'upcoming', 'list', 'calendar', 'reminders', 'reminder-settings', 'bark-settings', 'wechat-settings', 'wechat-inbox', 'user-context', 'eric-inbox', 'school', 'learning'].includes(initialView) ? initialView : 'today');
+  const [mode, setMode] = useState(initialCollector ? 'collector' : initialSettings ? 'settings' : initialId ? 'detail' : initialRaw ? 'review' : ['today', 'upcoming', 'list', 'calendar', 'reminders', 'reminder-settings', 'bark-settings', 'wechat-settings', 'wechat-inbox', 'user-context', 'eric-inbox', 'school', 'learning', 'portfolio'].includes(initialView) ? initialView : 'today');
   const [listStatus, setListStatus] = useState('active');
   const [selectedId, setSelectedId] = useState(initialId || initialRaw);
   const [intent, setIntent] = useState(() => { const candidateId = new URLSearchParams(window.location.search).get('personal_candidate'); return candidateId ? { candidateId } : null; });
@@ -111,6 +113,7 @@ export default function PersonalWorkspace({ navigationGuardRef, onSwitchScreen }
 
   useEffect(() => {
     document.title = mode === 'collector' ? '手机收集 · Attention Desk' : mode === 'collect' ? '收集通知 · Attention Desk' : mode === 'review' ? '提取预览 · Attention Desk' : mode === 'settings' ? '提取设置 · Attention Desk' : mode === 'detail' && event ? `${event.title} · Attention Desk` : `${({ learning: 'Learning', school: '课堂', 'eric-inbox': 'Eric Inbox', today: '今天', upcoming: 'Upcoming', calendar: 'Calendar', reminders: '提醒中心', 'reminder-settings': '提醒设置', 'bark-settings': 'Bark 手机通知', 'wechat-settings': '微信采集', 'wechat-inbox': '微信待确认', 'user-context': '用户画像' })[mode] || '个人事项'} · Attention Desk`;
+    if (mode === 'portfolio') document.title = '工程作品集 · Eric OS';
   }, [mode, event?.title]);
 
   useEffect(() => {
@@ -134,7 +137,8 @@ export default function PersonalWorkspace({ navigationGuardRef, onSwitchScreen }
     focusAfterLoad.current = true;
     setEditor(null); setEditorDirty(false); setCollectionDirty(false); setSelectedEvidence(null); setError(null); setNotice('');
     setEvent(null); setSelectedId(id); setMode(nextMode); setIntent(nextIntent); setReloadVersion(current => current + 1);
-    setEventUrl(nextMode === 'detail' ? id : null, ['review', 'settings'].includes(nextMode) ? id : null, nextMode === 'settings', nextMode === 'collector', ['today', 'upcoming', 'list', 'calendar', 'reminders', 'reminder-settings', 'bark-settings', 'wechat-settings', 'wechat-inbox', 'user-context', 'eric-inbox', 'school', 'learning'].includes(nextMode) ? nextMode : null, nextIntent?.candidateId);
+    setEventUrl(nextMode === 'detail' ? id : null, ['review', 'settings'].includes(nextMode) ? id : null, nextMode === 'settings', nextMode === 'collector', ['today', 'upcoming', 'list', 'calendar', 'reminders', 'reminder-settings', 'bark-settings', 'wechat-settings', 'wechat-inbox', 'user-context', 'eric-inbox', 'school', 'learning', 'portfolio'].includes(nextMode) ? nextMode : null, nextIntent?.candidateId);
+    if (nextMode !== 'portfolio') { const url = new URL(location.href); ['portfolio_q', 'portfolio_type'].forEach(key => url.searchParams.delete(key)); history.replaceState({}, '', url); }
     };
     if (typeof nextIntent === 'string') performNavigation(); else requestLeave(performNavigation);
   };
@@ -198,6 +202,7 @@ export default function PersonalWorkspace({ navigationGuardRef, onSwitchScreen }
         onDirtyChange={setCollectionDirty} onBusyChange={reportChildBusy} onCreated={(events, metadata) => { applyEvent(events[0]); setNotice(metadata?.sourceUpdated ? '来源日期已更新。未来提醒与日历会使用确认后的日期，历史保留。' : `已确认并保存 ${events.length} 个事项，任务按你的参与决定创建。`); }} /> : null}
       {mode === 'school' ? <SchoolWorkspace initialRawId={intent?.rawItemId} initialCourseId={intent?.courseId} onNavigate={navigate} onDirtyChange={setCollectionDirty} onBusyChange={reportChildBusy} /> : null}
       {mode === 'learning' ? <LearningWorkspace onNavigate={navigate} onDirtyChange={setCollectionDirty} onBusyChange={reportChildBusy} /> : null}
+      {mode === 'portfolio' ? <Suspense fallback={<p className="personal-meta" role="status">正在打开作品集…</p>}><EngineeringPortfolio onDirtyChange={setCollectionDirty} onBusyChange={reportChildBusy} /></Suspense> : null}
       {mode === 'eric-inbox' ? <EricInbox initialAdd={intent?.addInput} onNavigate={navigate} onDirtyChange={setCollectionDirty} onBusyChange={reportChildBusy} /> : null}
       {mode === 'collector' ? <MobileCollectorSettings onDirtyChange={setCollectionDirty} onBusyChange={reportChildBusy} onBack={() => navigate('today')} /> : null}
       {['upcoming', 'list'].includes(mode) ? <WorkbenchTabs view={mode} onView={navigate} onReminders={() => navigate('reminders')} /> : null}

@@ -125,6 +125,10 @@ def test_secrets_not_in_repr_or_job_summary(tmp_path,capsys):
 
 
 def test_database_trust_anchor_is_the_official_public_supabase_root():
+    # Some Python distributions preload a managed root in every SSLContext.
+    # The application must add only the explicit Supabase root to that baseline.
+    preloaded={hashlib.sha256(cert).hexdigest() for cert in
+               ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT).get_ca_certs(binary_form=True)}
     pem=SUPABASE_CA.read_text(encoding='ascii')
     assert pem.count('-----BEGIN CERTIFICATE-----')==1
     assert 'PRIVATE KEY' not in pem
@@ -132,7 +136,8 @@ def test_database_trust_anchor_is_the_official_public_supabase_root():
         '807025ad50d4ed219d2c9c7d299c004f824eb00cf7f65afef607d07b72e6cafa')
     context=ssl.create_default_context(cafile=str(SUPABASE_CA))
     assert context.check_hostname and context.verify_mode==ssl.CERT_REQUIRED
-    assert len(context.get_ca_certs())==1
+    trusted={hashlib.sha256(cert).hexdigest() for cert in context.get_ca_certs(binary_form=True)}
+    assert trusted==preloaded|{'807025ad50d4ed219d2c9c7d299c004f824eb00cf7f65afef607d07b72e6cafa'}
 
 
 def test_bounded_cloud_batches_rotate_through_overdue_sources():
@@ -421,7 +426,7 @@ def test_workflow_has_hourly_schedule_no_paid_runner_or_docker():
     text=path.read_text()
     assert 'server.actions.worker' in text and 'upload-artifact' not in text and 'docker' not in text.lower()
     assert trigger['workflow_dispatch']['inputs']['mode']['default']=='cycle'
-    assert trigger['workflow_dispatch']['inputs']['mode']['options']==['cycle','acceptance']
+    assert trigger['workflow_dispatch']['inputs']['mode']['options']==['cycle','archive','acceptance']
 
 
 def test_cloud_acceptance_sends_one_scoped_pipeline_and_preserves_ordinary_queue(pg,imported,config):

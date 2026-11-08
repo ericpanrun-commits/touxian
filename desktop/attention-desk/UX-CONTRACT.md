@@ -1,5 +1,15 @@
 # UX Contract
 
+## Local engineering portfolio · 2026-11-08
+
+Policy source: owner's Phase 6 brief and standalone-file simplification, PRODUCT.md and LOCAL-ENGINEERING-PORTFOLIO.md. The desktop-only `/portfolio` reader exposes one card per supported root file or root folder without project records or original-file writes. Nested files remain in their owning folder's detail and are never promoted to duplicate cards. Original filenames include extensions; type icons are chosen by extension, while images preview themselves and folder covers remain optional. Both modes share temporary/backup/unsupported-file filtering. The public PWA uses a separate explanatory component with an explicit loopback link and never passes portfolio data to cloud transport or the outbox.
+
+Canonical owners: DeskChrome/CloudChrome navigation, personalRequest/usePersonalResource abortable reads, Field/SubmitButton validation, DeskSheet detail/focus restoration, existing dirty-navigation confirmation, design-tokens.css light/dark tokens and global scrollbars. File-type Select/Listbox deliberately uses native platform interaction. No new toast, modal owner, date control or file mutation capability.
+
+The gallery uses 24-card batches; local name/extension filters persist in portfolio_q/portfolio_type and leave ordinary navigation independent. Root edits preserve input and focus on failure, serialize saving, and use the existing unsaved-change guard. Folder opening is an explicit pessimistic action with persistent status/error: folder projects open themselves, standalone files open their parent with the label 打开所在文件夹. Refresh reconciles removed/renamed projects, clears obsolete detail, and reloads changed covers using modification metadata. Missing root, empty projects, no results, unreadable/partial data and scan limits have explicit recovery guidance. The detail sheet uses local image preview and a new-tab browser PDF preview; CAD/SW files have metadata only.
+
+Verification: server/test_engineering_portfolio.py, tests/portfolio-browser.mjs and the portfolio flow in tests/cloud-workbench-browser.mjs. No original CAD rendering, upload, cloud record, installed-PWA upgrade or deployment is implied by these checks.
+
 ## Today opens its exact Inbox worklist · 2026-11-02
 
 Today uses the existing Inbox page owner with `needs_review` and `submitted`, matching the Inbox's established default source scope and excluding archived items through the same cloud-progress join. Its count and both confirmation entry points describe that exact list. A Today confirmation link explicitly resets source/status/page, even if an older Inbox URL retained archived/all-source filters. Sidebar browsing keeps the existing filters and browser Back restores the prior entry. No old record is archived, confirmed, relinked or retried to make a count smaller; automatic-source history remains available under the existing source selector.

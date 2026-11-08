@@ -13,6 +13,7 @@
     "test:frontend": "node --test tests/*.test.mjs",
     "test:web": "node tests/cloud-workbench-browser.mjs",
     "test:browser": "node tests/desk-browser.mjs",
+    "test:browser:portfolio": "node tests/portfolio-browser.mjs",
     "test:browser:wechat-groups": "node tests/wechat-groups-browser.mjs",
     "test:browser:official-bark": "node tests/bark-browser.mjs"
   },
