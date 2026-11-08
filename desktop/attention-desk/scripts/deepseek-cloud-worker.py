@@ -37,7 +37,7 @@ from server.cloud_sync.settings import WorkerSettings,ENDPOINT
 from server.wechat_collect.config import SettingsDocument
 from server.wechat_collect.deepseek_content_gate import read_grant,FILENAME,binding_digest
 
-MANIFEST=ROOT/'patches/deepseek-cloud-status-v24-candidate-20261108.json'
+MANIFEST=ROOT/'patches/deepseek-cloud-qr-v25-candidate-20261108.json'
 OWNER_RECEIPT=ROOT/'artifacts/p0-20261104/limited-upload/execution-receipt.json'
 PROOF=ROOT/'artifacts/deepseek-cloud-continuous-20261108/deployment-proof.json'
 PROXY='http://127.0.0.1:7897'
@@ -60,10 +60,11 @@ def implementation_hash():
         'wechat_prepared_connection','wechat_prepared_proxy','wechat_file_lease','wechat_outbound_validation',
         'minimization','minimized_projection','settings')]
     names+=['wechat_collect/'+name+'.py' for name in ('analysis','models','json_output','deepseek_content_gate',
-        'deepseek_projection','config')]
+        'deepseek_projection','qr_text_policy','quality','config')]
     names+=['source_metadata.py','user_context.py','personal_store.py','cloud_store.py']
     hashes={name:digest((ROOT/'server'/name).read_bytes()) for name in names}
     hashes['entrypoint']=digest(Path(__file__).read_bytes())
+    hashes['api_manifest']=digest(MANIFEST.read_bytes())
     return digest(json.dumps(hashes,sort_keys=True,separators=(',',':')).encode())
 
 
@@ -152,8 +153,11 @@ def load(directory):
     require(release['version']==1 and release['approval_sha256']==digest(raw)
         and release['implementation_hash']==implementation_hash(),'release_changed')
     manifest=json.loads(MANIFEST.read_bytes())
+    api_matches=proof['api_bundle_hash']==scope.api_bundle_hash or (
+        manifest.get('baseline_bundle_sha256')==scope.api_bundle_hash
+        and proof.get('authorization_api_bundle_hash')==scope.api_bundle_hash)
     require(proof['endpoint']==ENDPOINT and proof['api_files']==manifest['files']
-        and proof['api_bundle_hash']==scope.api_bundle_hash and proof['workspace_id']==scope.workspace_id
+        and api_matches and proof['workspace_id']==scope.workspace_id
         and proof['processor_id']==scope.processor_id and proof['publisher_epoch']==scope.epoch
         and proof['generation']==scope.generation,'release_scope_changed')
     return cache,scope,release

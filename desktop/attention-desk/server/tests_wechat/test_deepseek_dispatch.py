@@ -46,8 +46,8 @@ class Backend:
 
 
 @pytest.fixture
-def setup(personal,tmp_path):
-    _,job=analyzed(personal)
+def setup(personal,tmp_path,request):
+    calls,job=analyzed(personal,**getattr(request,'param',{}))
     clock=[datetime(2026,11,8,10,0,tzinfo=timezone.utc)]
     config={'endpoint':ENDPOINT,'enabled':True,'workspace_id':str(uuid4()),
         'processor_id':str(uuid4()),'worker_key':'ework_'+'a'*43}
@@ -73,7 +73,7 @@ def setup(personal,tmp_path):
     sender=ReviewedDeepSeekDispatch(journal=journal,authority=authority,transport=transport,client=client,
         protected_preview=protected,current=lambda candidate:proof[0] and candidate==grant,clock=lambda:clock[0])
     yield {'sender':sender,'grant':grant,'backend':backend,'authority':authority,'clock':clock,
-        'journal':journal,'personal':personal,'config':config,'proof':proof,'job':job,'lock':lock}
+        'journal':journal,'personal':personal,'config':config,'proof':proof,'job':job,'lock':lock,'analysis_calls':calls}
     asyncio.run(client.aclose());lock.close()
 
 

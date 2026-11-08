@@ -1,0 +1,27 @@
+--- a/guarded_wechat_publish.ts
++++ b/guarded_wechat_publish.ts
+@@ -101,14 +101,21 @@
+       !object(review.source,['id','kind','name']) || review.source.id!==body.source_id || review.source.kind!=='wechat' ||
+       review.source.name!=='微信通知（脱敏节选）' || !equal(review.item,raw) || !equal(detail.review,review)) invalid();
+   const snapshot=review.snapshot;
++  // Fixed display hint only; no media inspection, decoded content or old replay.
++  const messages=snapshot?.wechat?.messages;
++  const cutoff=Date.parse('2026-11-08T13:52:00+00:00');
++  const scanNotice=Array.isArray(messages) && messages.length>0 &&
++    messages.every((m:any)=>m && m.message_type==='text' && m.time_reliability==='reliable' &&
++      ['source_time','captured_at'].every(k=>timestamp(m[k]) && Date.parse(m[k])>=cutoff)) &&
++    messages.some((m:any)=>typeof m.raw_text==='string' && /扫码|扫描\s*(?:二维)?码|二维码/.test(m.raw_text));
++  const warnings=[{code:'redacted_excerpt',message:'这是经最小化的文字节选，完整原文仅保留在本机。'}];
++  if(scanNotice)warnings.push({code:'qr_in_original_chat',message:'需扫码，二维码请返回原微信群查看'});
+   if (!object(snapshot,SNAPSHOT) || !equal(detail.original,snapshot) || snapshot.id!==body.snapshot_id ||
+       snapshot.raw_item_id!==body.raw_id || snapshot.redacted_excerpt!==true || snapshot.minimization_policy!==POLICY ||
+       !timestamp(snapshot.created_at) || !['Asia/Shanghai','UTC','Etc/UTC'].includes(snapshot.source_timezone) ||
+       !safeText(snapshot.original_text) || snapshot.hash!==await hash(snapshot.original_text) ||
+       !empty(snapshot.attachments) || !empty(snapshot.attachment_jobs) ||
+-      !Array.isArray(snapshot.document_warnings) || snapshot.document_warnings.length!==1 ||
+-      !object(snapshot.document_warnings[0],['code','message']) || snapshot.document_warnings[0].code!=='redacted_excerpt' ||
+-      snapshot.document_warnings[0].message!=='这是经最小化的文字节选，完整原文仅保留在本机。') invalid();
++      !equal(snapshot.document_warnings,warnings)) invalid();
+   const wx=snapshot.wechat;
+   if (!object(wx,WECHAT) || wx.source!=='wechat' || !uuid(wx.batch_id) || !empty(wx.analysis) ||
+       !equal(wx.warnings,['redacted_excerpt']) || wx.superseded_by!==null || wx.latest_snapshot_id!==body.snapshot_id ||

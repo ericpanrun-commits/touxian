@@ -8,6 +8,7 @@ import hashlib
 import json
 import re
 import unicodedata
+from ..wechat_collect.qr_text_policy import document_warnings
 
 
 RAW='id source_id kind source_type created_at title published_at inbox_original_snapshot_id inbox_snapshot_id inbox_course_id inbox_version redacted_excerpt minimization_policy'.split()
@@ -132,7 +133,7 @@ def validate_outbound(records,raw_id,snapshot_id,source_id):
         _safe_text(snapshot['original_text']) and
         snapshot['hash']==hashlib.sha256(snapshot['original_text'].encode('utf-8')).hexdigest() and
         snapshot['attachments']==[] and snapshot['attachment_jobs']==[] and
-        snapshot['document_warnings']==[{'code':'redacted_excerpt','message':'这是经最小化的文字节选，完整原文仅保留在本机。'}])
+        snapshot['document_warnings']==document_warnings(snapshot.get('wechat',{}).get('messages',[])))
     wx=snapshot['wechat']
     _require(_shape(wx,WECHAT) and wx['source']=='wechat' and _uuid(wx['batch_id']) and wx['analysis']==[] and
         wx['warnings']==['redacted_excerpt'] and wx['superseded_by'] is None and wx['latest_snapshot_id']==snapshot_id and

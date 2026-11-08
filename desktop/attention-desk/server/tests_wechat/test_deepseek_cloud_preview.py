@@ -11,9 +11,14 @@ from server.wechat_collect.deepseek_content_gate import leased_grant
 from server.cloud_sync.deepseek_preview import build_deepseek_preview
 
 
-def analyzed(personal,*,response=None,text='请全体同学明天提交实验报告。',run=True):
-    observed=ObservedMessage(text,sender='老师',source_time='2026-10-22T10:00:00+08:00',time_reliability='reliable')
-    service,_,calls=setup_service(personal,[Observation('test','unverified',(observed,),True,True)],response=response)
+def analyzed(personal,*,response=None,text='请全体同学明天提交实验报告。',run=True,
+             time='2026-10-22T10:00:00+08:00',media=False):
+    observed=ObservedMessage(text,sender='老师',source_time=time,time_reliability='reliable')
+    messages=[observed]
+    if media:
+        messages += [ObservedMessage('QR-ATTACHMENT-SECRET-'+kind,sender='老师',
+            source_time=time,time_reliability='reliable',message_type=kind) for kind in ('image','file')]
+    service,_,calls=setup_service(personal,[Observation('test','unverified',tuple(messages),True,True)],response=response,time=time)
     service.synthetic_content_grant=False
     service.document.wechat.context_followup.enabled=False
     asyncio.run(scan(service))

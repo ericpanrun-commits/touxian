@@ -546,6 +546,11 @@ class AnalysisQueue:
                 grant=content_lease.enter_context(leased_grant(self.personal))
                 projection=prepare_authorized_projection(self.personal,batch,snapshot,grant)
                 body=build_text_request(config,projection.batch,projection.snapshot,projection.context)
+                from .qr_text_policy import scan_notice, INSTRUCTION
+                selected_text=[m for m in snapshot['wechat']['messages']
+                    if m['message_id'] in projection.message_ids.values()]
+                if scan_notice(selected_text):
+                    body['messages'][0]['content']+=INSTRUCTION
                 _,key=self.settings.resolved()
                 if not key.get_secret_value():
                     raise ExtractionFailure('missing_key','原文已保存，请配置密钥。',attempts=0)

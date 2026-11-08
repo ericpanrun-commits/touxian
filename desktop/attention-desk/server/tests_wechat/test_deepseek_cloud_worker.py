@@ -140,3 +140,24 @@ def test_startup_hook_is_inert_without_permission_and_after_revocation(worker,mo
     assert starts[0][1]['creationflags'] & launch.subprocess.CREATE_NO_WINDOW
     module.revoke(directory)
     assert launch.launch_if_authorized(directory) is None and len(starts)==1
+
+
+def test_verified_api_upgrade_keeps_original_content_grant_and_counters(worker,monkeypatch,tmp_path):
+    module,s,directory,_=worker
+    activate(module,directory)
+    cache=module.cache_for(directory)
+    retained={name:(cache/name).read_bytes() for name in ('approval.json','authority.sqlite3','runtime.sqlite3','journal.json')}
+    release=json.loads((cache/'release.json').read_bytes())
+    old=release['proof']['api_bundle_hash']
+    manifest=json.loads(module.MANIFEST.read_bytes())
+    manifest['baseline_bundle_sha256']=old
+    path=tmp_path/'api-upgrade.json';path.write_text(json.dumps(manifest),encoding='utf8')
+    monkeypatch.setattr(module,'MANIFEST',path)
+    release['proof'].update(api_bundle_hash='e'*64,authorization_api_bundle_hash=old)
+    release['implementation_hash']=module.implementation_hash()
+    (cache/'release.json').write_text(json.dumps(release),encoding='utf8')
+    assert module.check(directory)['state']=='ready'
+    assert retained=={name:(cache/name).read_bytes() for name in retained}
+    release['proof']['authorization_api_bundle_hash']='f'*64
+    (cache/'release.json').write_text(json.dumps(release),encoding='utf8')
+    with pytest.raises(DispatchDenied,match='release_scope_changed'):module.check(directory)

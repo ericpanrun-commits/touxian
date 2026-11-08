@@ -6,6 +6,7 @@ import hashlib
 from ..personal_store import encode
 from .minimization import POLICY,selected_text_preview,redact_text
 from .projection import record
+from ..wechat_collect.qr_text_policy import document_warnings
 
 
 def _fresh_review(personal, preview):
@@ -74,7 +75,7 @@ def minimized_projection_preview(personal, preview):
                 'created_at':original['created_at'],'source_time':value['published_at'][0],
                 'source_timezone':original['source_timezone'],'hash':hashlib.sha256(value['text'].encode()).hexdigest(),
                 'blocks':blocks,'attachments':[],'attachment_jobs':[],
-                'document_warnings':[{'code':'redacted_excerpt','message':'这是经最小化的文字节选，完整原文仅保留在本机。'}],
+                'document_warnings':document_warnings(messages),
                 'redacted_excerpt':True,'minimization_policy':POLICY,
                 'wechat':{'source':'wechat','batch_id':batch['id'],'messages':messages,
                     'warnings':['redacted_excerpt'],'analysis':[],'superseded_by':None,'latest_snapshot_id':sid}}

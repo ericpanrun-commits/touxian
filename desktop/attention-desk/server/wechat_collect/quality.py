@@ -89,7 +89,9 @@ def assess(item,messages,blocks=(),context=None,*,legacy=False):
     named_file=any(m.get('message_type')=='file' and m.get('attachment_available') and m.get('attachment_name') for m in selected)
     if image_only and not usable_text(derived) and not named_file:
         return result('media_pending','附件尚无可核实的正文，等待解析或上下文。',complete=False,awaiting=True)
-    if re.search(r'(?:详见|看|参照|按照|见|按).{0,6}(?:图片|上图|附件)',text) and not usable_text(derived) and not named_file:
+    from .qr_text_policy import dependency_text
+    dependency=dependency_text(text,selected,item)
+    if re.search(r'(?:详见|看|参照|按照|见|按).{0,6}(?:图片|上图|附件)',dependency) and not usable_text(derived) and not named_file:
         return result('unresolved','通知依赖尚未提供的图片或附件，保留文字等待完整依据。',complete=False,awaiting=True)
     if not content.strip() or not re.search(r'[\u4e00-\u9fffA-Za-z0-9]',content):
         return result('filtered','没有实际信息。',complete=False)

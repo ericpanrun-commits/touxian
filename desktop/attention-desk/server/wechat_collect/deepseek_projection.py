@@ -146,7 +146,8 @@ def prepare_reviewed_projection(batch, snapshot, approved_samples, *, text_only=
         mappings[bid] = (block['block_id'], original, positions)
         messages.append({'message_id':mid, 'block_id':bid, 'raw_text':reviewed,
             'sender':None, 'message_type':'text', 'source_time':message.get('source_time'),
-            'time_reliability':message.get('time_reliability')})
+            'time_reliability':message.get('time_reliability'),
+            'captured_at':message.get('captured_at')})  # Local validation only; build_messages omits this field.
         blocks.append({'block_id':bid, 'text':reviewed, 'source_type':'text', 'needs_review':False})
     if not messages:
         denied('content_outside_authorized_scope')
