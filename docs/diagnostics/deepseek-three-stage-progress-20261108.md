@@ -2,6 +2,25 @@
 
 用户已直接批准七条脱敏文字测试，并进一步批准五群新增脱敏通知文字的持续DeepSeek分析。两项数据授权阻塞均已解除，不得再次以API费用或这两项授权为由暂停。完整三阶段Goal尚未完成；Supabase/Eric OS内容上传仍未获授权。以下最新记录优先，旧轮次的待批准、active/blocked、零真实调用等描述仅反映当时状态。
 
+## 阶段二实际启用：进程持续运行，等待真实新增通知
+
+实现提交为`ce59d90`，此前七条验证及引用投影提交为`5b1181d`。本次正式启用时间是 **2026-11-08 17:37:11（北京时间）**，对应授权文件`not_before=2026-11-08T09:37:11.215405+00:00`。五群当时水位和账号/实际群绑定摘要已在本机授权文件固定，不处理此前消息或既有历史积压。
+
+首次启用命令包含`--unlimited-test-tokens`，被自动审批拒绝：认为长期后台进程取消每日token限制超出了生产启用范围，并明确给出“去掉该参数”的安全替代方案。该次命令未执行，没有创建许可文件。随后按建议去掉参数，启用成功；没有间接绕过拒绝，也没有重复询问用户测试费用。**生产消费者保留原每日100,000 tokens、30次HTTP调用、并发1、每轮4批的限制**；独立真实样本测试的费用许可不变。
+
+本机实际文件（Git忽略）：
+
+- `desktop/data/attention-desk/deepseek-content-authorization.json`：continuous模式、官方DeepSeek目的地、五群水位及绑定；授权依据为上述直接回复。
+- `desktop/data/attention-desk/deepseek-worker-controls.json`：`pause_paid_ai=false`、`hold_cloud_uploads=true`、`unlimited_test_tokens=false`，只供专用进程使用。
+- 原`recovery-controls.json`继续为`pause_paid_ai=true`、`hold_cloud_uploads=true`，内容未改。原桌面、Collector、CloudSync均未重启或重新配置。
+- `desktop/data/attention-desk/deepseek-worker-state.json`及`logs/deepseek-analysis.log`保存状态和无正文日志。启动入口钩子将在以后正常启动桌面后台时尝试恢复已批准消费者；没有新增Windows计划任务。
+
+宿主进程列表确认实际消费者 **PID 42544**，启动时间17:37:11，17:37至17:45逐分钟心跳持续更新，状态`ready`。激活脚本返回的44964是虚拟环境启动器PID，不是长期消费者。曾因受限进程视图未显示42544而误判退出；宿主侧查询及连续心跳纠正了这一判断。一次诊断性重复启动被OS互斥挡住并退出，没有启动第二个消费者，也没有重复调用模型。后续进程核对必须使用能看到宿主进程的只读工具，不能仅凭受限视图“找不到PID”就重启。
+
+**17:45实际采集周期**：五群全部`no_change`，每群metadata_queries=1、message_body_queries=0、unauthorized_message_bodies_read=0，last_error均为空。消费者随后检查到eligible_batches/enqueued/parsed/calls全部为0；生产模型账本没有启用边界之后的新请求。零调用在这里是正确的空增量行为，**不能替代“真实新增通知已分析并保存”的验收**。
+
+宿主存活、授权与控制状态的本机快照：`desktop/attention-desk/artifacts/deepseek-live-20261108/runtime-check.json`。完整Goal仍active，阶段二尚缺至少一条授权边界之后的真实新增通知完成分析、保存和后续周期去重的证据。当前不是费用或已获批准的数据范围阻塞；消费者保持运行，下一步观察新的实际采集结果。不得为制造验收数据把旧七条重新写成新消息，也不得放开历史补传。阶段二通过后再准备可审阅的云同步小批量及独立上传授权；阶段三尚未开始。
+
 ## 新增通知授权后：队列接线及启用前离线验收
 
 用户对`call_8185e266de77402aadb066fd8ac9d958`明确回复“批准上述新增通知文字的持续 DeepSeek 分析”。范围是原五个已授权群今后新增的通知文字，经本地隐私检查和联系人删除后发往`https://api.deepseek.com`；只含文字、可靠时间及临时编号，不含发送者、画像、附件、旧上下文，不补传历史，疑似隐私或引用不可靠的消息暂留。不包括Supabase/Eric OS上传。
