@@ -16,6 +16,7 @@ import sqlite3
 import httpx
 
 from .settings import ENDPOINT
+from .deepseek_cloud_scope import ScopedCloudPublication
 from .wechat_dispatch_authority import DispatchDenied
 from .wechat_dispatch_transport import DispatchTransport
 from .wechat_incremental_journal import (
@@ -95,6 +96,8 @@ class ReviewedDeepSeekDispatch:
             raise DispatchDenied('cloud_scope_or_session_changed')
 
     def _checked(self, grant, preview, config):
+        if type(grant) is ScopedCloudPublication and preview.get('cloud_scope_binding')!=grant.binding():
+            raise DispatchDenied('protected_cloud_scope_required')
         if (preview.get('job_id')!=grant.job_id or preview.get('analysis_receipt_sha256')!=grant.receipt_hash
                 or preview.get('upload_authorized') is not False or preview.get('cloud_outbound_validation')!='passed'
                 or preview['bundle'].get('bundle_hash')!=grant.bundle_hash):
@@ -106,7 +109,7 @@ class ReviewedDeepSeekDispatch:
         return freeze_bundle(preview['bundle'],grant.binding())
 
     async def step(self, grant):
-        if type(grant) is not ReviewedCloudGrant:
+        if type(grant) not in {ReviewedCloudGrant,ScopedCloudPublication}:
             return {'state':'cloud_authorization_required'}
         try:
             self._current(grant)
@@ -122,12 +125,15 @@ class ReviewedDeepSeekDispatch:
             history=entry['history']
             count=len(entry['attempts'])+len(entry['reconciliations'])+sum(
                 len(h['attempts'])+len(h['reconciliations']) for h in history)
-            if count>=grant.max_calls:
+            if grant.max_calls is not None and count>=grant.max_calls:
                 return {'state':'test_call_limit_reached'}
+            daily_limit=getattr(grant,'daily_limit',grant.max_calls)
+            cycle_limit=getattr(grant,'cycle_limit',grant.max_calls)
             stamps=[a['at'] for a in entry['attempts']]+entry['reconciliations']
             stamps += [a['at'] for h in history for a in h['attempts']]
             stamps += [t for h in history for t in h['reconciliations']]
-            if stamps and (_instant(self.clock())-max(_instant(t) for t in stamps)).total_seconds()<30:
+            delay=min(900,30*(2**min(max(count-1,0),5))) if type(grant) is ScopedCloudPublication else 30
+            if stamps and (_instant(self.clock())-max(_instant(t) for t in stamps)).total_seconds()<delay:
                 return {'state':'backoff'}
             generation=grant.generation
             if entry['state']=='fenced':
@@ -139,12 +145,12 @@ class ReviewedDeepSeekDispatch:
             reconcile=entry['state']=='unconfirmed'
             if reconcile:
                 entry=self.journal.claim_reconciliation(meta['dedupe_key'],at=self.clock(),
-                    daily_limit=grant.max_calls,cycle_limit=grant.max_calls)
+                    daily_limit=daily_limit,cycle_limit=cycle_limit)
                 body=reconciliation_request(entry)
                 path='/worker/wechat-reconcile'
             else:
-                self.journal.claim(meta['dedupe_key'],at=self.clock(),daily_limit=grant.max_calls,
-                    cycle_limit=grant.max_calls,epoch=grant.epoch,generation=generation)
+                self.journal.claim(meta['dedupe_key'],at=self.clock(),daily_limit=daily_limit,
+                    cycle_limit=cycle_limit,epoch=grant.epoch,generation=generation)
                 body={key:meta[key] for key in ('raw_id','snapshot_id','source_id')}
                 body.update(records=records,epoch=grant.epoch,generation=generation)
                 path='/worker/wechat-publish'

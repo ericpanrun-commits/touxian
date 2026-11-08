@@ -52,11 +52,15 @@ class ReviewedLocalEvidence:
         self.approval_sha256=approval_sha256
         self.settings=settings or WorkerSettings(self.directory/'cloud-worker-settings.json')
 
+    def parse_approval(self,raw):return cloud_approval(raw)
+    def descriptor(self,grant):return grant
+    def validate_preview(self,connection,grant,preview):return preview
+
     @contextmanager
     def files(self,grant):
         with ExitStack() as stack:
             raw=stack.enter_context(immutable_evidence(self.approval_path,max_bytes=16384))
-            if hashlib.sha256(raw).hexdigest()!=self.approval_sha256 or cloud_approval(raw)!=grant:
+            if hashlib.sha256(raw).hexdigest()!=self.approval_sha256 or self.parse_approval(raw)!=self.descriptor(grant):
                 raise DispatchDenied('cloud_approval_changed')
             files={name:stack.enter_context(immutable_evidence(self.directory/name,max_bytes=65536)) for name in EVIDENCE_FILES}
             if evidence_digest(files)!=grant.evidence_hash:
@@ -84,6 +88,6 @@ class ReviewedLocalEvidence:
                 if not document.wechat.enabled or not any('wechat:'+chat.id==source and chat.enabled
                         and document.wechat.allows(chat) for chat in document.wechat.priority_chats):
                     raise DispatchDenied('source_no_longer_enabled')
-                return preview
+                return self.validate_preview(connection,grant,preview)
             with locked_source(self.directory/'personal.sqlite3',build) as preview:
                 yield preview,config
