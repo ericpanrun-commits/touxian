@@ -68,13 +68,18 @@ class ReviewedProjection:
     message_ids: dict
     blocks: dict
 
-    def restore(self, parsed: dict, local_context: dict):
+    def restore(self, parsed: dict | str, local_context: dict):
         """Validate on sent text first, restore references, then apply local facts."""
         from .analysis import validate_output
-        checked, warnings = validate_output(json.dumps(parsed, ensure_ascii=False),
+        raw=parsed if isinstance(parsed,str) else json.dumps(parsed,ensure_ascii=False)
+        checked, warnings = validate_output(raw,
             self.batch, self.snapshot, local_context, require_notice=True)
         # Validation adds local attention bookkeeping, outside the wire schema.
         restored = deepcopy({key:checked[key] for key in ('schema_version','batch_id','items','evidence')})
+        # Reapply local routing from the validated pre-routing fields. Feeding
+        # an unresolved item's derived "ignore" level back as model intent would
+        # incorrectly convert a waiting-for-context item into a filtered item.
+        restored['items'] = [deepcopy(checked['_attention_originals'][item['id']]) for item in checked['items']]
         restored['batch_id'] = self.original_batch['id']
         for evidence in restored['evidence']:
             local_id, original, positions = self.blocks[evidence['block_id']]

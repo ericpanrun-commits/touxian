@@ -58,7 +58,7 @@ class ContextFollowup(StrictConfig):
 
 class BudgetConfig(StrictConfig):
     http_daily: int = Field(default=30, ge=1, le=1000)
-    tokens_daily: int = Field(default=100_000, ge=4096, le=10_000_000)
+    tokens_daily: int | None = Field(default=100_000, ge=4096, le=10_000_000)
     vision_daily: int = Field(default=5, ge=0, le=100)
     concurrency: Literal[1] = 1
     batches_per_cycle: int = Field(default=4, ge=1, le=10)

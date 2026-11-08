@@ -58,16 +58,14 @@ def test_model_contract_requires_attention_and_completeness_fields():
 def confirmed_output(payload):
     result=output_for(payload)
     item=result['items'][0]
-    item.update(title='课程上课地点改为二田',category='course_change',action_required=False,action=None,actions=[])
-    question=next(m for m in payload['messages'] if '是不是' in next(b['text'] for b in payload['blocks'] if b['block_id']==m['block_id']))
-    block=next(b for b in payload['blocks'] if b['block_id']==question['block_id'])
-    result['evidence'].append({'id':'q0','message_id':question['message_id'],'block_id':block['block_id'],'quote':block['text'],'start':0,'end':len(block['text'])})
-    item['evidence_message_ids'].append(question['message_id'])
-    item['evidence_mapping']=[{'field':'title','evidence_ids':['q0','q1']}]
+    assert all('是不是' not in block['text'] for block in payload['blocks'])
+    item.update(title='改到二田，主体尚未明确',category='course_change',action_required=False,
+        information_complete=False,await_more_context=True,action=None,actions=[])
+    item['evidence_mapping']=[{'field':'title','evidence_ids':['q1']}]
     return result
 
 
-def test_question_waits_without_model_then_confirmation_uses_held_context_once(personal):
+def test_question_stays_local_when_current_grant_excludes_old_context(personal):
     question=ObservedMessage('上课地点是不是改成二田？',sender='同学',source_time='2026-10-22T10:00:00+08:00',time_reliability='reliable')
     service,current,calls=setup_service(personal,[Observation('test','unverified',(question,),True,True)],response=confirmed_output)
     async def run():
@@ -82,15 +80,13 @@ def test_question_waits_without_model_then_confirmation_uses_held_context_once(p
         await scan(service); await service.process_queue()
         assert len(calls)==1
     asyncio.run(run())
-    item=list_candidates(personal)['items'][0]
-    assert item['analysis']['title']=='课程上课地点改为二田'
-    assert len(item['analysis']['evidence_message_ids'])==2
-    assert candidate_level(item['analysis'],NOW)=='timeSensitive'
+    assert list_candidates(personal)['total']==0
     with personal.connection() as c:
-        assert c.execute('SELECT status FROM wechat_context_buffer').fetchone()[0]=='resolved'
+        assert c.execute('SELECT status FROM wechat_context_buffer').fetchone()[0]!='resolved'
+        saved=json.loads(c.execute("SELECT data_json FROM wechat_candidate WHERE model_item_id!='_pending'").fetchone()[0])
+        assert len(saved['evidence_message_ids'])==1 and saved['await_more_context']
         assert c.execute('SELECT count(*) FROM event').fetchone()[0]==0
-    assert not reclassify_saved(personal,service.context.read().model_dump()) or list_candidates(personal)['total']==1
-    assert briefing(personal)['unresolved']['total']==0
+    assert briefing(personal)['unresolved']['total']>=1
 
 
 def test_exact_reposted_notice_is_filtered_before_paid_analysis(personal,tmp_path):
@@ -120,17 +116,24 @@ def test_continuous_unreadable_images_are_one_attachment_group_not_candidates(pe
     assert held['items'][0]['attachment_count']==2
 
 
-def test_readable_image_reaches_attention_only_after_ocr(personal):
+def test_readable_image_stays_local_under_text_only_content_grant(personal):
     spool=personal.path.parent/'wechat-spool';spool.mkdir()
     path=spool/'notice.png';Image.new('RGB',(150,100),'white').save(path)
     message=ObservedMessage('[图片]',message_type='image',attachment_identity='readable',media_path=str(path))
     service,_,calls=setup_service(personal,[Observation('test','unverified',(message,),True,True)])
     service.document.wechat.context_followup.enabled=False
     service.media_engine=lambda *a:([{'text':'请在周五前提交实验报告'}],{})
-    async def run(): await scan(service); await service.process_queue()
+    from server.tests_wechat.test_deepseek_content_gate import write_grant,grant
+    async def run():
+        await scan(service)
+        write_grant(personal,grant())
+        await service.process_queue()
     asyncio.run(run())
-    assert len(calls)==1 and list_candidates(personal)['total']==1
-    assert briefing(personal)['media']['total']==0
+    assert calls==[] and list_candidates(personal)['total']==0
+    with personal.connection() as connection:
+        assert connection.execute("SELECT count(*) FROM raw_source_block WHERE source_type='image_ocr'").fetchone()[0]>0
+        assert connection.execute('SELECT count(*) FROM wechat_llm_attempt').fetchone()[0]==0
+        assert connection.execute('SELECT error_code FROM wechat_analysis_job').fetchone()[0]=='content_outside_authorized_scope'
 
 
 def test_fyi_archives_and_cannot_be_confirmed_or_restored_into_pending(personal):

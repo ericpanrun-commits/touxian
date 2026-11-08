@@ -6,13 +6,13 @@ import calendar
 import hashlib
 import json
 import re
-from contextlib import nullcontext
+from contextlib import nullcontext, ExitStack
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from pydantic import ValidationError
 
-from ..ai_transport import DeepSeekTransport, strict_json
+from ..ai_transport import DeepSeekTransport
 from ..extraction_errors import ExtractionFailure
 from ..personal_store import PersonalError, encode, identifier, now
 from ..source_metadata import snapshot_with_metadata
@@ -497,7 +497,7 @@ class AnalysisQueue:
                 raise PersonalError('历史、已收响应或结果未知的作业需先核对恢复计划。','recovery_approval_required',409)
             attempts=c.execute('SELECT * FROM wechat_llm_attempt WHERE started_at>=? AND started_at<?',(start,end)).fetchall()
             spent=sum(json.loads(a['token_usage_json'] or '{}').get('total_tokens',a['reserved_tokens']) for a in attempts)
-            if len(attempts)>=limits.http_daily or spent+estimate>limits.tokens_daily or kind=='vision' and sum(a['kind']=='vision' for a in attempts)>=limits.vision_daily:
+            if len(attempts)>=limits.http_daily or (limits.tokens_daily is not None and spent+estimate>limits.tokens_daily) or kind=='vision' and sum(a['kind']=='vision' for a in attempts)>=limits.vision_daily:
                 raise PersonalError('今日模型预算已到上限，候选保留在队列。','budget_deferred',409)
             count=c.execute('SELECT COUNT(*) FROM wechat_llm_attempt WHERE job_id=?',(job_id,)).fetchone()[0]
             attempt_id=identifier()
@@ -533,7 +533,7 @@ class AnalysisQueue:
             body=build_text_request(config,batch,snapshot,context)
             attempt_id=None
             response=None
-            media=[]
+            content_lease=ExitStack()
             try:
                 from urllib.parse import urlsplit
                 endpoint=urlsplit(config.base_url)
@@ -542,33 +542,15 @@ class AnalysisQueue:
                         or endpoint.query or endpoint.fragment
                         or endpoint.path.rstrip('/') not in {'','/v1','/chat/completions','/v1/chat/completions'}):
                     raise ExtractionFailure('endpoint_not_approved','微信消息仅使用已批准的官方 DeepSeek 服务。',attempts=0)
+                from .deepseek_content_gate import leased_grant, prepare_authorized_projection, projection_record
+                grant=content_lease.enter_context(leased_grant(self.personal))
+                projection=prepare_authorized_projection(self.personal,batch,snapshot,grant)
+                body=build_text_request(config,projection.batch,projection.snapshot,projection.context)
                 _,key=self.settings.resolved()
                 if not key.get_secret_value():
                     raise ExtractionFailure('missing_key','原文已保存，请配置密钥。',attempts=0)
-                from .vision import pending_media,vision_body,apply_transcription
-                with self.personal.connection() as c:
-                    recovered=c.execute('SELECT vision_allowed FROM wechat_media_analysis WHERE batch_id=?',(batch['id'],)).fetchone() if c.execute("SELECT 1 FROM sqlite_master WHERE name='wechat_media_analysis'").fetchone() else None
-                media=pending_media(self.personal,batch['id']) if self.allow_vision or recovered and recovered[0] else []
-                if media:
-                    vision_request=vision_body(media,config,self.personal.path.parent/'files')
-                    def before_vision():
-                        nonlocal attempt_id
-                        attempt_id=self.reserve(job_id,vision_request,'vision')
-                        with self.personal.connection(write=True) as c:
-                            if c.execute("SELECT 1 FROM sqlite_master WHERE name='wechat_media_parse_cache'").fetchone():
-                                for image in media:
-                                    previous=c.execute("SELECT detail_json FROM wechat_media_parse_cache WHERE sha256=? AND engine='vision' AND version='vision-v2'",(image['sha256'],)).fetchone()
-                                    count=json.loads(previous[0]).get('attempts',0) if previous else 0
-                                    c.execute("INSERT OR REPLACE INTO wechat_media_parse_cache VALUES (?,'vision','vision-v2','running','[]',?,?)",(image['sha256'],encode({'attempt_id':attempt_id,'attempts':count+1}),now()))
-                    vision_response=await self.transport.request(vision_request,config,key,attempts=1,before_attempt=before_vision)
-                    vision_recovery=self._save_recovery(job_id,{'kind':'vision','job':job,'raw':vision_response.raw_output,'usage':vision_response.usage,'media':media,'attempt_id':attempt_id})
-                    new_snapshot=apply_transcription(self.personal,job,vision_response.raw_output,vision_response.usage,attempt_id,media)
-                    vision_recovery.unlink(missing_ok=True)
-                    job['snapshot_id']=new_snapshot
-                    with self.personal.connection() as c:
-                        snapshot=snapshot_with_metadata(c,c.execute('SELECT * FROM raw_snapshot WHERE id=?',(new_snapshot,)).fetchone())
-                    body['messages']=build_messages(batch,snapshot,context)
-                    attempt_id=None
+                # The current content grant covers text only. Media is retained
+                # locally; no older vision flag can expand this authorization.
                 if not any(b['source_type']!='text' or mapping['message_type'] not in {'image','file'} or mapping.get('attachment_available') and mapping.get('message_type')=='file' for b in snapshot['blocks'] for mapping in snapshot['wechat']['messages'] if mapping['block_id']==b['block_id']):
                     raise ExtractionFailure('media_pending','图片尚未可靠识别，原图保留待核对。',attempts=0)
                 from .quality import refresh_media,usable_text
@@ -578,26 +560,20 @@ class AnalysisQueue:
                     raise ExtractionFailure('media_pending','附件尚无有效正文，等待解析。',attempts=0)
                 def before():
                     nonlocal attempt_id
+                    current=prepare_authorized_projection(self.personal,batch,snapshot,grant)
+                    if projection_record(current)!=projection_record(projection):
+                        raise ExtractionFailure('content_changed_before_dispatch','发送前内容发生变化，未发送。',attempts=0)
                     attempt_id=self.reserve(job_id,body)
                 response=await self.transport.request(body,config,key,attempts=1,before_attempt=before)
-                envelope={'job':job,'raw':response.raw_output,'usage':response.usage}
+                envelope={'job':job,'raw':response.raw_output,'usage':response.usage,'projection':projection_record(projection)}
                 recovery=self._save_recovery(job_id,envelope)
-                parsed,warnings=validate_output(response.raw_output,batch,snapshot,context,require_notice=True)
+                parsed,warnings=projection.restore(response.raw_output,context)
                 self._commit(job,attempt_id,response,parsed,warnings)
                 recovery.unlink(missing_ok=True)
                 return True
             except PersonalError as exc:
                 self._fail(job,attempt_id,exc.code)
             except ExtractionFailure as exc:
-                if media and attempt_id:
-                    with self.personal.connection(write=True) as c:
-                        attempt=c.execute('SELECT kind FROM wechat_llm_attempt WHERE id=?',(attempt_id,)).fetchone()
-                        if attempt and attempt['kind']=='vision' and c.execute("SELECT 1 FROM sqlite_master WHERE name='wechat_media_parse_cache'").fetchone():
-                            for image in media:
-                                cache=c.execute("SELECT detail_json FROM wechat_media_parse_cache WHERE sha256=? AND engine='vision' AND version='vision-v2'",(image['sha256'],)).fetchone()
-                                detail=json.loads(cache[0]) if cache else {}
-                                state='retry' if exc.retryable and detail.get('attempts',0)<2 else 'failed'
-                                c.execute("UPDATE wechat_media_parse_cache SET status=?,detail_json=? WHERE sha256=? AND engine='vision' AND version='vision-v2'",(state,encode({**detail,'error':exc.code}),image['sha256']))
                 self._fail(job,attempt_id,exc.code,raw=exc.raw_output,usage=exc.usage or (response.usage if response else None),retryable=exc.retryable,retry_after=exc.retry_after)
             except asyncio.CancelledError:
                 self._fail(job,attempt_id,'outcome_unknown' if attempt_id else 'interrupted')
@@ -605,6 +581,8 @@ class AnalysisQueue:
             except Exception:
                 # Storage/recovery failures after dispatch may have billed: never silently re-request.
                 self._fail(job,attempt_id,'storage_or_response_error')
+            finally:
+                content_lease.close()
             return False
 
     def _save_recovery(self,job_id,envelope):
@@ -622,7 +600,7 @@ class AnalysisQueue:
         temporary.replace(path)
         return path
 
-    def recover_responses(self):
+    def recover_responses(self, *, job_ids=None):
         """Reapply a durable response, never an HTTP request, after a write failure/crash."""
         if not self.policy.authorize().allowed:
             return
@@ -632,6 +610,8 @@ class AnalysisQueue:
             try:
                 stored=json.loads(path.read_text(encoding='utf-8'))
                 saved=json.loads(protect(stored['value'],decrypt=True) if stored['protected'] else stored['value'])
+                if job_ids is not None and saved['job']['id'] not in job_ids:
+                    continue
                 with self.personal.connection() as c:
                     row=c.execute('SELECT * FROM wechat_analysis_job WHERE id=?',(saved['job']['id'],)).fetchone()
                     if not row:
@@ -669,7 +649,11 @@ class AnalysisQueue:
                     apply_transcription(self.personal,job,saved['raw'],saved['usage'],saved['attempt_id'],saved['media'])
                     path.unlink(missing_ok=True)
                     continue
-                parsed,warnings=validate_output(saved['raw'],batch,snapshot,json.loads(job['profile_json']),legacy=True)
+                if saved.get('projection'):
+                    from .deepseek_content_gate import restore_record
+                    parsed,warnings=restore_record(saved['projection'],batch,snapshot,saved['raw'],json.loads(job['profile_json']))
+                else:
+                    parsed,warnings=validate_output(saved['raw'],batch,snapshot,json.loads(job['profile_json']),legacy=True)
                 self._commit(job,attempt[0],ProviderResult(saved['raw'],saved['usage']),parsed,warnings)
                 path.unlink(missing_ok=True)
             except (OSError,ValueError,KeyError,PersonalError,ExtractionFailure):

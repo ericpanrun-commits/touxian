@@ -37,6 +37,13 @@ def main():
         if sys.stderr is None:
             sys.stderr=open(os.devnull,'w',encoding='utf-8')
         os.environ['ATTENTION_DESKTOP_BACKGROUND']='1'
+        # Separate, explicitly authorized text consumer. The original desktop
+        # process retains its paid/cloud holds and Collector lifecycle.
+        from .wechat_collect.deepseek_worker import launch_if_authorized
+        try:
+            launch_if_authorized(path.parent)
+        except OSError:
+            logging.getLogger(__name__).warning('DeepSeek text worker launch failed; holds preserved')
         import uvicorn
         # pythonw has no stdout/stderr. Use the configured rotating file handler;
         # Uvicorn's default console formatter otherwise calls None.isatty().

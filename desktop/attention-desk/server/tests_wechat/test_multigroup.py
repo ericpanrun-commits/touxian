@@ -22,6 +22,7 @@ from server.personal_store import PersonalError
 from server.source_metadata import snapshot_with_metadata
 from server.tests_wechat.test_db_adapter import NOW
 from server.tests_wechat.test_pipeline import Settings, output_for, scan
+from server.tests_wechat.conftest import personal
 from server.wechat_collect.api import router, GroupGrantInput, GroupChangeInput
 from server.wechat_collect.config import ChatConfig, SettingsDocument, WeChatConfig
 from server.wechat_collect.db_reader import QueryBoundary, collect_increment, search_group_metadata
@@ -92,6 +93,7 @@ def make_service(personal,tmp_path,count=6):
         return httpx.Response(200,json={'model':'deepseek-flash','choices':[{'message':{'content':json.dumps(data,ensure_ascii=False)},'finish_reason':'stop'}],'usage':{'total_tokens':100}})
     adapter=Adapter(sources)
     service=WeChatService(personal,Settings(),adapter=adapter,clock=lambda:NOW,transport=DeepSeekTransport(httpx.MockTransport(handler)))
+    service.synthetic_content_grant=True
     config=WeChatConfig(enabled=True,allowed_chats=[ch.name for ch in targets],allowed_chatrooms=[ch.chatroom_id for ch in targets],priority_chats=targets)
     config.context_followup.enabled=False
     asyncio.run(service.save_settings(SettingsDocument(wechat=config),1))

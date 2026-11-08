@@ -62,7 +62,7 @@ def eligible_job_ids(connection, jobs, *, at, limit):
     return selected
 
 
-def request_plan(personal, batch, config, messages, *, allow_vision=False):
+def request_plan(personal, batch, config, messages, *, allow_vision=False, authorized_text=False):
     """Read-only cost stages, matching production's per-batch vision permission.
 
     A successful vision response changes the text snapshot. Its later text
@@ -72,7 +72,7 @@ def request_plan(personal, batch, config, messages, *, allow_vision=False):
     with personal.connection() as c:
         table=c.execute("SELECT 1 FROM sqlite_master WHERE name='wechat_media_analysis'").fetchone()
         recovered=c.execute('SELECT vision_allowed FROM wechat_media_analysis WHERE batch_id=?',(batch['id'],)).fetchone() if table else None
-    media=pending_media(personal,batch['id']) if allow_vision or recovered and recovered[0] else []
+    media=pending_media(personal,batch['id']) if not authorized_text and (allow_vision or recovered and recovered[0]) else []
     current_text=len(encode(messages).encode())+config.max_output_tokens
     result={'text_requests_max':1,'vision_requests_max':int(bool(media)),
         'http_requests_max':1+int(bool(media)),'vision_images':len(media),
@@ -139,6 +139,7 @@ def backlog_plan(personal, *, at, allow_vision=False):
                 latest = attempts[-1] if attempts else None
                 item['saved_response_validation'] = None
                 saved_raw = latest['raw_output'] if latest and latest['kind'] == 'text' else None
+                saved_projection = None
                 recovery_path = personal.path.parent / 'wechat-recovery' / (job['id'] + '.json')
                 if recovery_path.exists():
                     try:
@@ -152,6 +153,7 @@ def backlog_plan(personal, *, at, allow_vision=False):
                             item['recovery_file'] = 'vision_requires_review'
                         elif len(attempts) == 1 and latest['kind'] == 'text':
                             saved_raw = saved['raw']
+                            saved_projection = saved.get('projection')
                             item['recovery_file'] = 'matching_text_response'
                         else:
                             item['recovery_file'] = 'ambiguous_attempt'
@@ -159,7 +161,11 @@ def backlog_plan(personal, *, at, allow_vision=False):
                         item['recovery_file'] = 'protected_response_unavailable'
                 if saved_raw:
                     try:
-                        validate_output(saved_raw, batch, snapshot, json.loads(job['profile_json']), legacy=True)
+                        if saved_projection:
+                            from .deepseek_content_gate import restore_record
+                            restore_record(saved_projection,batch,snapshot,saved_raw,json.loads(job['profile_json']))
+                        else:
+                            validate_output(saved_raw, batch, snapshot, json.loads(job['profile_json']), legacy=True)
                         item['saved_response_validation'] = 'passed'
                     except ExtractionFailure as exc:
                         item['saved_response_validation'] = exc.code
@@ -186,9 +192,21 @@ def backlog_plan(personal, *, at, allow_vision=False):
                 else:
                     context = json.loads(job['profile_json'])
                     body = build_text_request(config, batch, snapshot, context)
-                    item['request_plan']=request_plan(personal,batch,config,body['messages'],allow_vision=allow_vision)
+                    sent_batch,sent_snapshot,sent_context=batch,snapshot,context
+                    authorized_text=False
+                    try:
+                        from .deepseek_content_gate import leased_grant,prepare_authorized_projection
+                        with leased_grant(personal) as grant:
+                            projection=prepare_authorized_projection(personal,batch,snapshot,grant)
+                        sent_batch,sent_snapshot,sent_context=projection.batch,projection.snapshot,projection.context
+                        body=build_text_request(config,sent_batch,sent_snapshot,sent_context)
+                        item['content_gate']='approved_text_projection'
+                        authorized_text=True
+                    except ExtractionFailure as exc:
+                        item['content_gate']=exc.code
+                    item['request_plan']=request_plan(personal,batch,config,body['messages'],allow_vision=allow_vision,authorized_text=authorized_text)
                     if item['decision'] == 'paid_request_requires_approval':
-                        item['text_disclosure'] = text_disclosure(batch, snapshot, context, body)
+                        item['text_disclosure'] = text_disclosure(sent_batch, sent_snapshot, sent_context, body)
                         item['text_disclosure']['may_change_after_vision'] = item['request_plan']['post_vision_text_reservation_unknown']
                     # This is a reservation estimate, never a price or an authorization.
                     item['reserved_tokens_if_requested'] = (None if item['request_plan']['post_vision_text_reservation_unknown']

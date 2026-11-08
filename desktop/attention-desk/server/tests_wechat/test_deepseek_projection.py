@@ -107,3 +107,21 @@ def test_saved_course_deadline_remaps_anchor_without_losing_date():
     deadline = restored['items'][0]['deadline']
     assert deadline['anchor_message_id'] == 'private-message'
     assert deadline['value'] == '2026-11-10T12:00'
+
+
+def test_reference_restoration_preserves_unresolved_semantics():
+    projection = prepare_reviewed_projection(*fixture('老师确认了，改到二田。'))
+    response = output(projection)
+    response['items'][0].update(information_complete=False, await_more_context=True,
+        action_required=False, actions=[], category='course_change')
+    restored, _ = projection.restore(response, {})
+    assert restored['items'][0]['await_more_context'] is True
+    assert restored['_attention']['notice1']['bucket'] == 'unresolved'
+
+
+def test_projected_response_keeps_existing_local_json_envelope_repair():
+    projection = prepare_reviewed_projection(*fixture())
+    raw='```json\n'+json.dumps(output(projection),ensure_ascii=False)+'\n```'
+    restored,warnings=projection.restore(raw,{})
+    assert restored['batch_id']=='private-batch'
+    assert 'json_repaired_locally' in warnings

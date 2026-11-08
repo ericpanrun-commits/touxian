@@ -8,6 +8,8 @@ import sqlite3
 ROOT = Path(__file__).resolve().parents[1]
 evaluation = runpy.run_path(str(ROOT/'scripts/deepseek-reviewed-evaluation.py'))
 from server.wechat_collect.deepseek_projection import prepare_reviewed_projection
+from server.wechat_collect.deepseek_content_gate import minimize_notice
+from server.extraction_errors import ExtractionFailure
 
 
 def main():
@@ -19,6 +21,7 @@ def main():
     results = []
     with sqlite3.connect((evaluation['DATA']/'personal.sqlite3').as_uri()+'?mode=ro', uri=True) as connection:
         connection.execute('PRAGMA query_only=ON')
+        names=[row[0] for row in connection.execute('SELECT DISTINCT sender FROM wechat_message WHERE sender IS NOT NULL')]
         for sample in samples:
             label = next(row for row in labels if row['sample'] == sample['id'])
             original = connection.execute('SELECT raw_text FROM wechat_message WHERE id=?', (label['message_id'],)).fetchone()[0]
@@ -32,8 +35,13 @@ def main():
             parsed = json.loads(receipt['raw'])
             parsed['batch_id'] = projection.batch['id']
             restored, _ = projection.restore(parsed, context)
-            results.append({'sample':sample['id'], 'status':'passed',
-                            'mapped_evidence':len(restored['evidence'])})
+            result={'sample':sample['id'], 'status':'passed','mapped_evidence':len(restored['evidence'])}
+            try:
+                minimized=minimize_notice(original,names)
+                result['automatic_projection']='matches_approved' if minimized==sample['text'] else 'different_requires_validation'
+            except ExtractionFailure as exc:
+                result['automatic_projection']=exc.code
+            results.append(result)
     report = {'network_requests':0, 'production_writes':0, 'results':results}
     evaluation['save'](evaluation['OUT']/'projection-summary.json', report)
     print(json.dumps(report))

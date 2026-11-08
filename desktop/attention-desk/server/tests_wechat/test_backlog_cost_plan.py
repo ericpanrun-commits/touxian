@@ -104,7 +104,11 @@ def test_review_plan_and_actual_mock_request_use_the_same_captured_message_order
     assert plan['jobs'][0]['primary_source_ids'] == expected
     assert asyncio.run(service.analysis.run_one(job)) is True
     payload = json.loads(calls[0]['messages'][-1]['content'].split('仅处理以下数据:\n', 1)[1])
-    assert payload['primary_message_ids'] == expected
+    assert payload['primary_message_ids'] == ['m1','m2']
+    with personal.connection() as connection:
+        expected_text=[connection.execute('SELECT raw_text FROM wechat_message WHERE id=?',(mid,)).fetchone()[0] for mid in expected]
+    assert [block['text'] for block in payload['blocks']] == expected_text
+    assert plan['jobs'][0]['content_gate'] == 'approved_text_projection'
     assert plan['jobs'][0]['text_disclosure']['request_sha256'] == hashlib.sha256(encode(calls[0]).encode()).hexdigest()
 
 
@@ -120,8 +124,8 @@ def test_disclosure_summary_marks_ocr_and_context_without_exporting_text(persona
     service.analysis.enqueue(batch['id'], service.context.read())
     result = backlog_plan(personal, at=service.clock())
     disclosure = result['jobs'][0]['text_disclosure']
-    assert disclosure['block_source_types']['image_ocr'] == 1
-    assert disclosure['sender_fields_nonempty'] == 2
+    assert 'image_ocr' not in disclosure['block_source_types']
+    assert disclosure['sender_fields_nonempty'] == 0
     assert disclosure['indicators']['email'] and disclosure['indicators']['url']
     assert disclosure['indicators_are_lower_bounds'] and disclosure['requires_content_review']
     serialized = json.dumps(result, ensure_ascii=False)

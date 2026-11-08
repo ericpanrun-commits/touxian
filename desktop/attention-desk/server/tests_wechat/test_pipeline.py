@@ -1,5 +1,6 @@
 import asyncio
 import json
+import hashlib
 from datetime import datetime, timedelta
 from uuid import uuid4
 
@@ -54,6 +55,9 @@ def setup_service(personal,observations,*,time='2026-10-22T10:00:00+08:00',respo
         return httpx.Response(200,json={'model':'deepseek-flash','choices':[{'message':{'content':json.dumps(data,ensure_ascii=False)},'finish_reason':'stop'}], 'usage':{'total_tokens':100,'prompt_tokens':80,'completion_tokens':20}})
     service=WeChatService(personal,Settings(),adapter=FakeAdapter(observations),clock=lambda:current[0],
                           transport=DeepSeekTransport(httpx.MockTransport(handler)),activity_guard=activity_guard)
+    # Only this fixture grants its fictional source text. Production never
+    # derives a grant from stored messages or from a configured API key.
+    service.synthetic_content_grant=True
     document=SettingsDocument(wechat=WeChatConfig(enabled=True,priority_chats=[ChatConfig(id='test',name='合成测试群')]))
     asyncio.run(service.save_settings(document,1))
     return service,current,calls
@@ -62,6 +66,18 @@ def setup_service(personal,observations,*,time='2026-10-22T10:00:00+08:00',respo
 async def scan(service):
     result=await service.request_scan(manual=True,request_key=str(uuid4()))
     await asyncio.gather(*list(service.scan_tasks))
+    if getattr(service,'synthetic_content_grant',False):
+        from server.wechat_collect.deepseek_content_gate import FILENAME, POLICY
+        with service.personal.connection() as connection:
+            rows=connection.execute("SELECT * FROM wechat_message m WHERE message_type='text' AND EXISTS (SELECT 1 FROM wechat_batch_message bm WHERE bm.message_id=m.id AND bm.role='primary')").fetchall()
+            chats=connection.execute('SELECT id FROM wechat_chat').fetchall()
+        if rows:
+            grant={'version':1,'enabled':True,'authorization_id':'offline-synthetic-fixture',
+                'destination':'https://api.deepseek.com','policy':POLICY,'mode':'reviewed',
+                'not_before':'2000-01-01T00:00:00+08:00','chat_watermarks':{r['id']:0 for r in chats},
+                'reviewed_samples':[{'original_sha256':hashlib.sha256(r['raw_text'].encode()).hexdigest(),
+                    'text':r['raw_text'],'source_time':r['source_time'],'time_reliability':r['time_reliability']} for r in rows]}
+            (service.personal.path.parent/FILENAME).write_text(json.dumps(grant,ensure_ascii=False),encoding='utf8')
     return result
 
 
