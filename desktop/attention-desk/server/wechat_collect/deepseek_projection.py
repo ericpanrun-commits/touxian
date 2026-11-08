@@ -97,10 +97,15 @@ class ReviewedProjection:
                 value['anchor_message_id'] = self.message_ids[value['anchor_message_id']]
         result, local_warnings = validate_output(json.dumps(restored, ensure_ascii=False),
             self.original_batch, self.original_snapshot, local_context, require_notice=True)
+        # Local bookkeeping only: omitted attachments must never be marked as
+        # analyzed when the text response is committed or recovered.
+        result['_analyzed_message_ids'] = list(self.message_ids.values())
+        if set(result['_analyzed_message_ids']) != set(self.original_batch['primary_ids']):
+            local_warnings.append('text_only_media_held')
         return result, sorted(set(warnings + local_warnings))
 
 
-def prepare_reviewed_projection(batch, snapshot, approved_samples):
+def prepare_reviewed_projection(batch, snapshot, approved_samples, *, text_only=False):
     """Pure preparation. Caller must supply the separately approved manifest.
 
     Explicitly excludes context-only and media blocks. No environment fallback,
@@ -118,8 +123,10 @@ def prepare_reviewed_projection(batch, snapshot, approved_samples):
     primary = batch['primary_ids']
     if not primary or len(primary) != len(set(primary)):
         denied()
-    for number, local_mid in enumerate(primary, 1):
+    for local_mid in primary:
         message = originals.get(local_mid)
+        if text_only and message and message.get('message_type') in {'image', 'file'}:
+            continue
         if not message or message.get('message_type') != 'text':
             denied()
         original = message.get('raw_text', '')
@@ -133,7 +140,7 @@ def prepare_reviewed_projection(batch, snapshot, approved_samples):
                 and s.get('source_time') == message.get('source_time')
                 and s.get('time_reliability') == message.get('time_reliability') for s in approved_samples):
             denied()
-        mid, bid = f'm{number}', f'b{number}'
+        mid, bid = f'm{len(messages)+1}', f'b{len(messages)+1}'
         positions = retained_positions(original, reviewed)
         ids[mid] = local_mid
         mappings[bid] = (block['block_id'], original, positions)
@@ -141,6 +148,8 @@ def prepare_reviewed_projection(batch, snapshot, approved_samples):
             'sender':None, 'message_type':'text', 'source_time':message.get('source_time'),
             'time_reliability':message.get('time_reliability')})
         blocks.append({'block_id':bid, 'text':reviewed, 'source_type':'text', 'needs_review':False})
+    if not messages:
+        denied('content_outside_authorized_scope')
     return ReviewedProjection({'id':'batch', 'primary_ids':list(ids)},
         {'blocks':blocks, 'wechat':{'messages':messages, 'warnings':[]}},
         UserContext().model_dump(), deepcopy(batch), deepcopy(snapshot), ids, mappings)

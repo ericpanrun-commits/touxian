@@ -166,9 +166,15 @@ def prepare_authorized_projection(personal, batch, snapshot, grant):
             current = connection.execute('SELECT m.*,ch.enabled,ch.source_id AS chat_source_id,ch.binding_json AS chat_binding FROM wechat_message m JOIN wechat_chat ch ON ch.id=m.chat_id WHERE m.id=?', (message['message_id'],)).fetchone()
             if (not current or not current['enabled'] or current['chat_id'] != batch['chat_id']
                     or current['chat_id'] not in grant.chat_watermarks
-                    or current['message_type'] != 'text' or current['raw_text'] != message['raw_text']
+                    or current['message_type'] != message.get('message_type') or current['raw_text'] != message['raw_text']
                     or current['source_time'] != message.get('source_time')
                     or current['time_reliability'] != message.get('time_reliability')):
+                deny('content_outside_authorized_scope')
+            if grant.mode == 'continuous' and current['message_type'] in {'image', 'file'}:
+                # These primary messages stay local, including any derived OCR.
+                # A mixed batch does not expand the text-only content grant.
+                continue
+            if current['message_type'] != 'text':
                 deny('content_outside_authorized_scope')
             if grant.mode == 'reviewed':
                 continue
@@ -186,7 +192,8 @@ def prepare_authorized_projection(personal, batch, snapshot, grant):
             approvals.append({'original_sha256':hashlib.sha256(current['raw_text'].encode()).hexdigest(),
                 'text':reviewed, 'source_time':current['source_time'], 'time_reliability':'reliable'})
     return prepare_reviewed_projection(batch, snapshot,
-        [sample.model_dump() for sample in grant.reviewed_samples] if grant.mode == 'reviewed' else approvals)
+        [sample.model_dump() for sample in grant.reviewed_samples] if grant.mode == 'reviewed' else approvals,
+        text_only=grant.mode == 'continuous')
 
 
 def projection_record(projection):

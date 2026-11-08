@@ -125,3 +125,21 @@ def test_projected_response_keeps_existing_local_json_envelope_repair():
     restored,warnings=projection.restore(raw,{})
     assert restored['batch_id']=='private-batch'
     assert 'json_repaired_locally' in warnings
+
+
+def test_text_projection_excludes_primary_media_and_preserves_missing_attachment_hold():
+    batch,snapshot,approved=fixture('请全体同学按附件要求提交报告。')
+    batch['primary_ids'].append('private-media-message')
+    snapshot['wechat']['messages'].append({'message_id':'private-media-message',
+        'block_id':'private-media-block','raw_text':'private-image','message_type':'image'})
+    snapshot['blocks'].append({'block_id':'private-media-block','text':'private-image','source_type':'text'})
+    projection=prepare_reviewed_projection(batch,snapshot,approved,text_only=True)
+    assert len(projection.message_ids)==1
+    restored,warnings=projection.restore(output(projection),{})
+    assert restored['_analyzed_message_ids']==['private-message']
+    assert restored['_attention']['notice1']['bucket']=='unresolved'
+    assert restored['items'][0]['action_required'] is False
+    assert 'text_only_media_held' in warnings
+    batch['primary_ids']=['private-media-message']
+    with pytest.raises(ExtractionFailure):
+        prepare_reviewed_projection(batch,snapshot,approved,text_only=True)

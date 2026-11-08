@@ -708,8 +708,10 @@ class AnalysisQueue:
             active=c.execute("SELECT COUNT(*) FROM wechat_candidate WHERE batch_id=? AND status='needs_review' AND attention_level='action'",(job['batch_id'],)).fetchone()[0]
             c.execute('UPDATE wechat_batch SET status=? WHERE id=?',('needs_review' if active else 'archived',job['batch_id']))
             c.execute("UPDATE raw_review SET status=? WHERE raw_snapshot_id=? AND status IN ('pending','archived')",('pending' if active else 'archived',job['snapshot_id']))
-            c.execute("UPDATE wechat_message_state SET status='parsed',last_processed_at=? WHERE message_id IN (SELECT message_id FROM wechat_batch_message WHERE batch_id=? AND role='primary')",(stamp,job['batch_id']))
-            last=c.execute("SELECT m.id FROM wechat_message m JOIN wechat_batch_message bm ON bm.message_id=m.id WHERE bm.batch_id=? AND bm.role='primary' ORDER BY m.ingest_seq DESC LIMIT 1",(job['batch_id'],)).fetchone()
+            analyzed=parsed.get('_analyzed_message_ids',primary_message_ids(c,job['batch_id']))
+            for message_id in analyzed:
+                c.execute("UPDATE wechat_message_state SET status='parsed',last_processed_at=? WHERE message_id=? AND message_id IN (SELECT message_id FROM wechat_batch_message WHERE batch_id=? AND role='primary')",(stamp,message_id,job['batch_id']))
+            last=next((row for row in c.execute("SELECT m.id FROM wechat_message m JOIN wechat_batch_message bm ON bm.message_id=m.id WHERE bm.batch_id=? AND bm.role='primary' ORDER BY m.ingest_seq DESC",(job['batch_id'],)) if row[0] in analyzed),None)
             if last:
                 c.execute('UPDATE wechat_cursor SET last_processed_message=? WHERE chat_id=(SELECT chat_id FROM wechat_batch WHERE id=?)',(last[0],job['batch_id']))
 

@@ -174,3 +174,43 @@ def test_rebinding_a_logical_chat_cannot_reuse_an_old_content_grant(personal):
         connection.execute('UPDATE wechat_chat SET binding_json=?',(json.dumps({'account_scope':'another','internal_chat_id':'another@chatroom'}),))
     assert asyncio.run(service.analysis.run_one(job)) is False
     assert calls==[]
+
+
+@pytest.mark.parametrize('recover', [False, True])
+def test_mixed_batch_sends_only_text_and_never_marks_attachment_analyzed(personal,monkeypatch,recover):
+    text=ObservedMessage('请全体同学明天提交实验报告。',sender='老师',
+        source_time='2026-10-22T10:00:00+08:00',time_reliability='reliable')
+    media=ObservedMessage('private-attachment-secret',sender='老师',message_type='image',
+        source_time='2026-10-22T10:01:00+08:00',time_reliability='reliable')
+    service,_,calls=setup_service(personal,[Observation('test','unverified',(text,media),True,True)])
+    service.synthetic_content_grant=False
+    service.document.wechat.context_followup.enabled=False
+    asyncio.run(scan(service))
+    write_grant(personal,grant())
+    with personal.connection() as connection:
+        batches=connection.execute('SELECT id FROM wechat_batch').fetchall()
+        assert len(batches)==1
+        states={r['message_type']:(r['id'],r['status']) for r in connection.execute(
+            'SELECT m.id,m.message_type,s.status FROM wechat_message m JOIN wechat_message_state s ON s.message_id=m.id')}
+    job=service.analysis.enqueue(batches[0][0],service.context.read())
+    commit=service.analysis._commit
+    if recover:
+        def failed_commit(*args): raise OSError('synthetic storage failure')
+        monkeypatch.setattr(service.analysis,'_commit',failed_commit)
+    assert asyncio.run(service.analysis.run_one(job)) is (not recover)
+    if recover:
+        monkeypatch.setattr(service.analysis,'_commit',commit)
+        service.analysis.recover_responses(job_ids={job})
+    assert asyncio.run(service.analysis.run_one(job)) is False
+    assert len(calls)==1
+    payload=json.loads(calls[0]['messages'][-1]['content'].split('仅处理以下数据:\n',1)[1])
+    assert len(payload['messages'])==len(payload['blocks'])==1
+    assert payload['messages'][0]['message_type']=='text'
+    assert 'private-attachment-secret' not in json.dumps(calls)
+    with personal.connection() as connection:
+        assert connection.execute('SELECT status FROM wechat_analysis_job WHERE id=?',(job,)).fetchone()[0]=='parsed'
+        assert connection.execute('SELECT status FROM wechat_message_state WHERE message_id=?',(states['text'][0],)).fetchone()[0]=='parsed'
+        assert connection.execute('SELECT status FROM wechat_message_state WHERE message_id=?',(states['image'][0],)).fetchone()[0]==states['image'][1]
+        assert connection.execute('SELECT last_processed_message FROM wechat_cursor').fetchone()[0]==states['text'][0]
+        validation=json.loads(connection.execute('SELECT validation_json FROM ai_extraction').fetchone()[0])
+        assert any(w['code']=='text_only_media_held' for w in validation['warnings'])
