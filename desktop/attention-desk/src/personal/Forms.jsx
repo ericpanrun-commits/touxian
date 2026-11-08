@@ -15,8 +15,8 @@ export function Field({ label, help, error, name, children }) {
   );
 }
 
-export function SubmitButton({ busy, children }) {
-  return <button type="submit" className="button button-primary" disabled={busy} aria-busy={busy}>
+export function SubmitButton({ busy, disabled = false, children }) {
+  return <button type="submit" className="button button-primary" disabled={busy || disabled} aria-busy={busy}>
     {busy ? <LoaderCircle size={16} className="spin" /> : <Save size={16} />}<span>{children}</span>
   </button>;
 }

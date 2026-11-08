@@ -33,3 +33,7 @@ body.mobile-collector-page { min-width: 0; }
 .mobile-collector-page .personal-confirm-dialog .personal-form-actions { flex-wrap: wrap; }
 
 .mobile-collector :is(button, input, textarea, summary):focus-visible { outline: 2px solid var(--blue); outline-offset: 3px; }
+
+.notes-setup-steps { padding-inline-start: 22px; line-height: 1.8; }
+.notes-setup-steps li + li { margin-top: 14px; }
+.notes-setup-copy { margin-block: 20px; }

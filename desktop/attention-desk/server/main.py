@@ -41,6 +41,7 @@ try:
     from .reminders.service import ReminderService
     from .official_api import router as official_router
     from .notifications.api import router as notification_router
+    from .engineering_portfolio import Portfolio, router as portfolio_router
 except ImportError:  # pragma: no cover - direct module execution fallback
     import mail_digest
     import profile_store as PROFILE
@@ -65,6 +66,7 @@ except ImportError:  # pragma: no cover - direct module execution fallback
     from server.reminders.service import ReminderService
     from server.official_api import router as official_router
     from server.notifications.api import router as notification_router
+    from server.engineering_portfolio import Portfolio, router as portfolio_router
 
 
 APP_ROOT = Path(__file__).resolve().parents[1]
@@ -108,6 +110,7 @@ async def application_lifespan(application: FastAPI):
     personal_store = PersonalStore(default_database_path())
     personal_store.initialize()
     application.state.personal_store = personal_store
+    application.state.engineering_portfolio = Portfolio()
     extraction = ExtractionService(personal_store, AISettings(personal_store.path.with_name("ai-settings.json")))
     extraction.recover_interrupted()
     application.state.extraction_service = extraction
@@ -142,6 +145,7 @@ app.include_router(planning_router)
 app.include_router(reminder_router)
 app.include_router(official_router)
 app.include_router(notification_router)
+app.include_router(portfolio_router)
 app.add_middleware(UploadBodyLimit)
 app.add_middleware(
     CORSMiddleware,

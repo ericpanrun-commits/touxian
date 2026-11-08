@@ -165,7 +165,7 @@ export default function ExtractionWorkspace({ mode, snapshotId, intent, onNaviga
       analyze();
     }
   }, [bundle, intent, mode]);
-  const showEditor = bundle?.status === 'pending' && !pending(bundle) && !documentsPending && !filesUnparsed && (manual || bundle.extraction || bundle.draft);
+  const showEditor = bundle?.status === 'pending' && !bundle?.snapshot.latest_wechat_snapshot_id && !pending(bundle) && !documentsPending && !filesUnparsed && (manual || bundle.extraction || bundle.draft);
   return <>
     {error ? <div className="error-banner personal-error" role="alert"><span>{error}</span><button type="button" className="button button-quiet" disabled={busy} onClick={() => onNavigate(mode, snapshotId)}>重新读取已保存内容</button></div> : null}
     <div className="personal-feedback" role="status" aria-live="polite">{notice}</div>
@@ -184,8 +184,9 @@ export default function ExtractionWorkspace({ mode, snapshotId, intent, onNaviga
       <AISettingsForm key={editorVersion} configuration={configuration} busy={busy} onDirtyChange={reportDirty} onSave={saveSettings} onCancel={() => onNavigate(snapshotId ? 'review' : 'list', snapshotId)} />
     </section> : null}
     {mode === 'review' && bundle ? <>
-      <section className="personal-section"><h1 ref={headingRef} tabIndex={-1}>AI 提取结果预览</h1><p className="personal-intro">原文已保存。未经你的确认，不创建正式事项、截止时间或任务。</p>
+      <section className="personal-section"><h1 ref={headingRef} tabIndex={-1}>{bundle.snapshot.wechat ? '核对微信通知' : 'AI 提取结果预览'}</h1><p className="personal-intro">原文已保存。未经你的确认，不创建正式事项、截止时间或任务。</p>
         {bundle.snapshot.latest_document_snapshot_id ? <p className="personal-meta">这条通知已有解析后的新原文版本。<button type="button" className="personal-text-button" disabled={busy} onClick={() => onNavigate('review', bundle.snapshot.latest_document_snapshot_id, 'manual')}>打开已解析原文</button></p> : null}
+        {bundle.snapshot.latest_wechat_snapshot_id ? <p className="planning-source-update">附件或识别内容已补充到新版本。<button type="button" className="personal-text-button" disabled={busy} onClick={() => onNavigate('review', bundle.snapshot.latest_wechat_snapshot_id, 'manual')}>核对最新微信原文</button></p> : null}
         {bundle.status === 'confirmed' ? <><p>这条原文已经确认。</p>{bundle.confirmed_event_ids?.map(id => <button key={id} type="button" className="button button-quiet" onClick={() => onNavigate('detail', id)}>查看正式事项</button>)}</> : bundle.status === 'cancelled' ? <><p>整理已取消，原文和分析记录保留。</p><button type="button" className="button button-primary" disabled={busy} onClick={() => run(async () => { setBundle(await personalRequest(`/raw/${snapshotId}/resume`, { method: 'POST', body: { expected_version: bundle.version } })); setManual(true); })}>继续整理</button></> : <>
           {pending(bundle) ? <p className="personal-loading" role="status"><LoaderCircle size={19} className="spin" />DeepSeek 正在分析，候选结果尚未就绪…</p> : null}
           <AnalysisProgress extraction={bundle.extraction} busy={busy} onCancel={cancelAnalysis} />
@@ -200,7 +201,7 @@ export default function ExtractionWorkspace({ mode, snapshotId, intent, onNaviga
             onSave={fields => setDialog({ title: '应用来源日期变更？', message: `${sourceUpdateTarget.event.title} / ${sourceUpdateTarget.deadline.label}：${sourceUpdateTarget.deadline.value.replace('T', ' ')} → ${fields.value.replace('T', ' ')}${fields.end_value ? ` — ${fields.end_value}` : ''}。将更新同一时间节点，重算未来提醒并更新日历；历史和旧来源保留。`, confirmLabel: '确认更新日期', action: () => run(async () => {
               const saved = await personalRequest(`/events/${sourceUpdateTarget.event.id}/deadlines/${sourceUpdateTarget.deadline.id}/source-update`, { method: 'POST', body: { ...fields, expected_version: sourceUpdateTarget.event.version, source_snapshot_id: bundle.snapshot.id, acknowledged_source_change: true } }); reportDirty(false); onCreated([saved], { sourceUpdated: true });
             }) })} />
-          {showEditor && !sourceUpdateTarget ? <ReviewEditor key={`${bundle.extraction_id || 'manual'}-${editorVersion}`} bundle={bundle} busy={busy} onDirtyChange={reportDirty} onView={setSelectedEvidence} onCancel={cancel}
+          {showEditor && !sourceUpdateTarget ? <ReviewEditor key={`${bundle.extraction_id || 'manual'}-${editorVersion}`} bundle={bundle} candidateId={intent?.candidateId} busy={busy} onDirtyChange={reportDirty} onView={setSelectedEvidence} onCancel={cancel}
             onSaveDraft={draft => run(async () => { setBundle(await personalRequest(`/raw/${snapshotId}/draft`, { method: 'PUT', body: { expected_version: bundle.version, draft } })); reportDirty(false); setNotice('预览草稿已保存，尚未创建正式事项。'); })}
             onConfirm={payload => run(async () => { const saved = await personalRequest(`/raw/${snapshotId}/confirm`, { method: 'POST', body: payload }); reportDirty(false); onCreated(saved.events); })} /> : null}
         </>}

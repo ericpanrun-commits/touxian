@@ -9,6 +9,7 @@ import { officialTime } from './officialHelpers';
 import usePersonalResource from './usePersonalResource';
 import { BARK_STATUS, DELIVERY_STATUS, barkReason, validQuietTime } from './barkHelpers';
 import WorkerStatus from './WorkerStatus';
+import WeChatBarkSettings from './WeChatBarkSettings';
 
 const RULES = [['critical', '紧急通知'], ['high_relevant', '重要且高相关'], ['vehicle_direct', '车辆工程直接相关'],
   ['college_grade', '学院要求 2026 级执行'], ['academic_core', '核心教务事项']];
@@ -43,7 +44,7 @@ function NotificationHistory({ resource, page, setPage, busy }) {
   </section>;
 }
 
-export default function BarkSettings({ onDirtyChange, onBusyChange }) {
+function OfficialBarkSettings({ onDirtyChange, onBusyChange }) {
   const resource = usePersonalResource('/notifications/bark/settings');
   const [page, setPage] = useState(0);
   const history = usePersonalResource(`/notifications/bark/history?limit=20&offset=${page * 20}`);
@@ -81,4 +82,8 @@ export default function BarkSettings({ onDirtyChange, onBusyChange }) {
     </> : null}</section><WorkerStatus /><NotificationHistory resource={history} page={page} setPage={setPage} busy={busy} />
     {reloadDialog ? <ConfirmDialog title="读取已保存的手机通知设置？" description="当前未保存的输入将被替换，通知历史保留。" confirmLabel="读取已保存设置" onCancel={() => setReloadDialog(false)} onConfirm={() => { setReloadDialog(false); reload(); }} /> : null}
   </>;
+}
+
+export default function BarkSettings(props) {
+  return <><WeChatBarkSettings {...props} /><details className="personal-section desk-disclosure"><summary>学校官网通知与云端推送</summary><OfficialBarkSettings {...props} /></details></>;
 }
