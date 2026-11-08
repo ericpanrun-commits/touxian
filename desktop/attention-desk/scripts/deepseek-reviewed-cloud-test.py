@@ -29,7 +29,7 @@ from server.cloud_sync.wechat_dispatch_authority import DispatchAuthority,Dispat
 from server.cloud_sync.wechat_dispatch_transport import DispatchTransport
 from server.cloud_sync.wechat_file_lease import immutable_evidence
 from server.cloud_sync.wechat_incremental_journal import WeChatIncrementalJournal,freeze_bundle
-from server.cloud_sync.wechat_prepared_connection import PreparedBackend
+from server.cloud_sync.wechat_prepared_proxy import PreparedLocalProxyBackend
 from server.wechat_collect.deepseek_content_gate import read_grant,FILENAME
 
 APPROVAL_RECORD='call_352b35dc67624000ad6e1472ec5cdd82'
@@ -42,6 +42,9 @@ EPOCH='a4730c33-b6d2-4e29-a151-419971858135'
 MANIFEST=ROOT/'patches/deepseek-cloud-api-v23-candidate-20261108.json'
 OWNER_RECEIPT=ROOT/'artifacts/p0-20261104/limited-upload/execution-receipt.json'
 PROOF=ROOT/'artifacts/deepseek-cloud-20261108/deployment-proof.json'
+# The machine's existing HTTP(S) proxy, verified locally without credentials.
+# This is a TLS tunnel to ENDPOINT, not a plaintext alternate destination.
+LOCAL_PROXY='http://127.0.0.1:7897'
 
 
 def now():return datetime.now(timezone.utc)
@@ -55,7 +58,7 @@ def implementation_hash():
     # Collector or official-site modules to this one-notice test.
     names=['cloud_sync/'+name+'.py' for name in ('deepseek_preview','deepseek_dispatch','deepseek_cloud_evidence',
         'wechat_incremental_journal','wechat_outbound_validation','wechat_dispatch_authority',
-        'wechat_dispatch_transport','wechat_prepared_connection','wechat_file_lease','minimization','minimized_projection','settings')]
+        'wechat_dispatch_transport','wechat_prepared_connection','wechat_prepared_proxy','wechat_file_lease','minimization','minimized_projection','settings')]
     names += ['wechat_collect/'+name+'.py' for name in ('deepseek_content_gate','deepseek_projection','analysis','models','json_output','config')]
     names += ['source_metadata.py','user_context.py','personal_store.py']
     hashes={name:digest((ROOT/'server'/name).read_bytes()) for name in names}
@@ -174,7 +177,7 @@ async def run(directory,*,execute=False,approval_record=None,revoke=False,discon
             def current(candidate):
                 verify_proof(proof,json.loads(MANIFEST.read_bytes()),json.loads(OWNER_RECEIPT.read_bytes()),now())
                 return candidate==grant
-            backend=PreparedBackend('https://mantuehuzptactymjpqg.supabase.co')
+            backend=PreparedLocalProxyBackend('https://mantuehuzptactymjpqg.supabase.co',LOCAL_PROXY)
             transport=DispatchTransport(DisconnectAfterSend(backend) if disconnect_after_send else backend)
             # Keep the ordinary upload hold leased for this bounded process.
             # Source DB locks are still acquired only around final byte handoff.

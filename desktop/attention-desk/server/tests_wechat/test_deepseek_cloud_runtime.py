@@ -23,7 +23,7 @@ def runtime(bound,monkeypatch,tmp_path):
         'WORKSPACE':grant.workspace_id,'PROCESSOR':grant.processor_id,'EPOCH':grant.epoch}.items():
         monkeypatch.setattr(module,key,value)
     monkeypatch.setattr(module,'now',lambda:s['clock'][0])
-    monkeypatch.setattr(module,'PreparedBackend',lambda origin:s['backend'])
+    monkeypatch.setattr(module,'PreparedLocalProxyBackend',lambda origin,proxy:s['backend'])
     monkeypatch.setattr(module,'ReviewedLocalEvidence',lambda directory,path,**kwargs:ReviewedLocalEvidence(
         directory,path,**kwargs,settings=WorkerSettings(directory/'cloud-worker-settings.json',protector=lambda value,**_:value)))
     owner=tmp_path/'owner-receipt.json'
