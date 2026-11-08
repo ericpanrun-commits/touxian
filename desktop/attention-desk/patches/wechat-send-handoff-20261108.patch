@@ -1,0 +1,736 @@
+--- a/server/cloud_sync/wechat_incremental_sender.py
++++ b/server/cloud_sync/wechat_incremental_sender.py
+@@ -6,7 +6,7 @@
+ from __future__ import annotations
+ 
+ import asyncio
+-from contextlib import ExitStack
++from contextlib import ExitStack, contextmanager
+ from dataclasses import dataclass
+ from datetime import datetime, timezone
+ import hashlib
+@@ -19,6 +19,7 @@
+ import httpx
+ 
+ from .settings import ENDPOINT
++from .wechat_dispatch_authority import DispatchDenied
+ from .minimization import redaction_scope_hash
+ from .wechat_incremental_journal import JournalError, SourceSnapshotUnavailable, freeze_bundle, reconciliation_proof, reconciliation_request
+ from .wechat_incremental_preview import PreviewScope, instant
+@@ -103,8 +104,42 @@
+         self.implementation_still_current=implementation_still_current
+         self.safety_validation_still_current=safety_validation_still_current
+         self.rebuild,self.clock=rebuild,clock
++        self.dispatch_transport = None
++        self.dispatch_authority = None
++        self.dispatch_snapshot = None
++
++    async def _post_guarded(self, consent, url, body, config, *, meta=None,
++                            grant_id=None, binding=None, validate=None):
++        if self.dispatch_transport is None or self.dispatch_authority is None or self.dispatch_snapshot is None:
++            raise DispatchDenied('dispatch_authority_required')
++        @contextmanager
++        def snapshot():
++            with self.dispatch_snapshot(consent, meta) as fresh:
++                if meta is not None:
++                    if fresh is None or freeze_bundle(fresh, consent.scope_id()) != meta:
++                        raise DispatchDenied('content_changed')
++                    expected = {**body, 'records': fresh['records']}
++                else:
++                    expected = body
++                yield httpx.Request('POST', url, json=expected).content
++        def current():
++            at=instant(self.clock())
++            return (not self._quiet(at) and self._worker_lock_current()
++                    and self._connection(consent)==config
++                    and (validate() if validate is not None else
++                         (instant(consent.scope.not_before)<=at<instant(consent.expires_at)
++                          and self._current_proofs(consent)
++                          and pending_reconciliation_stop(self.journal,consent.approval_id) is None)))
++        return await self.dispatch_transport.post(self.client,url,
++            authority=self.dispatch_authority,identity=grant_id or consent.approval_id,
++            binding=binding or consent.scope_id(),snapshot=snapshot,validate=current,
++            headers={'X-Eric-Worker-Key':config['worker_key']},json=body,follow_redirects=False)
++
+ 
+     def _verified(self,consent):
++        return self._current_proofs(consent)
++
++    def _current_proofs(self,consent):
+         # Permission to upload does not certify that a screening rule preserves
+         # privacy and meaning. A separately verified, current safety result is
+         # mandatory, and must be checked again immediately before transmission.
+@@ -238,8 +273,9 @@
+         body={'raw_id':meta['raw_id'],'snapshot_id':meta['snapshot_id'],'source_id':meta['source_id'],
+               'records':bundle['records'],'epoch':epoch,'generation':generation}
+         try:
+-            response=await self.client.post(ENDPOINT+'/worker/wechat-publish',
+-                headers={'X-Eric-Worker-Key':config['worker_key']},json=body,follow_redirects=False)
++            response=await self._post_guarded(consent,ENDPOINT+'/worker/wechat-publish',body,config,meta=meta)
++        except DispatchDenied as error:
++            return {'state':str(error)}
+         except httpx.TransportError:
+             return {'state':'retry_pending'}
+         try:value=response.json()
+@@ -314,8 +350,9 @@
+         if not self._worker_lock_current():return {'state':'record_guard_unavailable'}
+         body=reconciliation_request(entry);expected=reconciliation_proof(entry)
+         try:
+-            response=await self.client.post(ENDPOINT+'/worker/wechat-reconcile',
+-                headers={'X-Eric-Worker-Key':config['worker_key']},json=body,follow_redirects=False)
++            response=await self._post_guarded(consent,ENDPOINT+'/worker/wechat-reconcile',body,config)
++        except DispatchDenied as error:
++            return {'state':str(error)}
+         except httpx.TransportError:return {'state':'retry_pending'}
+         try:value=response.json()
+         except ValueError:value={}
+--- a/server/cloud_sync/wechat_stopped_reconciliation.py
++++ b/server/cloud_sync/wechat_stopped_reconciliation.py
+@@ -148,8 +148,9 @@
+                 body=reconciliation_request(entry)
+                 if reconciliation_proof(entry)!=grant.request_sha256:return {'state':'grant_consumed_without_request'}
+                 try:
+-                    response=await sender.client.post(ENDPOINT+'/worker/wechat-reconcile',
+-                        headers={'X-Eric-Worker-Key':config['worker_key']},json=body,timeout=10,follow_redirects=False)
++                    response=await sender._post_guarded(consent,ENDPOINT+'/worker/wechat-reconcile',body,config,
++                        grant_id=grant.grant_id,binding=grant.approval_binding(),
++                        validate=lambda:ready()[0] is None)
+                 except httpx.TransportError:
+                     return {'state':'retry_requires_separate_approval'}
+                 except Exception:
+--- a/server/cloud_sync/wechat_record_guard.py
++++ b/server/cloud_sync/wechat_record_guard.py
+@@ -12,6 +12,7 @@
+ from pathlib import Path
+ import re
+ import threading
++import sqlite3
+ from uuid import UUID, uuid4
+ 
+ from ..cloud_store import ProcessLock
+@@ -219,10 +220,16 @@
+                     return {"state":"approval_not_current"}
+                 if old and old["state"]=="revoked":
+                     return {"state":"already_revoked"}
++                authority_path=self.root.parent/'dispatch-authority.sqlite'
++                if authority_path.exists():
++                    from .wechat_dispatch_authority import DispatchAuthority
++                    # Shared authority orders stop against actual handoff. A
++                    # busy/failed transaction must not report successful stop.
++                    DispatchAuthority(authority_path).revoke(approval_id)
+                 if not old or old["state"]=="resumed":
+                     self._write_revocation({"version":1,"approval_id":approval_id,"state":"requested"})
+                 return {"state":"revocation_requested"}
+-        except (OSError,RecordGuardUnavailable):
++        except (OSError,RecordGuardUnavailable,RuntimeError,sqlite3.Error):
+             return {"state":"revocation_request_not_recorded"}
+ 
+     def finalize_revocation(self,revoke_current):
+--- a/server/tests_wechat/test_wechat_incremental_sender.py
++++ b/server/tests_wechat/test_wechat_incremental_sender.py
+@@ -4,6 +4,7 @@
+ from contextvars import copy_context
+ from dataclasses import replace
+ from datetime import datetime, timedelta, timezone
++from server.tests_wechat.dispatch_fixture import changed_consent
+ import hashlib
+ import json
+ from pathlib import Path
+@@ -77,10 +78,17 @@
+         return httpx.Response(200,json={'state':'already_published'} if existing else {'state':'published','revision':17})
+     client=httpx.AsyncClient(transport=httpx.MockTransport(handle))
+     lock=ProcessLock(tmp_path);lock.acquire();journal=WeChatIncrementalJournal(tmp_path/'wechat-incremental-journal.json',lock)
+-    current=[bundle]
++    from server.tests_wechat.dispatch_fixture import PersistentMap
++    source_path=tmp_path/'synthetic-state.sqlite'
++    current=PersistentMap(source_path,'content',{'0':bundle})
++    enabled=PersistentMap(source_path,'enabled',enabled)
++    flags=PersistentMap(source_path,'flags',flags)
++    config=PersistentMap(source_path,'config',config)
+     sender=ScopedWeChatSender(journal,client,settings,lambda:dict(flags),lambda _:enabled['authorization'],
+         lambda _:enabled['scope'],lambda _:enabled['implementation'],lambda _:enabled['safety'],
+         lambda *_:copy.deepcopy(current[0]),lambda:at[0])
++    from server.tests_wechat.dispatch_fixture import install
++    authority=install(sender,consent,personal=SimpleNamespace(path=source_path))
+     guard=CooperativeRecordGuard(tmp_path/'wechat-record-locks',journal)
+     raw=bundle['raw_item_ids'][0]
+     def send(approval=consent):
+@@ -272,7 +280,7 @@
+ 
+ 
+ def test_each_15_minute_cycle_and_daily_limit_bound_retries(rig):
+-    limited=replace(rig.consent,daily_limit=3,cycle_limit=1)
++    limited=changed_consent(rig.sender,rig.consent,daily_limit=3,cycle_limit=1)
+     rig.state['mode']='offline'
+     assert rig.send(limited)['state']=='retry_pending'
+     rig.at[0]+=timedelta(seconds=31)
+--- a/server/tests_wechat/test_wechat_incremental_recovery.py
++++ b/server/tests_wechat/test_wechat_incremental_recovery.py
+@@ -2,6 +2,7 @@
+ import asyncio
+ from dataclasses import replace
+ from datetime import datetime, timedelta, timezone
++from server.tests_wechat.dispatch_fixture import changed_consent
+ import hashlib
+ import json
+ from types import SimpleNamespace
+@@ -61,6 +62,10 @@
+         return httpx.Response(200,json={'state':'published','revision':len(state['records'])})
+     client=httpx.AsyncClient(transport=httpx.MockTransport(handle))
+     directory=tmp_path/'isolated-sync';directory.mkdir()
++    from server.tests_wechat.dispatch_fixture import PersistentMap
++    config=PersistentMap(personal.path,'config',config)
++    flags=PersistentMap(personal.path,'flags',flags)
++    allowed=PersistentMap(personal.path,'allowed',allowed)
+     settings=SimpleNamespace(read=lambda:dict(config))
+     owner=CloudSync(personal,None,None,None,settings,cache=directory,client=client)
+     owner.workspace=WORKSPACE;owner.config=dict(config);owner.epoch=EPOCH;owner.state['connected']=True
+@@ -72,6 +77,8 @@
+     recovery=WeChatIncrementalRecovery(personal,journal,sender,lambda:service.document,
+         lambda:service.context.read().model_dump(),lambda:clock[0],owner.lock,record_guard=record_guard,session_owner=owner)
+     sender.rebuild=recovery.rebuild
++    from server.tests_wechat.dispatch_fixture import install
++    authority=install(sender,consent,personal=personal)
+     original=run_preview(personal,service,scope)['selections'][0]
+     old_bundle=recovery.rebuild(scope,original['raw_item_id'])
+     def start(approval=consent):
+@@ -449,7 +456,7 @@
+ 
+ 
+ def test_cycle_limit_and_restart_keep_successor_queued_until_next_cycle(personal,recovery_rig):
+-    rig=recovery_rig;limited=replace(rig.consent,cycle_limit=2)
++    rig=recovery_rig;limited=changed_consent(rig.sender,rig.consent,cycle_limit=2)
+     assert rig.start(limited)['state']=='retry_pending'
+     synthetic_followup(personal,rig.service,rig.shards);rig.clock[0]+=timedelta(seconds=31);rig.state['mode']='ok'
+     assert rig.resume(limited)['state']=='cycle_limit_reached'
+--- a/server/tests_wechat/test_stopped_reconciliation_once.py
++++ b/server/tests_wechat/test_stopped_reconciliation_once.py
+@@ -6,6 +6,7 @@
+ from pathlib import Path
+ import subprocess
+ from uuid import uuid4
++from server.tests_wechat.dispatch_fixture import issue
+ 
+ import httpx
+ import pytest
+@@ -41,6 +42,9 @@
+     grant=StoppedReconciliationGrant(str(uuid4()),rig.consent.approval_id,rig.consent.workspace_id,
+         rig.consent.processor_id,rig.consent.scope_id(),preview['request_sha256'],preview['previous_reconciliations'],
+         rig.clock[0],rig.clock[0]+timedelta(minutes=30),'d'*64,'e'*64)
++    from server.cloud_sync.wechat_dispatch_authority import Grant
++    descriptor=Grant(grant.grant_id,grant.approval_binding(),grant.expires_at.timestamp(),True)
++    rig.sender.dispatch_authority.import_verified(descriptor,lambda value:value==descriptor)
+     return rig,recovery,grant
+ 
+ 
+@@ -121,6 +125,7 @@
+     rig.clock[0]+=timedelta(seconds=31)
+     second=replace(grant,grant_id=str(uuid4()),previous_reconciliations=1,
+                    approved_at=rig.clock[0],expires_at=rig.clock[0]+timedelta(minutes=30))
++    issue(rig.sender,second)
+     assert call(recovery,rig,second,**approved(second))['state']=='fenced_still_stopped'
+     assert rig.state['reconciles']==2 and rig.state['publishes']==1 and not rig.state['records']
+ 
+@@ -174,6 +179,7 @@
+         rig.clock[0]+=timedelta(seconds=31)
+         second=replace(grant,grant_id=str(uuid4()),previous_reconciliations=1,
+                        approved_at=rig.clock[0],expires_at=rig.clock[0]+timedelta(minutes=30))
++        issue(rig.sender,second)
+         assert call(recovery,rig,second,**approved(second))['state']=='fenced_still_stopped'
+         assert guard._read_revocation()['state']=='revoked'
+         assert rig.state['reconciles']==2 and rig.state['publishes']==1 and not rig.state['records']
+@@ -334,6 +340,7 @@
+     assert len(selected)==1 and selected[0]['raw_item_id']!=old_raw
+     before=snapshot(rig.personal)
+     rig.allowed['active']=True  # Synthetic new approval, not a real authorization.
++    issue(rig.sender,consent)
+     result=asyncio.run(recovery.send_new(consent,selected[0]['raw_item_id'],chat_id='g0',generation=2))
+     assert result['state']=='acknowledged' and snapshot(rig.personal)==before
+     assert ('raw_item',old_raw) not in rig.state['records']
+@@ -373,6 +380,7 @@
+     assert len(phase2)==4 and set(groups.values())=={'g1','g2','g3','g4'}
+     before=snapshot(rig.personal)
+     rig.allowed['active']=True
++    issue(rig.sender,phase2_consent)
+     for row in phase2:
+         group=groups[row['raw_item_id']]
+         assert asyncio.run(recovery.send_new(phase2_consent,row['raw_item_id'],chat_id=group,generation=2))['state']=='acknowledged'
+--- a/server/tests_wechat/test_cooperative_record_guard.py
++++ b/server/tests_wechat/test_cooperative_record_guard.py
+@@ -421,6 +421,8 @@
+         chat_id="g0",epoch=EPOCH,generation=1))["state"]=="approval_changed"
+     assert guard.request_revocation(old)["state"]=="approval_not_current"
+     new_consent=replace(rig.consent,approval_id=new)
++    from server.tests_wechat.dispatch_fixture import issue
++    issue(rig.sender,new_consent)
+     assert asyncio.run(send_with_record_guard(rig.sender,guard,new_consent,rig.raw,
+         chat_id="g0",epoch=EPOCH,generation=1))["state"]=="acknowledged"
+     assert guard.request_revocation(new)["state"]=="revocation_requested"
+@@ -446,16 +448,21 @@
+ def test_cancelled_inflight_send_preserves_unknown_state(rig,guard):
+     async def scenario():
+         accepted=asyncio.Event()
+-        async def handler(request):
+-            accepted.set()
+-            await asyncio.Event().wait()
+-        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+-            rig.sender.client=client
+-            task=asyncio.create_task(send_with_record_guard(rig.sender,guard,rig.consent,rig.raw,chat_id="g0",epoch=EPOCH,generation=1))
+-            await asyncio.wait_for(accepted.wait(),timeout=2)
+-            task.cancel()
+-            with pytest.raises(asyncio.CancelledError):
+-                await task
++        backend=rig.sender.dispatch_transport.backend
++        original=backend.prepare
++        async def prepare(url):
++            connection=await original(url)
++            async def response():
++                accepted.set()
++                await asyncio.Event().wait()
++            connection.response=response
++            return connection
++        backend.prepare=prepare
++        task=asyncio.create_task(send_with_record_guard(rig.sender,guard,rig.consent,rig.raw,chat_id="g0",epoch=EPOCH,generation=1))
++        await asyncio.wait_for(accepted.wait(),timeout=2)
++        task.cancel()
++        with pytest.raises(asyncio.CancelledError):
++            await task
+     asyncio.run(scenario())
+     with pytest.raises(RecordGuardUnavailable,match="delivery_reconciliation_required"):
+         with guard.editing(rig.raw):
+--- /dev/null
++++ b/server/cloud_sync/wechat_dispatch_snapshot.py
+@@ -0,0 +1,70 @@
++"""Frozen file and SQLite inputs for the existing incremental recovery builder.
++
++Only explicitly persisted context is accepted. Missing files fail closed; this
++does not create a profile, change Collector, or enable any sender.
++"""
++from contextlib import ExitStack, contextmanager
++import json
++import os
++from pathlib import Path
++import time
++
++import yaml
++
++from ..user_context import UserContext
++from ..wechat_collect.config import SettingsDocument
++from .wechat_dispatch_authority import DispatchDenied, locked_source
++from .wechat_file_lease import immutable_evidence
++from .wechat_incremental_preview import preview, prepare_scope, instant
++from .wechat_incremental_recovery import _ReadSnapshotStore
++
++
++class FrozenRecoverySnapshot:
++    def __init__(self, recovery):
++        self.recovery = recovery
++
++    @contextmanager
++    def __call__(self, consent, meta):
++        recovery = self.recovery
++        directory = recovery.personal.path.parent
++        worker_path = Path(recovery.sender.settings.path).resolve()
++        control_path = Path(os.environ.get('ATTENTION_RECOVERY_CONTROL_PATH')
++                            or directory / 'recovery-controls.json').resolve()
++        with ExitStack() as stack:
++            # These leases deny both direct writes and atomic file replacement,
++            # including writers that do not participate in Python-level locks.
++            document_bytes = stack.enter_context(immutable_evidence((directory/'wechat.yaml').resolve(), max_bytes=65536))
++            context_bytes = stack.enter_context(immutable_evidence((directory/'user-context.json').resolve(), max_bytes=65536))
++            stack.enter_context(immutable_evidence(worker_path))
++            control_bytes = stack.enter_context(immutable_evidence(control_path))
++            document = SettingsDocument.model_validate(yaml.safe_load(document_bytes))
++            context = UserContext.model_validate_json(context_bytes).model_dump()
++            controls = json.loads(control_bytes)
++            if (controls.get('version') != 1 or controls.get('hold_cloud_uploads') is not True
++                    or controls.get('pause_paid_ai') is not True):
++                raise DispatchDenied('controls_changed')
++            # The cached document may lag a disk update; don't use stale cache
++            # or modify it while protecting a send. Build from leased bytes.
++            if recovery.document_read() != document or recovery.context_read() != context:
++                raise DispatchDenied('context_cache_changed')
++            deadline = time.monotonic() + 0.5
++
++            def build(connection):
++                connection.set_progress_handler(lambda: int(time.monotonic() >= deadline), 1000)
++                scope = prepare_scope(connection, document, not_before=consent.scope.not_before,
++                                      phase_chat_ids=consent.scope.phase_chat_ids, context=context)
++                if scope != consent.scope:
++                    raise DispatchDenied('scope_changed')
++                if meta is None:
++                    return None  # metadata reconciliation does not resend text
++                result = preview(connection, document, scope, now=instant(recovery.clock()), context=context,
++                                 tracked=recovery.journal.tracked_messages())
++                matches = [row for row in result['selections'] if row['raw_item_id'] == meta['raw_id']]
++                if len(matches) != 1:
++                    raise DispatchDenied('content_changed')
++                return recovery._bundle(matches[0], scope, _ReadSnapshotStore(connection), document)
++
++            with locked_source(recovery.personal.path, build) as bundle:
++                if time.monotonic() >= deadline:
++                    raise DispatchDenied('snapshot_deadline')
++                yield bundle
+--- /dev/null
++++ b/server/tests_wechat/dispatch_fixture.py
+@@ -0,0 +1,82 @@
++"""Synthetic transport wiring; never accepts a real network backend."""
++from contextlib import contextmanager
++import httpx
++import json
++import sqlite3
++from collections.abc import MutableMapping
++from types import SimpleNamespace
++from server.cloud_sync.wechat_dispatch_authority import DispatchAuthority, Grant, locked_source
++from server.cloud_sync.wechat_dispatch_transport import DispatchTransport
++
++class MockConnection:
++    def __init__(self, transport): self.transport=transport
++    def accept(self, request): self.result=self.transport.handle_request(request)
++    async def response(self): return self.result
++    async def aclose(self): pass
++
++class MockBackend:
++    def __init__(self, transport):
++        assert type(transport) is httpx.MockTransport
++        self.transport=transport
++    async def prepare(self, url): return MockConnection(self.transport)
++    async def aclose(self): pass
++
++
++def install(sender, consent, *, personal=None):
++    authority=DispatchAuthority(sender.journal.path.parent/'dispatch-authority.sqlite',
++        clock=lambda:sender.clock().timestamp())
++    authority.initialize()
++    descriptor=Grant(consent.approval_id,consent.scope_id(),consent.expires_at.timestamp(),False)
++    authority.import_verified(descriptor,lambda value:value==descriptor)
++    sender.dispatch_authority=authority
++    sender.dispatch_transport=DispatchTransport(MockBackend(sender.client._transport))
++    sender.client._transport=sender.dispatch_transport
++    @contextmanager
++    def snapshot(approval, meta):
++        def build(_=None):
++            return sender.rebuild(approval.scope,meta['raw_id']) if meta is not None else None
++        if personal is None:
++            yield build()
++        else:
++            with locked_source(personal.path,build) as bundle: yield bundle
++    sender.dispatch_snapshot=snapshot
++    return authority
++
++
++class PersistentMap(MutableMapping):
++    """Fixture state with real SQLite writer exclusion, not a cooperating lock."""
++    def __init__(self,path,name,initial):
++        self.path,self.name=path,name
++        with sqlite3.connect(path) as db:
++            db.execute('CREATE TABLE IF NOT EXISTS synthetic_dispatch_state(name TEXT PRIMARY KEY, value TEXT)')
++            db.execute('INSERT INTO synthetic_dispatch_state VALUES (?,?)',(name,json.dumps(initial)))
++    def _read(self):
++        with sqlite3.connect(self.path) as db:
++            return json.loads(db.execute('SELECT value FROM synthetic_dispatch_state WHERE name=?',(self.name,)).fetchone()[0])
++    def __getitem__(self,key):return self._read()[str(key)]
++    def __iter__(self):return iter(self._read())
++    def __len__(self):return len(self._read())
++    def __setitem__(self,key,value):
++        with sqlite3.connect(self.path,timeout=0.1) as db:
++            db.execute('BEGIN IMMEDIATE')
++            current=json.loads(db.execute('SELECT value FROM synthetic_dispatch_state WHERE name=?',(self.name,)).fetchone()[0])
++            current[str(key)]=value
++            db.execute('UPDATE synthetic_dispatch_state SET value=? WHERE name=?',(json.dumps(current),self.name))
++    def __delitem__(self,key):raise NotImplementedError
++
++
++def issue(sender, consent):
++    # Explicit synthetic independent approval for a new identity/binding.
++    if hasattr(consent,'grant_id'):
++        descriptor=Grant(consent.grant_id,consent.approval_binding(),consent.expires_at.timestamp(),True)
++    else:
++        descriptor=Grant(consent.approval_id,consent.scope_id(),consent.expires_at.timestamp(),False)
++    sender.dispatch_authority.import_verified(descriptor,lambda value:value==descriptor)
++
++
++def changed_consent(sender, consent, **changes):
++    from dataclasses import replace
++    from uuid import uuid4
++    updated=replace(consent,approval_id=str(uuid4()),**changes)
++    issue(sender,updated)
++    return updated
+--- /dev/null
++++ b/server/tests_wechat/test_dispatch_boundary.py
+@@ -0,0 +1,100 @@
++"""Adversarial tests at connection preparation and actual handoff boundaries."""
++import asyncio
++import sqlite3
++import pytest
++from server.tests_wechat.test_wechat_incremental_sender import rig
++from server.tests_wechat.test_stopped_reconciliation_once import stopped, call, approved
++from server.tests_wechat.test_wechat_incremental_recovery import recovery_rig
++from server.tests_wechat.test_wechat_incremental_preview import five
++
++
++def test_revoke_during_connection_preparation_prevents_actual_request(rig):
++    backend=rig.sender.dispatch_transport.backend
++    original=backend.prepare
++    async def prepare(url):
++        rig.authority.revoke(rig.consent.approval_id)
++        return await original(url)
++    backend.prepare=prepare
++    assert rig.send()['state']=='grant_not_current'
++    assert rig.state['calls']==0
++
++
++def test_stop_api_during_connection_preparation_prevents_actual_request(rig):
++    backend=rig.sender.dispatch_transport.backend
++    original=backend.prepare
++    async def prepare(url):
++        assert rig.guard.request_revocation(rig.consent.approval_id)['state']=='revocation_requested'
++        return await original(url)
++    backend.prepare=prepare
++    assert rig.send()['state']=='grant_not_current'
++    assert rig.state['calls']==0
++
++
++def test_content_changes_while_connecting_are_not_sent(rig):
++    backend=rig.sender.dispatch_transport.backend
++    original=backend.prepare
++    async def prepare(url):
++        rig.current[0]=None
++        return await original(url)
++    backend.prepare=prepare
++    assert rig.send()['state']=='content_changed'
++    assert rig.state['calls']==0
++
++
++def test_actual_handoff_holds_content_settings_and_grant(rig):
++    backend=rig.sender.dispatch_transport.backend
++    original=backend.prepare
++    async def prepare(url):
++        connection=await original(url)
++        accept=connection.accept
++        def competing(request):
++            with pytest.raises(sqlite3.OperationalError,match='locked'):
++                rig.current[0]=None
++            with pytest.raises(sqlite3.OperationalError,match='locked'):
++                rig.config['enabled']=False
++            with pytest.raises(sqlite3.OperationalError,match='locked'):
++                rig.authority.revoke(rig.consent.approval_id)
++            accept(request)
++        connection.accept=competing
++        return connection
++    backend.prepare=prepare
++    assert rig.send()['state']=='acknowledged'
++    assert rig.state['calls']==1
++
++
++def test_response_wait_holds_no_content_or_authority_lock(rig):
++    backend=rig.sender.dispatch_transport.backend
++    original=backend.prepare
++    async def prepare(url):
++        connection=await original(url)
++        response=connection.response
++        async def waiting():
++            rig.current[0]=None
++            rig.authority.revoke(rig.consent.approval_id)
++            return await response()
++        connection.response=waiting
++        return connection
++    backend.prepare=prepare
++    # This was already handed off while authorized. Revocation cannot retract it.
++    assert rig.send()['state']=='acknowledged'
++    assert rig.state['calls']==1
++
++
++def test_single_use_revoke_while_connecting_sends_no_metadata(stopped):
++    rig,recovery,grant=stopped
++    backend=rig.sender.dispatch_transport.backend
++    original=backend.prepare
++    async def prepare(url):
++        rig.authority.revoke(grant.grant_id)
++        return await original(url)
++    backend.prepare=prepare
++    assert call(recovery,rig,grant,**approved(grant))['state']=='retry_requires_separate_approval'
++    assert rig.state['reconciles']==0
++    assert call(recovery,rig,grant,**approved(grant))['state']=='grant_already_used'
++
++
++def test_direct_http_client_cannot_bypass_boundary_permit(rig):
++    from server.cloud_sync.wechat_dispatch_authority import DispatchDenied
++    with pytest.raises(DispatchDenied,match='dispatch_permit_required'):
++        asyncio.run(rig.client.post('https://invalid.example/worker/wechat-publish',json={}))
++    assert rig.state['calls']==0
+--- /dev/null
++++ b/server/tests_wechat/test_dispatch_file_snapshot.py
+@@ -0,0 +1,93 @@
++"""Actual candidate stores, isolated files and SQLite; no production writes."""
++import json
++import sqlite3
++import pytest
++from server.cloud_sync.settings import WorkerSettings
++from server.cloud_sync.wechat_dispatch_snapshot import FrozenRecoverySnapshot
++from server.recovery_controls import controls
++from server.tests_wechat.test_wechat_incremental_recovery import recovery_rig
++from server.tests_wechat.test_wechat_incremental_preview import five
++
++
++@pytest.fixture
++def frozen(recovery_rig,monkeypatch):
++    rig=recovery_rig
++    monkeypatch.delenv('ATTENTION_RECOVERY_CONTROL_PATH',raising=False)
++    directory=rig.personal.path.parent
++    context_path=directory/'user-context.json'
++    context_path.write_text(json.dumps(rig.service.context.read().model_dump()),encoding='utf8')
++    control_path=directory/'recovery-controls.json'
++    control_path.write_text(json.dumps({'version':1,'hold_cloud_uploads':True,'pause_paid_ai':True}),encoding='utf8')
++    worker_path=directory/'synthetic-worker.json'
++    config=dict(rig.config)
++    config['protected_worker_key']=config.pop('worker_key')
++    config['notes_installation_id']='5b240e4e-af59-4019-8bc3-14966873c816'
++    worker_path.write_text(json.dumps(config),encoding='utf8')
++    settings=WorkerSettings(worker_path,protector=lambda value,**_:value)
++    rig.sender.settings=settings;rig.owner.settings=settings;rig.owner.config=settings.read()
++    rig.sender.controls=lambda:controls(rig.personal.path)
++    rig.sender.dispatch_snapshot=FrozenRecoverySnapshot(rig.recovery)
++    rig.state['mode']='ok'
++    return rig,[directory/'wechat.yaml',context_path,worker_path,control_path]
++
++
++def test_actual_file_snapshot_can_send_unchanged_authorized_content(frozen):
++    rig,_=frozen
++    assert rig.start()['state']=='acknowledged'
++    assert rig.state['publishes']==1
++
++
++def test_nonparticipating_file_writes_and_replacement_denied_at_handoff(frozen):
++    rig,paths=frozen
++    backend=rig.sender.dispatch_transport.backend;prepare=backend.prepare
++    async def checked(url):
++        connection=await prepare(url);accept=connection.accept
++        def competing(request):
++            for path in paths:
++                before=path.read_bytes()
++                with pytest.raises(OSError):path.write_bytes(b'changed')
++                replacement=path.with_name(path.name+'.replacement')
++                replacement.write_bytes(b'changed')
++                try:
++                    with pytest.raises(OSError):replacement.replace(path)
++                finally:replacement.unlink(missing_ok=True)
++                assert path.read_bytes()==before
++            with sqlite3.connect(rig.personal.path,timeout=0) as writer:
++                with pytest.raises(sqlite3.OperationalError,match='locked'):
++                    writer.execute('UPDATE raw_review SET version=version+1')
++            accept(request)
++        connection.accept=competing
++        return connection
++    backend.prepare=checked
++    assert rig.start()['state']=='acknowledged'
++    # Leases do not extend to the response or subsequent ordinary edits.
++    for path in paths:path.write_bytes(path.read_bytes())
++
++
++@pytest.mark.parametrize('which', [0,1,2,3])
++def test_missing_required_file_fails_closed(frozen,which):
++    rig,paths=frozen
++    backend=rig.sender.dispatch_transport.backend;prepare=backend.prepare
++    async def changed(url):
++        connection=await prepare(url)
++        paths[which].unlink()
++        return connection
++    backend.prepare=changed
++    with pytest.raises((OSError,ValueError,AttributeError)):
++        rig.start()
++    assert rig.state['publishes']==0
++
++
++def test_cached_document_must_match_leased_file(frozen):
++    rig,paths=frozen
++    backend=rig.sender.dispatch_transport.backend;prepare=backend.prepare
++    async def changed(url):
++        connection=await prepare(url)
++        import yaml
++        data=yaml.safe_load(paths[0].read_text(encoding='utf8'))
++        data['revision']+=1
++        paths[0].write_text(yaml.safe_dump(data,allow_unicode=True),encoding='utf8')
++        return connection
++    backend.prepare=changed
++    assert rig.start()['state']=='context_cache_changed'
++    assert rig.state['publishes']==0
+--- /dev/null
++++ b/server/tests_wechat/test_dispatch_live_boundary.py
+@@ -0,0 +1,76 @@
++"""Real local HTTP/TLS, synthetic payloads, ephemeral test CA only."""
++import asyncio
++from contextlib import contextmanager
++import sqlite3
++import httpx
++import pytest
++from server.cloud_sync.wechat_dispatch_authority import DispatchAuthority, DispatchDenied, Grant, locked_source
++from server.cloud_sync.wechat_dispatch_transport import DispatchTransport
++from server.cloud_sync.wechat_prepared_connection import PreparedBackend
++from server.tests_wechat.test_loopback_dispatch_lease_experiment import synthetic, tls_contexts, server_fixture
++
++
++@pytest.mark.parametrize('tls', [False,True])
++@pytest.mark.parametrize('mode', ['ok','revoke','changed','cancel_after'])
++def test_real_handoff_order(synthetic,tls_contexts,tls,mode):
++    async def scenario():
++        server_ssl,ca,_,_=tls_contexts
++        server,url,received,respond,bodies=await server_fixture(server_ssl=server_ssl if tls else None)
++        origin=str(httpx.URL(url).copy_with(path='/'))
++        backend=PreparedBackend(origin,ca_pem=ca.decode() if tls else None,loopback_http=not tls)
++        authority=DispatchAuthority(synthetic['database'].parent/'authority.sqlite',clock=lambda:10)
++        authority.initialize();grant=Grant('g','a'*64,20,False)
++        authority.import_verified(grant,lambda value:value==grant)
++        payload=b'{"synthetic":"notice"}'
++        @contextmanager
++        def snapshot():
++            with locked_source(synthetic['database'],lambda db: payload if db.execute('SELECT eligible FROM evidence').fetchone()[0] else b'changed') as body:
++                yield body
++        original=backend.prepare
++        async def prepare(destination):
++            connection=await original(destination)
++            if mode=='revoke':authority.revoke('g')
++            if mode=='changed':
++                with sqlite3.connect(synthetic['database']) as db:db.execute('UPDATE evidence SET eligible=0')
++            return connection
++        backend.prepare=prepare
++        transport=DispatchTransport(backend)
++        try:
++            async with httpx.AsyncClient(transport=transport,trust_env=False) as client:
++                task=asyncio.create_task(transport.post(client,url,authority=authority,identity='g',binding='a'*64,
++                    snapshot=snapshot,validate=lambda:True,content=payload,headers={'Content-Type':'application/json'}))
++                if mode in {'revoke','changed'}:
++                    with pytest.raises(DispatchDenied):await task
++                    assert bodies==[]
++                else:
++                    await asyncio.wait_for(received.wait(),2)
++                    # Server received the authorized bytes. While it withholds
++                    # its response, independent writes/revocation must complete.
++                    authority.revoke('g')
++                    with sqlite3.connect(synthetic['database'],timeout=.1) as db:
++                        db.execute('UPDATE evidence SET eligible=0')
++                    if mode=='cancel_after':
++                        task.cancel()
++                        with pytest.raises(asyncio.CancelledError):await task
++                    else:
++                        respond.set()
++                        assert (await task).status_code==200
++                    assert bodies==[payload]
++        finally:
++            respond.set();server.close();await server.wait_closed()
++    asyncio.run(scenario())
++
++
++@pytest.mark.parametrize('fault', ['untrusted','hostname'])
++def test_bad_tls_sends_no_application_request(synthetic,tls_contexts,fault):
++    async def scenario():
++        server_ssl,ca,wrong_host,other_ca=tls_contexts
++        server,url,_,respond,bodies=await server_fixture(server_ssl=wrong_host if fault=='hostname' else server_ssl)
++        backend=PreparedBackend(str(httpx.URL(url).copy_with(path='/')),
++            ca_pem=(other_ca if fault=='untrusted' else ca).decode())
++        try:
++            with pytest.raises(httpx.ConnectError):await backend.prepare(httpx.URL(url))
++            assert bodies==[]
++        finally:
++            respond.set();server.close();await server.wait_closed()
++    asyncio.run(scenario())
