@@ -1,0 +1,614 @@
+--- /dev/null
++++ b/eric-app-api/guarded_wechat_publish.ts
+@@ -0,0 +1,188 @@
++import { AppFault, SHA, UUID, hash, stable } from './store.ts';
++
++// Candidate only: this helper is not wired to a deployed API or local worker.
++// Exact record shapes prevent hidden drafts, attachments or unrelated projections.
++const RAW = ['id','source_id','kind','source_type','created_at','title','published_at','inbox_original_snapshot_id','inbox_snapshot_id','inbox_course_id','inbox_version','redacted_excerpt','minimization_policy'];
++const SUMMARY = ['id','created_at','source','source_kind','input_kind','title','preview','preview_source','vision_notice','ocr_preview','processing_status','processing_stage','original_snapshot_id','snapshot_id','course','project_ref','classification','error','proposal_count','review_status','version','attachments','managed','needs_manual','redacted_excerpt'];
++const DETAIL = [...SUMMARY,'original','review_available','review','extraction_quality','school_documents','receipts'];
++const REVIEW = ['raw_snapshot_id','title_hint','status','version','created_at','updated_at','snapshot','item','source','extraction_id','draft','extraction','confirmed_event_ids','wechat_candidates','course_suggestions','source_update'];
++const SNAPSHOT = ['id','raw_item_id','original_text','created_at','source_time','source_timezone','hash','blocks','attachments','attachment_jobs','document_warnings','redacted_excerpt','minimization_policy','wechat'];
++const WECHAT = ['source','batch_id','messages','warnings','analysis','superseded_by','latest_snapshot_id'];
++const BLOCK = ['raw_snapshot_id','block_id','source_type','ordinal','text','section','needs_review','attachment_id'];
++const MESSAGE = ['snapshot_id','block_id','message_id','content_revision','raw_text','message_type','source_time','time_reliability','captured_at'];
++const POLICY = 'selected-text-review-v1';
++
++function invalid(code='invalid_wechat_scope'): never { throw new AppFault(400,code,'同步内容未通过范围核验，已保留在本机。'); }
++function conflict(code='wechat_target_conflict'): never { throw new AppFault(409,code,'目标记录状态不一致，已暂停本次同步。'); }
++function object(value: any, names: string[]): boolean {
++  return Boolean(value && typeof value==='object' && !Array.isArray(value) &&
++    stable(Object.keys(value).sort())===stable([...names].sort()));
++}
++function empty(value: any): boolean { return Array.isArray(value) && value.length===0; }
++function equal(a: any,b: any): boolean { return stable(a)===stable(b); }
++function integer(value: any,min=0): boolean { return Number.isSafeInteger(value) && value>=min; }
++function uuid(value: any): boolean { return typeof value==='string' && UUID.test(value); }
++function timestamp(value: any): boolean {
++  return typeof value==='string' && /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$/.test(value) &&
++    Number.isFinite(Date.parse(value));
++}
++function safeText(value: any): boolean {
++  if (typeof value!=='string' || value.length>16000) return false;
++  if (/&(?:#(?:x[0-9a-f]{1,6}|[0-9]{1,7});?|[a-z][a-z0-9]{1,31};)|%[0-9a-f]{2}|\\u[0-9a-f]{4}/i.test(value)) return false;
++  // Remove only the exact marker emitted by the local redactor before checking
++  // for residual sensitive text. Joining the surrounding text first also
++  // prevents a marker from splitting and hiding a phone number or email.
++  // A lookalike or encoded marker is not trusted and remains subject to checks.
++  const canonical=value.replaceAll('[姓名已去除]','').normalize('NFKC').replace(/\p{Cf}/gu,'');
++  if (canonical.includes('[敏感内容待核对]')) return false;
++  const unnamed=canonical.replace(/各位同学|全体同学|所有同学|同学们|老师们/g,'');
++  if (/@[^\s@，,：:。；;！!\n]{1,40}/.test(canonical) ||
++      /[a-z0-9._%+-]+[ \t]*@[ \t]*[a-z0-9-]+(?:[ \t]*\.[ \t]*[a-z0-9-]+)+/i.test(canonical) ||
++      /(?<!\d)(?:\+?86[ \t.()\-]*)?1[ \t.()\-]*[3-9](?:[ \t.()\-]*\d){9}(?!\d)/.test(canonical)) return false;
++  return !/(?:https?:\/\/|wxid_[a-z0-9_]+|[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}|(?<!\d)(?:\+?86[ -]*)?1[3-9](?:[ -]*\d){9}(?!\d)|(?<!\d)\d{6,}[x]?(?!\d)|(?:[a-z]:\\|\\\\|\/users\/|\/home\/)|姓名|学号|身份证|银行卡|病历|诊断|医保|家庭住址|政治面貌|心理咨询|贫困生|处分名单|接龙|名单|联系人|负责老师)/i.test(canonical) &&
++    !/[\u4e00-\u9fff]{2,4}(?:同学|老师|教授)/.test(unnamed);
++}
++
++export async function validateWechatBundle(body: any): Promise<any> {
++  if (!object(body,['raw_id','snapshot_id','source_id','records','epoch','generation']) ||
++      !uuid(body.raw_id) || !uuid(body.snapshot_id) || !uuid(body.epoch) || !integer(body.generation) ||
++      typeof body.source_id!=='string' || !/^wechat:[A-Za-z0-9_-]{1,80}$/.test(body.source_id) ||
++      !Array.isArray(body.records) || body.records.length!==4) invalid();
++  const expected: Record<string,string> = {raw_item:body.raw_id,inbox_item:body.raw_id,inbox:body.raw_id,raw_review:body.snapshot_id};
++  const records: Record<string,any> = {};
++  for (const row of body.records) {
++    if (!object(row,['kind','id','payload','source_hash']) || !(row.kind in expected) || records[row.kind] ||
++        row.id!==expected[row.kind] || typeof row.source_hash!=='string' || !SHA.test(row.source_hash) ||
++        row.source_hash!==await hash(stable(row.payload))) invalid();
++    records[row.kind]=row.payload;
++  }
++  const raw=records.raw_item,summary=records.inbox_item,detail=records.inbox,review=records.raw_review;
++  if (!object(raw,RAW) || !object(summary,SUMMARY) || !object(detail,DETAIL) || !object(review,REVIEW)) invalid();
++  if (raw.id!==body.raw_id || raw.source_id!==body.source_id || raw.kind!=='wechat_batch' || raw.source_type!=='wechat_batch' ||
++      raw.inbox_snapshot_id!==body.snapshot_id || raw.inbox_original_snapshot_id!==body.snapshot_id ||
++      raw.redacted_excerpt!==true || raw.minimization_policy!==POLICY || !integer(raw.inbox_version,1) || !timestamp(raw.created_at) ||
++      !safeText(raw.title) || !raw.title.startsWith('【脱敏节选】')) invalid();
++  if (summary.id!==body.raw_id || summary.created_at!==raw.created_at || summary.source!=='微信通知（脱敏节选）' || summary.source_kind!=='wechat' ||
++      summary.input_kind!=='text' || summary.preview_source!=='text' || summary.title!==raw.title || !safeText(summary.preview) ||
++      summary.original_snapshot_id!==body.snapshot_id || summary.snapshot_id!==body.snapshot_id ||
++      summary.redacted_excerpt!==true || summary.needs_manual!==true || summary.managed!==false ||
++      summary.processing_status!=='needs_review' || summary.processing_stage!=='review' || summary.review_status!=='pending' ||
++      summary.vision_notice!==null || summary.ocr_preview!==null || summary.project_ref!==null ||
++      summary.classification!==null || summary.error!==null || summary.proposal_count!==0 || !empty(summary.attachments) ||
++      !integer(summary.version,1) || summary.version!==raw.inbox_version) invalid();
++  for (const key of SUMMARY) if (!equal(summary[key],detail[key])) invalid();
++  if (detail.review_available!==true || !empty(detail.school_documents) || !empty(detail.receipts) ||
++      !object(detail.extraction_quality,['files','needs_review','reasons','meaning']) ||
++      !empty(detail.extraction_quality.files) || detail.extraction_quality.needs_review!==true ||
++      !equal(detail.extraction_quality.reasons,['redacted_excerpt']) || detail.extraction_quality.meaning!=='脱敏文字节选') invalid();
++  // Course metadata is a separate local association, outside this text scope.
++  if (summary.course!==null || raw.inbox_course_id!==null) invalid();
++  if (review.raw_snapshot_id!==body.snapshot_id || review.title_hint!==raw.title || review.status!=='pending' ||
++      !timestamp(review.created_at) || !timestamp(review.updated_at) ||
++      !integer(review.version,1) || review.extraction_id!==null || review.draft!==null || review.extraction!==null ||
++      !empty(review.confirmed_event_ids) || !empty(review.wechat_candidates) || !object(review.course_suggestions,[]) ||
++      !object(review.source_update,['events','proposals','requires_confirmation']) || !empty(review.source_update.events) ||
++      !empty(review.source_update.proposals) || review.source_update.requires_confirmation!==false ||
++      !object(review.source,['id','kind','name']) || review.source.id!==body.source_id || review.source.kind!=='wechat' ||
++      review.source.name!=='微信通知（脱敏节选）' || !equal(review.item,raw) || !equal(detail.review,review)) invalid();
++  const snapshot=review.snapshot;
++  if (!object(snapshot,SNAPSHOT) || !equal(detail.original,snapshot) || snapshot.id!==body.snapshot_id ||
++      snapshot.raw_item_id!==body.raw_id || snapshot.redacted_excerpt!==true || snapshot.minimization_policy!==POLICY ||
++      !timestamp(snapshot.created_at) || !['Asia/Shanghai','UTC','Etc/UTC'].includes(snapshot.source_timezone) ||
++      !safeText(snapshot.original_text) || snapshot.hash!==await hash(snapshot.original_text) ||
++      !empty(snapshot.attachments) || !empty(snapshot.attachment_jobs) ||
++      !Array.isArray(snapshot.document_warnings) || snapshot.document_warnings.length!==1 ||
++      !object(snapshot.document_warnings[0],['code','message']) || snapshot.document_warnings[0].code!=='redacted_excerpt' ||
++      snapshot.document_warnings[0].message!=='这是经最小化的文字节选，完整原文仅保留在本机。') invalid();
++  const wx=snapshot.wechat;
++  if (!object(wx,WECHAT) || wx.source!=='wechat' || !uuid(wx.batch_id) || !empty(wx.analysis) ||
++      !equal(wx.warnings,['redacted_excerpt']) || wx.superseded_by!==null || wx.latest_snapshot_id!==body.snapshot_id ||
++      !Array.isArray(wx.messages) || wx.messages.length<1 || wx.messages.length>100 ||
++      !Array.isArray(snapshot.blocks) || snapshot.blocks.length!==wx.messages.length) invalid();
++  const ids=new Set<string>(), blocks=new Set<string>();
++  for (let index=0;index<wx.messages.length;index++) {
++    const message=wx.messages[index],block=snapshot.blocks[index];
++    if (!object(message,MESSAGE) || !object(block,BLOCK) || message.snapshot_id!==body.snapshot_id ||
++        block.raw_snapshot_id!==body.snapshot_id || !uuid(message.message_id) || ids.has(message.message_id) ||
++        message.block_id!=='WX_'+message.message_id || blocks.has(message.block_id) || block.block_id!==message.block_id ||
++        message.message_type!=='text' || block.source_type!=='text' || block.section!=='脱敏节选' ||
++        block.needs_review!==true || block.attachment_id!==null || !integer(block.ordinal) ||
++        !integer(message.content_revision) || message.time_reliability!=='reliable' ||
++        !timestamp(message.source_time) || !timestamp(message.captured_at) || !safeText(message.raw_text) || !message.raw_text.trim() ||
++        block.text!==message.raw_text) invalid();
++    ids.add(message.message_id);blocks.add(message.block_id);
++  }
++  if (snapshot.original_text!==wx.messages.map((message: any)=>message.raw_text).join('\n') ||
++      summary.preview!==Array.from(snapshot.original_text).slice(0,160).join('') ||
++      raw.published_at!==wx.messages[0].source_time || snapshot.source_time!==wx.messages[0].source_time) invalid();
++  return body;
++}
++
++export const LOCK_SQL = "SELECT pg_advisory_xact_lock(hashtextextended('eric-app:'||$1::text,0))";
++export const PROCESSOR_SQL = 'SELECT id FROM public.eric_app_processors WHERE workspace_id=$1::uuid AND id=$2::uuid AND revoked_at IS NULL FOR SHARE';
++export const WORKER_SQL = 'SELECT publisher_epoch,source_generation FROM public.eric_app_workers WHERE workspace_id=$1::uuid FOR UPDATE';
++export const EXISTING_SQL = `SELECT r.kind,r.id,r.source_hash,r.deleted,(r.payload=p.payload) AS payload_matches
++  FROM public.eric_app_records r JOIN jsonb_to_recordset(($2::text)::jsonb) AS p(kind text,id text,payload jsonb,source_hash text)
++    ON r.kind=p.kind AND r.id=p.id WHERE r.workspace_id=$1::uuid FOR UPDATE OF r`;
++export const INSERT_SQL = `INSERT INTO public.eric_app_records(workspace_id,kind,id,payload,source_hash,deleted,source_epoch,source_generation)
++  SELECT $1::uuid,p.kind,p.id,p.payload,p.source_hash,false,$3::uuid,$4::bigint
++  FROM jsonb_to_recordset(($2::text)::jsonb) AS p(kind text,id text,payload jsonb,source_hash text)
++  ON CONFLICT(workspace_id,kind,id) DO NOTHING RETURNING kind,id`;
++// Binding an already-serialized JSON string directly as jsonb causes
++// postgres.js to quote it a second time. Bind text first, then cast in SQL.
++export const PUBLISH_SQL = 'SELECT public.eric_app_publish_records($1::uuid,($2::text)::jsonb,$3::uuid,$4::bigint) AS revision';
++
++export async function clientFor(databaseUrl: string): Promise<any> {
++  const { default: postgres } = await import('npm:postgres@3.4.7');
++  return postgres(databaseUrl, {max:1,prepare:false,ssl:true,idle_timeout:20,max_lifetime:60,
++    connect_timeout:5,fetch_types:false,onnotice:()=>{},debug:false});
++}
++
++export function createGuardedWechatPublisher(options: {databaseUrl:string;clientFactory?:(url:string)=>Promise<any>}) {
++  let client: Promise<any> | undefined;
++  return async (workspace: string, processor: string, value: any): Promise<any> => {
++    if (!uuid(workspace) || !uuid(processor)) invalid();
++    const body=await validateWechatBundle(value);
++    if (!options.databaseUrl) throw new AppFault(503,'scoped_publish_unavailable','同步保护暂时不可用，内容仍保留在本机。');
++    try {
++      client ||= (options.clientFactory || clientFor)(options.databaseUrl);
++      const sql=await client, encoded=JSON.stringify(body.records);
++      return await sql.begin(async (tx: any) => {
++        await tx.unsafe("SET LOCAL statement_timeout='5s'",[]);
++        await tx.unsafe("SET LOCAL lock_timeout='2s'",[]);
++        await tx.unsafe(LOCK_SQL,[workspace]);
++        // Recheck inside the transaction. A revocation between HTTP
++        // authentication and the write must not authorize a new publication.
++        if ((await tx.unsafe(PROCESSOR_SQL,[workspace,processor])).length!==1)
++          throw new AppFault(401,'worker_revoked','同步凭据已失效，内容仍保留在本机。');
++        const workers=await tx.unsafe(WORKER_SQL,[workspace]);
++        if (workers.length!==1 || String(workers[0].publisher_epoch)!==body.epoch) conflict('stale_publisher');
++        const current=Number(workers[0].source_generation);
++        if (!Number.isSafeInteger(current) || current<0 || current>=Number.MAX_SAFE_INTEGER)
++          throw new Error('invalid_generation');
++        // A guarded message may use the current cycle or its next cycle.  An
++        // unexplained jump must not advance the shared workspace publisher.
++        if (body.generation<current || body.generation>current+1) conflict('stale_publisher');
++        const existing=await tx.unsafe(EXISTING_SQL,[workspace,encoded]);
++        if (existing.length) {
++          const expected=new Map(body.records.map((r: any)=>[r.kind+'\u0000'+r.id,r.source_hash]));
++          if (existing.length!==4 || existing.some((r: any)=>r.deleted!==false || r.payload_matches!==true ||
++              expected.get(r.kind+'\u0000'+r.id)!==r.source_hash)) conflict();
++          return {state:'already_published'};
++        }
++        const inserted=await tx.unsafe(INSERT_SQL,[workspace,encoded,body.epoch,body.generation]);
++        if (inserted.length!==4) conflict(); // Throw rolls back every insert, including partial collisions.
++        // The four guarded inserts already created the records. Reuse the
++        // existing RPC with an empty batch for its epoch/generation metadata;
++        // replaying the records would consume extra revision sequence values.
++        const result=await tx.unsafe(PUBLISH_SQL,[workspace,'[]',body.epoch,body.generation]);
++        if (result.length!==1 || !Number.isSafeInteger(Number(result[0].revision))) throw new Error('invalid_receipt');
++        return {state:'published',revision:Number(result[0].revision)};
++      });
++    } catch (error) {
++      if (error instanceof AppFault) throw error;
++      client=undefined;
++      throw new AppFault(503,'scoped_publish_unavailable','同步结果暂时无法确认，已保留原始内容。');
++    }
++  };
++}
+--- /dev/null
++++ b/eric-app-api/guarded_wechat_reconcile.ts
+@@ -0,0 +1,82 @@
++import { AppFault, SHA, UUID, hash, stable } from './store.ts';
++import { LOCK_SQL, PROCESSOR_SQL, WORKER_SQL, clientFor } from './guarded_wechat_publish.ts';
++
++// Candidate only. Reconciliation sends hashes and identities, not notice text.
++// A transaction fence prevents an old uncertain request from committing after
++// the server has declared its target absent. It does not itself publish data.
++const isUuid=(value:any)=>typeof value==='string' && UUID.test(value);
++const isObject=(value:any,keys:string[])=>Boolean(value && typeof value==='object' && !Array.isArray(value)
++  && stable(Object.keys(value).sort())===stable([...keys].sort()));
++function invalid():never {throw new AppFault(400,'invalid_wechat_reconciliation','同步状态无法核对，内容仍保留在本机。');}
++function conflict(code='wechat_target_conflict'):never {throw new AppFault(409,code,'同步目标状态不一致，已暂停等待核对。');}
++export const RECONCILE_EXISTING_SQL=`SELECT r.kind,r.id,r.source_hash,r.payload,r.deleted
++  FROM public.eric_app_records r JOIN jsonb_to_recordset(($2::text)::jsonb) AS p(kind text,id text,source_hash text)
++    ON r.kind=p.kind AND r.id=p.id WHERE r.workspace_id=$1::uuid FOR UPDATE OF r`;
++export const FENCE_SQL=`UPDATE public.eric_app_workers SET source_generation=$3::bigint
++  WHERE workspace_id=$1::uuid AND publisher_epoch=$2::uuid RETURNING source_generation`;
++
++export function validateReconciliation(value:any):any {
++  if (!isObject(value,['epoch','generation','raw_id','snapshot_id','source_id','records']) ||
++      !isUuid(value.epoch) || !isUuid(value.raw_id) || !isUuid(value.snapshot_id) ||
++      !Number.isSafeInteger(value.generation) || value.generation<0 || value.generation>=Number.MAX_SAFE_INTEGER ||
++      typeof value.source_id!=='string' || !/^wechat:[A-Za-z0-9_-]{1,80}$/.test(value.source_id) ||
++      !Array.isArray(value.records) || value.records.length!==4) invalid();
++  const expected:Record<string,string>={raw_item:value.raw_id,inbox_item:value.raw_id,inbox:value.raw_id,raw_review:value.snapshot_id};
++  const seen=new Set<string>();
++  for (const row of value.records) {
++    if (!isObject(row,['kind','id','source_hash']) || !(row.kind in expected) || seen.has(row.kind) ||
++        row.id!==expected[row.kind] || typeof row.source_hash!=='string' || !SHA.test(row.source_hash)) invalid();
++    seen.add(row.kind);
++  }
++  return value;
++}
++
++export function createGuardedWechatReconciler(options:{databaseUrl:string;clientFactory?:(url:string)=>Promise<any>}) {
++  let client:Promise<any>|undefined;
++  return async (workspace:string,processor:string,input:any):Promise<any> => {
++    if (!isUuid(workspace) || !isUuid(processor)) invalid();
++    const value=validateReconciliation(input);
++    if (!options.databaseUrl) throw new AppFault(503,'scoped_publish_unavailable','同步保护暂时不可用，内容仍保留在本机。');
++    const proof=await hash(stable(value));
++    try {
++      client ||= (options.clientFactory||clientFor)(options.databaseUrl);
++      const sql=await client,encoded=JSON.stringify(value.records);
++      return await sql.begin(async(tx:any)=>{
++        await tx.unsafe("SET LOCAL statement_timeout='5s'",[]);
++        await tx.unsafe("SET LOCAL lock_timeout='2s'",[]);
++        await tx.unsafe(LOCK_SQL,[workspace]);
++        if ((await tx.unsafe(PROCESSOR_SQL,[workspace,processor])).length!==1)
++          throw new AppFault(401,'worker_revoked','同步凭据已失效，内容仍保留在本机。');
++        const workers=await tx.unsafe(WORKER_SQL,[workspace]);
++        if (workers.length!==1 || String(workers[0].publisher_epoch)!==value.epoch) conflict('stale_publisher');
++        const current=Number(workers[0].source_generation);
++        if (!Number.isSafeInteger(current) || current<0 || current>=Number.MAX_SAFE_INTEGER) throw new Error('invalid_generation');
++        // A result can refer to a prior cycle, or the next not-yet-committed
++        // cycle, but cannot move the workspace counter by an arbitrary jump.
++        if (value.generation>current+1) conflict('stale_publisher');
++        const existing=await tx.unsafe(RECONCILE_EXISTING_SQL,[workspace,encoded]);
++        if (existing.length) {
++          if (existing.length!==4) conflict();
++          const expected=new Map(value.records.map((r:any)=>[r.kind+'\u0000'+r.id,r.source_hash]));
++          for (const row of existing) {
++            const originalHash=expected.get(row.kind+'\u0000'+row.id);
++            if (row.deleted!==false || originalHash!==row.source_hash ||
++                await hash(stable(row.payload))!==originalHash ||
++                (row.kind==='raw_item' && row.payload?.source_id!==value.source_id)) conflict();
++          }
++          return {state:'already_published',proof,generation:current};
++        }
++        const next=Math.max(current,value.generation+1);
++        if (next!==current) {
++          const updated=await tx.unsafe(FENCE_SQL,[workspace,value.epoch,next]);
++          if (updated.length!==1 || Number(updated[0].source_generation)!==next) throw new Error('fence_failed');
++        }
++        return {state:'fenced_absent',proof,generation:next};
++      });
++    } catch(error) {
++      if (error instanceof AppFault) throw error;
++      client=undefined;
++      throw new AppFault(503,'scoped_publish_unavailable','同步结果暂时无法确认，内容仍保留在本机。');
++    }
++  };
++}
+--- /dev/null
++++ b/eric-app-api/guarded_wechat_session.ts
+@@ -0,0 +1,49 @@
++import { AppFault, UUID } from './store.ts';
++import { LOCK_SQL, PROCESSOR_SQL, WORKER_SQL, clientFor } from './guarded_wechat_publish.ts';
++
++// Candidate only. Never replace an existing publisher merely because a lease
++// looks old; an unknown owner must be resolved separately before rollout.
++export const BEGIN_SQL='SELECT public.eric_app_begin_publish($1::uuid,$2::uuid)';
++export const TOUCH_WORKER_SQL='UPDATE public.eric_app_workers SET last_seen_at=now() WHERE workspace_id=$1::uuid';
++export const TOUCH_PROCESSOR_SQL='UPDATE public.eric_app_processors SET last_seen_at=now() WHERE workspace_id=$1::uuid AND id=$2::uuid AND revoked_at IS NULL';
++const isUuid=(value:any)=>typeof value==='string' && UUID.test(value);
++
++export function createGuardedWechatSession(options:{databaseUrl:string;clientFactory?:(url:string)=>Promise<any>}) {
++  let client:Promise<any>|undefined;
++  return async (workspace:string,processor:string,body:any):Promise<any> => {
++    if (!isUuid(workspace) || !isUuid(processor) || !body || Array.isArray(body) ||
++        typeof body!=='object' || Object.keys(body).length!==1 || !isUuid(body.epoch))
++      throw new AppFault(400,'invalid_wechat_session','同步身份无效，内容仍保留在本机。');
++    if (!options.databaseUrl)
++      throw new AppFault(503,'scoped_publish_unavailable','同步保护暂时不可用，内容仍保留在本机。');
++    try {
++      client ||= (options.clientFactory||clientFor)(options.databaseUrl);
++      const sql=await client;
++      return await sql.begin(async(tx:any)=>{
++        await tx.unsafe("SET LOCAL statement_timeout='5s'",[]);
++        await tx.unsafe("SET LOCAL lock_timeout='2s'",[]);
++        await tx.unsafe(LOCK_SQL,[workspace]);
++        if ((await tx.unsafe(PROCESSOR_SQL,[workspace,processor])).length!==1)
++          throw new AppFault(401,'worker_revoked','同步凭据已失效，内容仍保留在本机。');
++        const workers=await tx.unsafe(WORKER_SQL,[workspace]);
++        if (workers.length>1) throw new Error('invalid_worker_count');
++        let generation=0;
++        if (workers.length && workers[0].publisher_epoch!=null) {
++          if (String(workers[0].publisher_epoch)!==body.epoch)
++            throw new AppFault(409,'publisher_in_use','已有发布会话，已暂停等待核对。');
++          generation=Number(workers[0].source_generation);
++          if (!Number.isSafeInteger(generation) || generation<0) throw new Error('invalid_generation');
++        } else {
++          await tx.unsafe(BEGIN_SQL,[workspace,body.epoch]);
++        }
++        await tx.unsafe(TOUCH_WORKER_SQL,[workspace]);
++        await tx.unsafe(TOUCH_PROCESSOR_SQL,[workspace,processor]);
++        return {workspace_id:workspace,epoch:body.epoch,generation};
++      });
++    } catch(error) {
++      if (error instanceof AppFault) throw error;
++      client=undefined;
++      throw new AppFault(503,'scoped_publish_unavailable','同步会话暂时无法确认，内容仍保留在本机。');
++    }
++  };
++}
+--- a/eric-app-api/handler.ts
++++ b/eric-app-api/handler.ts
+@@ -68,7 +68,7 @@
+   return {id:uuid(value.id),device_id:device,resource_key,method:value.method,path,body:value.body,expected_revision:expected};
+ }
+ 
+-export function createHandler(options: {base:string;secret:string;visionSecret?:string;origins?:string[];fetcher?:typeof fetch;clock?:()=>Date;officialHealth?:(workspace:string)=>Promise<any>}) {
++export function createHandler(options: {base:string;secret:string;visionSecret?:string;origins?:string[];fetcher?:typeof fetch;clock?:()=>Date;officialHealth?:(workspace:string)=>Promise<any>;guardedWechatPublish?:(workspace:string,processor:string,body:any)=>Promise<any>;guardedWechatSession?:(workspace:string,processor:string,body:any)=>Promise<any>;guardedWechatReconcile?:(workspace:string,processor:string,body:any)=>Promise<any>}) {
+   const store=new CloudStore(options),origins=new Set(options.origins||[]);
+   function json(value: any,status=200): Response {return Response.json(value,{status,headers:{'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer'}});}
+   async function route(req: Request,url: URL,path: string): Promise<Response> {
+@@ -167,6 +167,18 @@
+     if(path==='/worker/official-health'&&req.method==='GET') {
+       if(!options.officialHealth)throw new AppFault(503,'source_health_not_configured','官网健康状态暂时无法读取。');
+       return json(await options.officialHealth(workspace));
++    }
++    if(path==='/worker/wechat-publish'&&req.method==='POST') {
++      if(!options.guardedWechatPublish)throw new AppFault(503,'scoped_publish_unavailable','同步保护暂时不可用，内容仍保留在本机。');
++      return json(await options.guardedWechatPublish(workspace,principal.device.id,await boundedJson(req,512_000)));
++    }
++    if(path==='/worker/wechat-hello'&&req.method==='POST') {
++      if(!options.guardedWechatSession)throw new AppFault(503,'scoped_publish_unavailable','同步保护暂时不可用，内容仍保留在本机。');
++      return json(await options.guardedWechatSession(workspace,principal.device.id,await boundedJson(req,2000)));
++    }
++    if(path==='/worker/wechat-reconcile'&&req.method==='POST') {
++      if(!options.guardedWechatReconcile)throw new AppFault(503,'scoped_publish_unavailable','同步保护暂时不可用，内容仍保留在本机。');
++      return json(await options.guardedWechatReconcile(workspace,principal.device.id,await boundedJson(req,4000)));
+     }
+     if(path==='/worker/hello'&&req.method==='POST') {const body=await boundedJson(req,2000);await store.rpc('begin_publish',{p_workspace:workspace,p_epoch:uuid(body.epoch)});await store.db('eric_app_processors?id=eq.'+principal.device.id,'PATCH',{last_seen_at:store.clock().toISOString()});return json({workspace_id:workspace,part_bytes:PART_BYTES,record_catalogue:true});}
+     if(path==='/worker/resources'&&req.method==='GET') {const {offset}=paging(url);return json({items:await store.db('eric_app_resources?workspace_id=eq.'+workspace+'&complete=eq.true&select=id,sha256,bytes&order=id.asc&limit=500&offset='+offset),offset,limit:500});}
+--- a/eric-app-api/index.ts
++++ b/eric-app-api/index.ts
+@@ -8,6 +8,27 @@
+       return await reader(workspace);
+     };
+   })(),
++  guardedWechatPublish: (() => {
++    let writer: ((workspace: string, processor: string, body: any) => Promise<any>) | undefined;
++    return async (workspace: string, processor: string, body: any) => {
++      writer ||= (await import('./receipt_fence_experiment.ts')).createReceiptFencePublisher({databaseUrl:Deno.env.get('SUPABASE_DB_URL')||''});
++      return await writer(workspace,processor,body);
++    };
++  })(),
++  guardedWechatSession: (() => {
++    let session: ((workspace: string, processor: string, body: any) => Promise<any>) | undefined;
++    return async (workspace: string, processor: string, body: any) => {
++      session ||= (await import('./guarded_wechat_session.ts')).createGuardedWechatSession({databaseUrl:Deno.env.get('SUPABASE_DB_URL')||''});
++      return await session(workspace,processor,body);
++    };
++  })(),
++  guardedWechatReconcile: (() => {
++    let reconcile: ((workspace: string, processor: string, body: any) => Promise<any>) | undefined;
++    return async (workspace: string, processor: string, body: any) => {
++      reconcile ||= (await import('./receipt_fence_experiment.ts')).createReceiptFenceReconciler({databaseUrl:Deno.env.get('SUPABASE_DB_URL')||''});
++      return await reconcile(workspace,processor,body);
++    };
++  })(),
+   visionSecret:Deno.env.get('ERIC_VISION_BOT_SECRET')||'',
+   origins:['https://eric-os-workbench-ericpanrun.choicechar22.chatgpt.site',...(Deno.env.get('ERIC_APP_ALLOWED_ORIGINS')||'').split(',').map((x: string)=>x.trim()).filter(Boolean)]});
+ Deno.serve(handler);
+--- /dev/null
++++ b/eric-app-api/receipt_fence_experiment.ts
+@@ -0,0 +1,223 @@
++// Isolated experiment only. This module is not registered in the deployed API.
++// It reuses the existing workspace lock and receipts table; it does not prove
++// personal relevance, valid consent, or safety against uncoordinated writers.
++import { AppFault, UUID, hash, stable } from './store.ts';
++import { validateWechatBundle, LOCK_SQL, PROCESSOR_SQL, WORKER_SQL, EXISTING_SQL, INSERT_SQL } from './guarded_wechat_publish.ts';
++import { validateReconciliation, RECONCILE_EXISTING_SQL } from './guarded_wechat_reconcile.ts';
++
++const RECEIPT_READ='SELECT request_hash,result FROM public.eric_app_receipts WHERE workspace_id=$1::uuid AND request_id=$2::uuid FOR UPDATE';
++const RECEIPT_INSERT=`INSERT INTO public.eric_app_receipts(workspace_id,request_id,request_hash,result)
++  VALUES($1::uuid,$2::uuid,$3::text,($4::text)::jsonb) ON CONFLICT(workspace_id,request_id) DO NOTHING RETURNING request_id`;
++const REVISION='SELECT coalesce(max(revision),0) AS revision FROM public.eric_app_changes WHERE workspace_id=$1::uuid';
++const NAMESPACE='eric-os-wechat-fence-experiment-v1';
++
++function conflict(code='wechat_target_conflict'):never {
++  throw new AppFault(409,code,'同步状态不一致，内容仍保留在本机。');
++}
++
++function canonicalAttempt(value:any):any {
++  // Fence the whole Raw/attempt identity, not only a particular payload hash:
++  // a changed snapshot, source or valid payload must not reopen the old attempt.
++  return {raw_id:value.raw_id,epoch:value.epoch,generation:value.generation};
++}
++
++export async function experimentalFenceKey(workspace:string,value:any):Promise<any> {
++  const attempt=canonicalAttempt(value);
++  const digest=await hash(NAMESPACE+'\0'+workspace+'\0'+stable(attempt));
++  // UUID version 8 is deliberately outside the current public API's accepted
++  // UUID versions 1-5. A collision with any existing receipt still fails closed.
++  const bits=digest.slice(0,12)+'8'+digest.slice(13,16)+'8'+digest.slice(17,32);
++  const id=bits.slice(0,8)+'-'+bits.slice(8,12)+'-'+bits.slice(12,16)+'-'+bits.slice(16,20)+'-'+bits.slice(20);
++  return {id,digest,marker:{kind:'wechat_attempt_fence',version:1,digest}};
++}
++
++async function readFence(tx:any,workspace:string,key:any):Promise<boolean> {
++  const rows=await tx.unsafe(RECEIPT_READ,[workspace,key.id]);
++  if (rows.length>1) conflict('wechat_fence_conflict');
++  if (!rows.length) return false;
++  if (rows[0].request_hash!==key.digest || stable(rows[0].result)!==stable(key.marker))
++    conflict('wechat_fence_conflict');
++  return true;
++}
++
++async function addFence(tx:any,workspace:string,key:any):Promise<void> {
++  if (await readFence(tx,workspace,key)) return;
++  const inserted=await tx.unsafe(RECEIPT_INSERT,[workspace,key.id,key.digest,JSON.stringify(key.marker)]);
++  if (inserted.length!==1 && !await readFence(tx,workspace,key)) conflict('wechat_fence_conflict');
++}
++
++async function workspaceState(tx:any,workspace:string,processor:string,epoch:string,allowRetired=false):Promise<number> {
++  // The advisory lock protects a whole workspace. A stalled JavaScript caller
++  // must not keep that lock indefinitely between SQL statements. PostgreSQL
++  // terminates the database connection and rolls back the transaction;
++  // callers must treat the result as unknown and reconcile before retrying.
++  await tx.unsafe("SET LOCAL transaction_timeout='8s'",[]);
++  await tx.unsafe("SET LOCAL idle_in_transaction_session_timeout='5s'",[]);
++  await tx.unsafe("SET LOCAL statement_timeout='5s'",[]);
++  await tx.unsafe("SET LOCAL lock_timeout='2s'",[]);
++  await tx.unsafe(LOCK_SQL,[workspace]);
++  if ((await tx.unsafe(PROCESSOR_SQL,[workspace,processor])).length!==1)
++    throw new AppFault(401,'worker_revoked','同步凭据已失效，内容仍保留在本机。');
++  const workers=await tx.unsafe(WORKER_SQL,[workspace]);
++  if (workers.length!==1 || !UUID.test(String(workers[0].publisher_epoch)) ||
++      (!allowRetired && String(workers[0].publisher_epoch)!==epoch)) conflict('stale_publisher');
++  const current=Number(workers[0].source_generation);
++  if (!Number.isSafeInteger(current) || current<0) throw new Error('invalid_generation');
++  return current;
++}
++
++function validTargets(existing:any[],records:any[]):boolean {
++  if (existing.length!==4) return false;
++  const expected=new Map(records.map((r:any)=>[r.kind+'\u0000'+r.id,r.source_hash]));
++  return existing.every((r:any)=>r.deleted===false && r.payload_matches===true &&
++    expected.get(r.kind+'\u0000'+r.id)===r.source_hash);
++}
++
++export function experimentalPublisher(client:any) {
++  return async (workspace:string,processor:string,input:any):Promise<any> => {
++    if (!UUID.test(workspace) || !UUID.test(processor)) throw new AppFault(400,'invalid_wechat_scope','同步身份无效。');
++    const body=await validateWechatBundle(input);
++    if (body.generation>=Number.MAX_SAFE_INTEGER) conflict('stale_publisher');
++    const key=await experimentalFenceKey(workspace,body);
++    return await client.begin(async(tx:any)=>{
++      const current=await workspaceState(tx,workspace,processor,body.epoch);
++      if (await readFence(tx,workspace,key)) conflict('stale_publisher');
++      const encoded=JSON.stringify(body.records);
++      const existing=await tx.unsafe(EXISTING_SQL,[workspace,encoded]);
++      if (existing.length) {
++        // Existing SQL compares the full JSON payload and the source hash.
++        if (!validTargets(existing,body.records)) conflict();
++        return {state:'already_published'};
++      }
++      const inserted=await tx.unsafe(INSERT_SQL,[workspace,encoded,body.epoch,current]);
++      if (inserted.length!==4) conflict();
++      const result=await tx.unsafe(REVISION,[workspace]);
++      if (result.length!==1 || !Number.isSafeInteger(Number(result[0].revision)))
++        throw new Error('invalid_receipt');
++      return {state:'published',revision:Number(result[0].revision)};
++    });
++  };
++}
++
++export function experimentalReconciler(client:any) {
++  return async (workspace:string,processor:string,input:any):Promise<any> => {
++    if (!UUID.test(workspace) || !UUID.test(processor)) throw new AppFault(400,'invalid_wechat_scope','同步身份无效。');
++    const value=validateReconciliation(input);
++    const proof=await hash(stable(value));
++    const key=await experimentalFenceKey(workspace,value);
++    return await client.begin(async(tx:any)=>{
++      // A current authenticated processor may check and fence an old attempt.
++      // This never changes the current session; the fence survives even if an
++      // old session identifier is later reactivated by a delayed hello.
++      await workspaceState(tx,workspace,processor,value.epoch,true);
++      const priorFence=await readFence(tx,workspace,key);
++      const existing=await tx.unsafe(RECONCILE_EXISTING_SQL,[workspace,JSON.stringify(value.records)]);
++      if (existing.length) {
++        if (priorFence || existing.length!==4) conflict();
++        const expected=new Map(value.records.map((r:any)=>[r.kind+'\u0000'+r.id,r.source_hash]));
++        for (const row of existing) {
++          const expectedHash=expected.get(row.kind+'\u0000'+row.id);
++          if (row.deleted!==false || expectedHash!==row.source_hash ||
++              await hash(stable(row.payload))!==expectedHash ||
++              (row.kind==='raw_item' && row.payload?.source_id!==value.source_id)) conflict();
++        }
++        return {state:'already_published',proof,generation:value.generation};
++      }
++      if (value.generation>=Number.MAX_SAFE_INTEGER-1) conflict('stale_publisher');
++      if (!priorFence) await addFence(tx,workspace,key);
++      return {state:'fenced_absent',proof,generation:value.generation+1};
++    });
++  };
++}
++
++
++type FactoryOptions={databaseUrl:string;clientFactory?:(url:string)=>Promise<any>};
++
++async function receiptClientFor(databaseUrl:string):Promise<any> {
++  // Isolated candidate only: use a dedicated pool for these two guarded
++  // endpoints. Other API clients continue using their existing dependency.
++  // Production Edge compatibility is not yet validated; this is not deployable.
++  const {default:postgres}=await import('npm:postgres@4.0.0');
++  // Deno 2.6's Node compatibility layer lacks the optional onread buffer API.
++  return postgres(databaseUrl,{max:1,prepare:false,ssl:true,idle_timeout:20,max_lifetime:60,
++    connect_timeout:5,fetch_types:false,onread:false,onnotice:()=>{},debug:false});
++}
++
++type PoolSlot={ready:Promise<any>;users:number;failed:boolean;disposed:boolean};
++
++async function disposeRetiredPool(slot:PoolSlot,onClosed:()=>void):Promise<void> {
++  if (slot.disposed) return;
++  slot.disposed=true;
++  let timer:ReturnType<typeof setTimeout>|undefined;
++  try {
++    let pool:any;
++    try { pool=await slot.ready; }
++    catch { onClosed(); return; } // The factory did not produce a pool.
++    if (typeof pool?.end!=='function') return;
++    // Do not expose driver errors or let cleanup delay an API response forever.
++    // A later successful close can release the conservative capacity limit.
++    const closing=Promise.resolve().then(()=>pool.end({timeout:1})).then(onClosed,()=>{});
++    await Promise.race([
++      closing,
++      new Promise<void>(resolve=>{timer=setTimeout(resolve,1200);}),
++    ]);
++  } catch {
++    // An unavailable or failed close stays counted until process recovery.
++  } finally {
++    if (timer!==undefined) clearTimeout(timer);
++  }
++}
++
++function createReceiptPoolRunner(options:FactoryOptions) {
++  let current:PoolSlot|undefined;
++  const retired=new Set<PoolSlot>();
++  return async (operation:(pool:any)=>Promise<any>):Promise<any> => {
++    // Never create an unbounded number of replacement pools if cleanup hangs.
++    if (!current && retired.size>=2)
++      throw new AppFault(503,'scoped_publish_unavailable','同步保护暂时不可用，内容仍保留在本机。');
++    const slot=current ||= {
++      ready:Promise.resolve().then(()=>(options.clientFactory||receiptClientFor)(options.databaseUrl)),
++      users:0,failed:false,disposed:false,
++    };
++    slot.users++;
++    try {
++      return await operation(await slot.ready);
++    } catch(error) {
++      if (error instanceof AppFault) throw error;
++      if (!slot.failed) { slot.failed=true; retired.add(slot); }
++      // A late failure from an older pool must not discard its replacement.
++      if (current===slot) current=undefined;
++      throw new AppFault(503,'scoped_publish_unavailable','同步结果暂时无法确认，内容仍保留在本机。');
++    } finally {
++      slot.users--;
++      // Let other operations already using this pool settle before closing it.
++      if (slot.failed && slot.users===0) await disposeRetiredPool(slot,()=>retired.delete(slot));
++    }
++  };
++}
++
++export function createReceiptFencePublisher(options:FactoryOptions) {
++  const withClient=createReceiptPoolRunner(options);
++  return async (workspace:string,processor:string,input:any):Promise<any> => {
++    if (!UUID.test(workspace) || !UUID.test(processor))
++      throw new AppFault(400,'invalid_wechat_scope','同步身份无效。');
++    // Validate before creating a database connection, even for a retry.
++    await validateWechatBundle(input);
++    if (!options.databaseUrl)
++      throw new AppFault(503,'scoped_publish_unavailable','同步保护暂时不可用，内容仍保留在本机。');
++    return await withClient(pool=>experimentalPublisher(pool)(workspace,processor,input));
++  };
++}
++
++
++export function createReceiptFenceReconciler(options:FactoryOptions) {
++  const withClient=createReceiptPoolRunner(options);
++  return async (workspace:string,processor:string,input:any):Promise<any> => {
++    if (!UUID.test(workspace) || !UUID.test(processor))
++      throw new AppFault(400,'invalid_wechat_scope','同步身份无效。');
++    validateReconciliation(input);
++    if (!options.databaseUrl)
++      throw new AppFault(503,'scoped_publish_unavailable','同步保护暂时不可用，内容仍保留在本机。');
++    return await withClient(pool=>experimentalReconciler(pool)(workspace,processor,input));
++  };
++}
