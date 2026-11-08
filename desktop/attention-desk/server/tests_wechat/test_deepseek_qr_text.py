@@ -75,6 +75,12 @@ def test_scan_words_do_not_exempt_personal_or_encoded_data(text):
     with pytest.raises(ExtractionFailure):minimize_notice(text)
 
 
+@pytest.mark.parametrize('text',['有意参加的同学请扫码，张三同学负责。','有意参加的张三同学请扫码。'])
+def test_generic_audience_never_exempts_a_named_person(text):
+    from server.cloud_sync.wechat_outbound_validation import _safe_text
+    assert not _safe_text(text)
+
+
 def test_attachment_dependent_incomplete_notice_remains_held(personal):
     def incomplete(payload):
         result=output_for(payload)
@@ -95,3 +101,28 @@ def test_cloud_qr_hint_never_exempts_any_other_validation(personal,change):
     else:snap['original_text']+='手机号13800000000' if change=='phone' else '名单：张三、李四'
     raw=rows['raw_item']['payload']
     with pytest.raises(ValueError):validate_outbound(rows,raw['id'],snap['id'],raw['source_id'])
+
+
+@pytest.mark.parametrize('index',range(3))
+def test_actual_fictional_deepseek_response_saves_and_projects_without_another_call(personal,index):
+    fixture=Path(__file__).resolve().parents[1]/'fixtures/wechat/qr-text-live-replay.json'
+    case=json.loads(fixture.read_text(encoding='utf8'))['cases'][index]
+    sample=case['sample']
+    def response(payload):
+        result=deepcopy(case['response']);result['batch_id']=payload['batch_id']
+        return result
+    calls,job=analyzed(personal,text=sample['text'],time=sample['source_time'],media=True,response=response)
+    if sample['id']=='qr-incomplete':
+        with pytest.raises(ValueError,match='no_complete_school_notice'):preview(personal,job)
+    else:
+        result=preview(personal,job)
+        assert result==preview(personal,job)
+        assert result['samples']['samples'][0]['payload']['text']==sample['text']
+        with personal.connection() as db:
+            item=json.loads(db.execute("SELECT data_json FROM wechat_candidate WHERE model_item_id!='_pending'").fetchone()[0])
+        assert item['deadline']['value']==('2026-11-10T12:00' if sample['id']=='qr-required' else '2026-11-12T18:00')
+        assert item['location']==('教学楼一楼' if sample['id']=='qr-required' else '图书馆报告厅')
+        assert item['action_required']==(sample['id']=='qr-required')
+        assert '扫码' in item['action'] or '扫描二维码' in item['action']
+        assert result['bundle']['resources']==[]
+    assert len(calls)==1

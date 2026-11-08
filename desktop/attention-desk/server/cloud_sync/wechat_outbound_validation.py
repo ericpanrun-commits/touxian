@@ -87,7 +87,7 @@ def _safe_text(value):
     if '[敏感内容待核对]' in canonical:return False
     canonical=_privacy_scan_text(canonical)
     if canonical is None:return False
-    unnamed=re.sub(r'各位同学|全体同学|所有同学|同学们|老师们','',canonical)
+    unnamed=re.sub(r'有意参加的同学|各位同学|全体同学|所有同学|同学们|老师们','',canonical)
     return not (EMAIL.search(canonical) or PHONE.search(canonical) or MENTION.search(canonical) or
                 SENSITIVE.search(canonical) or NAMED.search(unnamed))
 

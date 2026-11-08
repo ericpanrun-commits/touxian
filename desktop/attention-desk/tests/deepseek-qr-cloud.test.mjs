@@ -39,7 +39,8 @@ for(const kind of ['image','binary','extra warning','altered warning','missing w
     await assert.rejects(()=>validateWechatBundle(value));
   });
 }
-for(const text of ['请扫码，名单：张三、李四','请扫码，学号2026001234','请扫码，手机号13800000000']){
+for(const text of ['请扫码，名单：张三、李四','请扫码，学号2026001234','请扫码，手机号13800000000',
+    '有意参加的同学请扫码，张三同学负责。','有意参加的张三同学请扫码。']){
   test('scan wording does not exempt private text even with matching hashes and fields',async()=>{
     const value=body();
     await update(value,(s,rows)=>{

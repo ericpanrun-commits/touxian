@@ -1,0 +1,366 @@
+{
+  "synthetic_only": true,
+  "real_messages_read": 0,
+  "images_sent": 0,
+  "cases": [
+    {
+      "sample": {
+        "id": "qr-incomplete",
+        "text": "请扫码，具体事项见图片。",
+        "source_time": "2026-11-08T22:00:00+08:00",
+        "time_reliability": "reliable"
+      },
+      "response": {
+        "schema_version": "wechat.v1",
+        "batch_id": "qr-incomplete",
+        "items": [
+          {
+            "id": "item-1",
+            "important": false,
+            "relevant": null,
+            "action_required": false,
+            "attention_level": "ignore",
+            "information_complete": false,
+            "await_more_context": true,
+            "category": "other",
+            "title": "扫码通知（具体事项见图片）",
+            "summary": "消息仅要求扫码并称具体事项见图片，正文未说明事项、适用对象或操作内容。",
+            "start_time": null,
+            "end_time": null,
+            "deadline": null,
+            "location": null,
+            "action": null,
+            "target_people": [],
+            "priority": "P3",
+            "confidence": 0.6,
+            "evidence_message_ids": [
+              "m1"
+            ],
+            "reason": "正文未给出具体事项，仅指向未提供的图片，无法形成有效通知。",
+            "time_text": "",
+            "needs_review": false,
+            "participation": "unclear",
+            "notice_kind": "information",
+            "related_candidate_id": null,
+            "deadlines": [],
+            "actions": [],
+            "evidence_mapping": [
+              {
+                "field": "summary",
+                "evidence_ids": [
+                  "e1"
+                ]
+              }
+            ],
+            "uncertainties": [
+              "具体事项需查看图片，图片未提供"
+            ],
+            "is_school_notice": false
+          }
+        ],
+        "evidence": [
+          {
+            "id": "e1",
+            "message_id": "m1",
+            "block_id": "b1",
+            "quote": "请扫码，具体事项见图片。",
+            "start": 0,
+            "end": 12
+          }
+        ]
+      },
+      "usage": {
+        "prompt_tokens": 4192,
+        "completion_tokens": 289,
+        "total_tokens": 4481,
+        "prompt_cache_hit_tokens": 3584,
+        "prompt_cache_miss_tokens": 608
+      }
+    },
+    {
+      "sample": {
+        "id": "qr-optional",
+        "text": "学校图书馆自愿讲座开放报名。有意参加的同学请于2026年11月12日18:00前扫码填写报名表，讲座地点为图书馆报告厅。二维码见群内图片。",
+        "source_time": "2026-11-08T22:00:00+08:00",
+        "time_reliability": "reliable"
+      },
+      "response": {
+        "schema_version": "wechat.v1",
+        "batch_id": "qr-optional",
+        "items": [
+          {
+            "id": "item-1",
+            "important": false,
+            "relevant": true,
+            "action_required": false,
+            "attention_level": "fyi",
+            "information_complete": true,
+            "await_more_context": false,
+            "category": "registration",
+            "title": "学校图书馆自愿讲座报名",
+            "summary": "学校图书馆自愿讲座开放报名，有意参加的同学请于2026年11月12日18:00前扫码填写报名表，讲座地点为图书馆报告厅。",
+            "start_time": null,
+            "end_time": null,
+            "deadline": {
+              "value": "2026-11-12T18:00",
+              "end_value": null,
+              "precision": "minute",
+              "range_precision": null,
+              "timezone": "Asia/Shanghai",
+              "original_text": "2026年11月12日18:00前",
+              "anchor_message_id": "m1",
+              "uncertain": false,
+              "evidence_ids": [
+                "e1"
+              ]
+            },
+            "location": "图书馆报告厅",
+            "action": "有意参加的同学于2026年11月12日18:00前扫码填写报名表",
+            "target_people": [
+              "有意参加的同学"
+            ],
+            "priority": "P3",
+            "confidence": 0.95,
+            "evidence_message_ids": [
+              "m1"
+            ],
+            "reason": "自愿讲座报名通知，非强制，保留为fyi。",
+            "time_text": "2026年11月12日18:00前",
+            "needs_review": false,
+            "participation": "optional",
+            "notice_kind": "new",
+            "related_candidate_id": null,
+            "deadlines": [
+              {
+                "id": "d1",
+                "role": "报名截止",
+                "relation": "current",
+                "time": {
+                  "value": "2026-11-12T18:00",
+                  "end_value": null,
+                  "precision": "minute",
+                  "range_precision": null,
+                  "timezone": "Asia/Shanghai",
+                  "original_text": "2026年11月12日18:00前",
+                  "anchor_message_id": "m1",
+                  "uncertain": false,
+                  "evidence_ids": [
+                    "e1"
+                  ]
+                }
+              }
+            ],
+            "actions": [
+              {
+                "id": "a1",
+                "title": "扫码填写讲座报名表",
+                "kind": "suggested",
+                "deadline_ids": [
+                  "d1"
+                ],
+                "evidence_ids": [
+                  "e1"
+                ]
+              }
+            ],
+            "evidence_mapping": [
+              {
+                "field": "deadline",
+                "evidence_ids": [
+                  "e1"
+                ]
+              },
+              {
+                "field": "location",
+                "evidence_ids": [
+                  "e1"
+                ]
+              },
+              {
+                "field": "action",
+                "evidence_ids": [
+                  "e1"
+                ]
+              }
+            ],
+            "uncertainties": [],
+            "is_school_notice": true
+          }
+        ],
+        "evidence": [
+          {
+            "id": "e1",
+            "message_id": "m1",
+            "block_id": "b1",
+            "quote": "学校图书馆自愿讲座开放报名。有意参加的同学请于2026年11月12日18:00前扫码填写报名表，讲座地点为图书馆报告厅。二维码见群内图片。",
+            "start": 0,
+            "end": 69
+          }
+        ]
+      },
+      "usage": {
+        "prompt_tokens": 4258,
+        "completion_tokens": 573,
+        "total_tokens": 4831,
+        "prompt_cache_hit_tokens": 3584,
+        "prompt_cache_miss_tokens": 674
+      }
+    },
+    {
+      "sample": {
+        "id": "qr-required",
+        "text": "请全体同学于2026年11月10日12:00前扫描二维码完成活动登记。集合时间：2026年11月11日09:00。地点：教学楼一楼。二维码见群内图片。",
+        "source_time": "2026-11-08T22:00:00+08:00",
+        "time_reliability": "reliable"
+      },
+      "response": {
+        "schema_version": "wechat.v1",
+        "batch_id": "qr-required",
+        "items": [
+          {
+            "id": "item-1",
+            "important": true,
+            "relevant": true,
+            "action_required": true,
+            "attention_level": "action",
+            "information_complete": true,
+            "await_more_context": false,
+            "category": "registration",
+            "title": "全体同学扫码完成活动登记",
+            "summary": "请全体同学于2026年11月10日12:00前扫描二维码完成活动登记；集合时间为2026年11月11日09:00，地点为教学楼一楼。",
+            "start_time": {
+              "value": "2026-11-11T09:00",
+              "end_value": null,
+              "precision": "minute",
+              "range_precision": null,
+              "timezone": "Asia/Shanghai",
+              "original_text": "集合时间：2026年11月11日09:00",
+              "anchor_message_id": "m1",
+              "uncertain": false,
+              "evidence_ids": [
+                "e1"
+              ]
+            },
+            "end_time": null,
+            "deadline": {
+              "value": "2026-11-10T12:00",
+              "end_value": null,
+              "precision": "minute",
+              "range_precision": null,
+              "timezone": "Asia/Shanghai",
+              "original_text": "2026年11月10日12:00前",
+              "anchor_message_id": "m1",
+              "uncertain": false,
+              "evidence_ids": [
+                "e1"
+              ]
+            },
+            "location": "教学楼一楼",
+            "action": "于2026年11月10日12:00前扫描二维码完成活动登记，并于2026年11月11日09:00到教学楼一楼集合。",
+            "target_people": [
+              "全体同学"
+            ],
+            "priority": "P1",
+            "confidence": 0.95,
+            "evidence_message_ids": [
+              "m1"
+            ],
+            "reason": "通知明确面向全体同学，包含扫码登记截止时间、集合时间与地点。",
+            "time_text": "登记截止：2026年11月10日12:00前；集合时间：2026年11月11日09:00",
+            "needs_review": false,
+            "participation": "required",
+            "notice_kind": "new",
+            "related_candidate_id": null,
+            "deadlines": [
+              {
+                "id": "dl-1",
+                "role": "活动登记截止",
+                "relation": "current",
+                "time": {
+                  "value": "2026-11-10T12:00",
+                  "end_value": null,
+                  "precision": "minute",
+                  "range_precision": null,
+                  "timezone": "Asia/Shanghai",
+                  "original_text": "2026年11月10日12:00前",
+                  "anchor_message_id": "m1",
+                  "uncertain": false,
+                  "evidence_ids": [
+                    "e1"
+                  ]
+                }
+              }
+            ],
+            "actions": [
+              {
+                "id": "act-1",
+                "title": "扫描二维码完成活动登记",
+                "kind": "explicit",
+                "deadline_ids": [
+                  "dl-1"
+                ],
+                "evidence_ids": [
+                  "e1"
+                ]
+              },
+              {
+                "id": "act-2",
+                "title": "到教学楼一楼集合",
+                "kind": "explicit",
+                "deadline_ids": [],
+                "evidence_ids": [
+                  "e1"
+                ]
+              }
+            ],
+            "evidence_mapping": [
+              {
+                "field": "deadline",
+                "evidence_ids": [
+                  "e1"
+                ]
+              },
+              {
+                "field": "start_time",
+                "evidence_ids": [
+                  "e1"
+                ]
+              },
+              {
+                "field": "location",
+                "evidence_ids": [
+                  "e1"
+                ]
+              },
+              {
+                "field": "action",
+                "evidence_ids": [
+                  "e1"
+                ]
+              }
+            ],
+            "uncertainties": [],
+            "is_school_notice": true
+          }
+        ],
+        "evidence": [
+          {
+            "id": "e1",
+            "message_id": "m1",
+            "block_id": "b1",
+            "quote": "请全体同学于2026年11月10日12:00前扫描二维码完成活动登记。集合时间：2026年11月11日09:00。地点：教学楼一楼。二维码见群内图片。",
+            "start": 0,
+            "end": 75
+          }
+        ]
+      },
+      "usage": {
+        "prompt_tokens": 4268,
+        "completion_tokens": 737,
+        "total_tokens": 5005,
+        "prompt_cache_hit_tokens": 1024,
+        "prompt_cache_miss_tokens": 3244
+      }
+    }
+  ]
+}

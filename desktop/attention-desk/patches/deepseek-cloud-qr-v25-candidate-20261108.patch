@@ -1,5 +1,14 @@
 --- a/guarded_wechat_publish.ts
 +++ b/guarded_wechat_publish.ts
+@@ -50,7 +50,7 @@
+   const scanned=privacyScanText(canonical);
+   if(scanned===null)return false;
+   canonical=scanned;
+-  const unnamed=canonical.replace(/各位同学|全体同学|所有同学|同学们|老师们/g,'');
++  const unnamed=canonical.replace(/有意参加的同学|各位同学|全体同学|所有同学|同学们|老师们/g,'');
+   if (/@[^\s@，,：:。；;！!\n]{1,40}/.test(canonical) ||
+       /[a-z0-9._%+-]+[ \t]*@[ \t]*[a-z0-9-]+(?:[ \t]*\.[ \t]*[a-z0-9-]+)+/i.test(canonical) ||
+       /(?<!\d)(?:\+?86[ \t.()\-]*)?1[ \t.()\-]*[3-9](?:[ \t.()\-]*\d){9}(?!\d)/.test(canonical)) return false;
 @@ -101,14 +101,21 @@
        !object(review.source,['id','kind','name']) || review.source.id!==body.source_id || review.source.kind!=='wechat' ||
        review.source.name!=='微信通知（脱敏节选）' || !equal(review.item,raw) || !equal(detail.review,review)) invalid();
