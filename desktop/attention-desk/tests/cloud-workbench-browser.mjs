@@ -192,6 +192,16 @@ try {
   const desktop=await environment(browser,{width:1440,height:1000},'desktop');
   const tablet=await environment(browser,{width:1024,height:1366},'tablet');
   const phone=await environment(browser,{width:390,height:844},'phone');
+  for (const env of [desktop, phone]) {
+    await env.page.goto(BASE + '/?view=portfolio');
+    await expect(env.page.getByRole('heading', { name: '工程作品保存在 Windows 本机', exact: true })).toBeVisible();
+    await expect(env.page.getByText('当前 Web / PWA 无法直接读取 D 盘目录。', { exact: false })).toBeVisible();
+    assert.equal(await env.page.getByRole('link', { name: '打开本机作品集' }).getAttribute('href'), 'http://127.0.0.1:8765/?personal_view=portfolio');
+    await shot(env.page, 'portfolio-' + env.label + '.png');
+    await env.page.goto(BASE + '/?view=today');
+    await expect(env.page.getByRole('heading', { name: 'Today', exact: true })).toBeVisible();
+  }
+  reports.push({ portfolio: 'PWA limitation and explicit local-only launch; no portfolio API, upload or cloud synchronization' });
   await courseNoteConfirmationFlow({phone,BASE,state,course:generalCourse,shot,reports});
   for(const env of [desktop,tablet,phone]){
     const metrics=await env.page.evaluate(()=>({width:innerWidth,scroll:document.documentElement.scrollWidth,content:document.querySelector('main').getBoundingClientRect().width}));
