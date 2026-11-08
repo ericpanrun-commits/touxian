@@ -247,7 +247,8 @@ def launch_if_authorized(directory):
     return subprocess.Popen(command,
         cwd=Path(__file__).resolve().parents[2],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,close_fds=True,
-        creationflags=subprocess.CREATE_NO_WINDOW|subprocess.DETACHED_PROCESS)
+        # DETACHED_PROCESS would make Windows ignore CREATE_NO_WINDOW.
+        creationflags=subprocess.CREATE_NO_WINDOW)
 
 
 def main():

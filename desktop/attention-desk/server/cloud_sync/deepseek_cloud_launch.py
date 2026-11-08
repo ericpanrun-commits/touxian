@@ -28,4 +28,5 @@ def launch_if_authorized(directory):
     return subprocess.Popen([sys.executable,str(root/'scripts/deepseek-cloud-worker.py'),
         '--directory',str(directory),'--run'],cwd=root,stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,close_fds=True,
-        creationflags=subprocess.CREATE_NO_WINDOW|subprocess.DETACHED_PROCESS)
+        # DETACHED_PROCESS would make Windows ignore CREATE_NO_WINDOW.
+        creationflags=subprocess.CREATE_NO_WINDOW)

@@ -137,7 +137,10 @@ def test_startup_hook_is_inert_without_permission_and_after_revocation(worker,mo
     assert launch.launch_if_authorized(directory)=='synthetic-process'
     command=starts[0][0][0]
     assert command[-1]=='--run' and command[1].endswith('deepseek-cloud-worker.py')
-    assert starts[0][1]['creationflags'] & launch.subprocess.CREATE_NO_WINDOW
+    options=starts[0][1]
+    assert options['creationflags'] == launch.subprocess.CREATE_NO_WINDOW
+    assert options['stdin'] == options['stdout'] == options['stderr'] == launch.subprocess.DEVNULL
+    assert options['close_fds'] is True
     module.revoke(directory)
     assert launch.launch_if_authorized(directory) is None and len(starts)==1
 

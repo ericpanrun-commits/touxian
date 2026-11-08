@@ -143,6 +143,64 @@ def test_authorized_launch_is_hidden_and_keeps_parent_controls(personal,monkeypa
     arguments,options=calls[0]
     assert 'server.wechat_collect.deepseek_worker' in arguments[0]
     assert ('--unlimited-test-tokens' in arguments[0]) is uncapped
-    assert options['creationflags'] & subprocess.CREATE_NO_WINDOW
+    assert options['creationflags'] == subprocess.CREATE_NO_WINDOW
+    assert options['stdin'] == options['stdout'] == options['stderr'] == subprocess.DEVNULL
+    assert options['close_fds'] is True
     assert os.environ['ATTENTION_RECOVERY_CONTROL_PATH']==before
     assert json.loads((personal.path.parent/'recovery-controls.json').read_text())['pause_paid_ai'] is True
+
+
+@pytest.mark.parametrize('windowless_interpreter',[False,True])
+def test_real_venv_launch_chain_has_no_visible_console(personal,monkeypatch,tmp_path,windowless_interpreter):
+    """Exercise the installed Windows venv redirector and its actual interpreter."""
+    import ctypes
+    import os
+    from pathlib import Path
+    import subprocess
+    import sys
+    import time
+    from server.wechat_collect import deepseek_worker as module
+
+    if os.name!='nt' or sys.prefix==sys.base_prefix:
+        pytest.skip('Requires an actual Windows virtual environment')
+    prepared(personal,monkeypatch)
+    executable=Path(sys.executable).with_name('pythonw.exe' if windowless_interpreter else 'python.exe')
+    assert executable.is_file()
+    monkeypatch.setattr(module.sys,'executable',str(executable))
+    result=tmp_path/'startup-probe.json'
+    release=tmp_path/'startup-release'
+    probe='''import ctypes,json,os,sys,time
+from pathlib import Path
+kernel=ctypes.WinDLL('kernel32',use_last_error=True)
+kernel.GetConsoleWindow.restype=ctypes.c_void_p
+window=kernel.GetConsoleWindow()
+user=ctypes.WinDLL('user32',use_last_error=True)
+user.IsWindowVisible.argtypes=[ctypes.c_void_p]
+Path(sys.argv[1]).write_text(json.dumps({'pid':os.getpid(),'ppid':os.getppid(),
+    'prefix':sys.prefix,'executable':sys.executable,'base_executable':sys._base_executable,
+    'console_visible':bool(window and user.IsWindowVisible(window))}),encoding='utf8')
+deadline=time.monotonic()+15
+while not Path(sys.argv[2]).exists() and time.monotonic()<deadline:time.sleep(.05)
+'''
+    popen=subprocess.Popen
+    def start_probe(command,**options):
+        # Preserve the real hook's executable, working directory and startup options.
+        return popen([command[0],'-c',probe,str(result),str(release)],**options)
+    monkeypatch.setattr(module.subprocess,'Popen',start_probe)
+    child=module.launch_if_authorized(personal.path.parent)
+    assert child is not None
+    try:
+        deadline=time.monotonic()+10
+        while not result.exists() and child.poll() is None and time.monotonic()<deadline:
+            time.sleep(.05)
+        assert result.exists(), f'Venv probe failed: {child.poll()}'
+        state=json.loads(result.read_text(encoding='utf8'))
+        assert state['console_visible'] is False
+        assert Path(state['prefix']).resolve()==Path(sys.prefix).resolve()
+        assert Path(state['executable']).resolve()==executable.resolve()
+        assert state['pid']!=child.pid and state['ppid']==child.pid
+        assert Path(state['base_executable']).is_file()
+    finally:
+        release.touch()
+        child.wait(timeout=20)
+    assert child.returncode==0
