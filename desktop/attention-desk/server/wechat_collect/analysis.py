@@ -111,6 +111,25 @@ def primary_message_ids(connection, batch_id):
         "ORDER BY ordinal,message_id,content_revision", (batch_id,))]
 
 
+def resolve_clock(phrase):
+    """Read an explicit civil clock; dotted notation requires a day-period label."""
+    match=re.search(r'(上午|下午|晚上|中午|凌晨)\s*([0-9]{1,2})[.．:：点时]([0-9]{1,2})?(?!\d)',phrase)
+    if match:
+        period,hour,minute=match.groups()
+        hour,minute=int(hour),int(minute or 0)
+        if not 0<=hour<=12 or not 0<=minute<60:
+            return None
+        if period in {'下午','晚上'} and 1<=hour<12:
+            hour+=12
+        elif period=='中午' and hour!=12:
+            return None
+        elif period=='凌晨' and hour==12:
+            hour=0
+        return f'{hour:02d}:{minute:02d}'
+    match=re.search(r'(?<!\d)([01]?\d|2[0-3])[:：点时]([0-5]?\d)?',phrase)
+    return f'{int(match[1]):02d}:{int(match[2] or 0):02d}' if match else None
+
+
 def build_messages(batch, snapshot, context):
     metadata=snapshot['wechat']
     primary=set(batch['primary_ids'])
@@ -277,8 +296,7 @@ def validate_output(raw, batch, snapshot, context, *, legacy=False):
                 expected_range=resolve_range(value['original_text'],anchor['source_time'] if reliable else None,value['range_precision'])
                 invalid=not phrase_backed or expected_range!=(value['value'],value['end_value'])
             if value['precision']=='minute' and value['value']:
-                clock_match=re.search(r'(?<!\d)([01]?\d|2[0-3])[:：点时]([0-5]?\d)?',value['original_text'])
-                clock_value=f'{int(clock_match[1]):02d}:{int(clock_match[2] or 0):02d}' if clock_match else None
+                clock_value=resolve_clock(value['original_text'])
                 invalid=invalid or not clock_value or value['value'][11:]!=clock_value
             if invalid:
                 value.update(value=None,end_value=None,precision='unknown',range_precision=None,uncertain=True)
