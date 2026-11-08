@@ -48,7 +48,7 @@ async function fingerprints(path) {
   const result = {};
   for (const name of await readdir(path)) {
     const file = join(path, name), info = await stat(file);
-    if (info.isDirectory()) Object.assign(result, await fingerprints(file));
+    if (info.isDirectory()) { result[file] = { directory: true }; Object.assign(result, await fingerprints(file)); }
     else result[file] = { hash: createHash('sha256').update(await readFile(file)).digest('hex'), size: info.size, mtime: info.mtimeMs };
   }
   return result;
@@ -197,9 +197,87 @@ try {
   await page.getByRole('button', { name: '查看作品：转向节（合成验收）' }).waitFor();
   checks.push('loading-failure-and-retry');
 
+  const standalone = ['单件.SLDPRT', '单件.DWG', '独立总成.SLDASM', '草图.DXF', '独立图纸.PDF', '独立图片.PNG'];
+  const assembly = join(root, '关联装配');
+  await mkdir(join(assembly, 'parts'), { recursive: true });
+  await Promise.all([
+    ...standalone.map(name => writeFile(join(root, name), name.endsWith('.PNG') ? png : name.endsWith('.PDF') ? pdfFixture() : 'synthetic standalone ' + name)),
+    writeFile(join(assembly, '总成.SLDASM'), 'synthetic relative reference: parts/子零件.SLDPRT'),
+    writeFile(join(assembly, 'parts', '子零件.SLDPRT'), 'synthetic referenced part'),
+    ...['~$锁文件.SLDPRT', 'Backup (2) of 零件.SLDPRT', '图纸.dwg.bak', '自动保存.sv$', 'readme.txt'].flatMap(name =>
+      [root, project].map(folder => writeFile(join(folder, name), 'synthetic ignored original'))),
+  ]);
+  const mixedOriginals = await fingerprints(root);
+  await page.getByRole('button', { name: '刷新作品', exact: true }).click();
+  await page.getByText('8 个作品', { exact: true }).waitFor();
+  assert.equal(await page.locator('.portfolio-card').count(), 8);
+  assert.equal(await page.getByRole('button', { name: '查看作品：子零件.SLDPRT', exact: true }).count(), 0);
+  assert.equal(await page.getByRole('button', { name: '查看作品：总成.SLDASM', exact: true }).count(), 0);
+  assert.ok(!(await page.locator('.portfolio-grid').innerText()).includes('Backup (2)'));
+  for (const [name, type] of [['单件.SLDPRT', 'SLDPRT'], ['单件.DWG', 'DWG'], ['独立总成.SLDASM', 'SLDASM'], ['草图.DXF', 'DXF'], ['独立图纸.PDF', 'PDF']]) {
+    await page.getByRole('button', { name: '查看作品：' + name, exact: true }).getByRole('img', { name: type + ' 文件图标', exact: true }).waitFor();
+  }
+  const standaloneImage = page.getByRole('button', { name: '查看作品：独立图片.PNG', exact: true });
+  await expect(standaloneImage.locator('img')).toHaveJSProperty('naturalWidth', 320);
+  await page.screenshot({ path: join(output, 'desktop.png'), fullPage: true });
+  checks.push('mixed-root-files-folder-projects-no-nested-duplicates-no-backup-cards');
+
+  await search.fill('单件');
+  assert.equal(await page.locator('.portfolio-card').count(), 2);
+  assert.deepEqual((await page.locator('.portfolio-card strong').allTextContents()).sort(), ['单件.DWG', '单件.SLDPRT']);
+  await page.getByRole('button', { name: '清除作品搜索' }).click();
+  await page.getByLabel('文件类型', { exact: true }).selectOption('SLDASM');
+  assert.equal(await page.locator('.portfolio-card').count(), 2);
+  await page.getByLabel('文件类型', { exact: true }).selectOption('all');
+  checks.push('standalone-original-filenames-type-icons-and-shared-filter');
+
+  await page.getByRole('button', { name: '查看作品：单件.SLDPRT', exact: true }).click();
+  const singleSheet = page.getByRole('dialog', { name: '单件.SLDPRT', exact: true });
+  await singleSheet.waitFor();
+  assert.equal(await singleSheet.locator('.portfolio-files li').count(), 1);
+  await singleSheet.getByRole('button', { name: '打开所在文件夹', exact: true }).click();
+  await singleSheet.getByText('已请求资源管理器打开所在文件夹。', { exact: true }).waitFor();
+  assert.deepEqual((await (await fetch(base + '/__test__/state')).json()).opened, [{ path: root, operation: 'explore' }]);
+  await page.screenshot({ path: join(output, 'single-file-detail.png'), fullPage: true });
+  await page.keyboard.press('Escape');
+  checks.push('standalone-detail-metadata-and-exact-parent-explorer');
+
+  await standaloneImage.click();
+  const imageSheet = page.getByRole('dialog', { name: '独立图片.PNG', exact: true });
+  await imageSheet.getByRole('button', { name: '查看图片' }).click();
+  await expect(imageSheet.locator('.portfolio-image-preview img')).toHaveJSProperty('naturalWidth', 320);
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: '查看作品：独立图纸.PDF', exact: true }).click();
+  const singlePdf = page.getByRole('dialog', { name: '独立图纸.PDF', exact: true }).getByRole('link', { name: '预览 PDF' });
+  const singlePdfResponse = await context.request.get(new URL(await singlePdf.getAttribute('href'), base).href);
+  assert.match(singlePdfResponse.headers()['content-type'], /application\/pdf/);
+  assert.deepEqual(await singlePdfResponse.body(), pdfFixture());
+  await page.keyboard.press('Escape');
+  checks.push('standalone-image-and-original-pdf-local-preview');
+
+  await page.getByRole('button', { name: '查看作品：关联装配', exact: true }).click();
+  const assemblySheet = page.getByRole('dialog', { name: '关联装配', exact: true });
+  assert.equal(await assemblySheet.locator('.portfolio-files li').count(), 2);
+  await assemblySheet.getByText('parts/子零件.SLDPRT', { exact: true }).waitFor();
+  await page.keyboard.press('Escape');
+  await stop(); start(); await ready(); await page.reload();
+  await page.getByText('8 个作品', { exact: true }).waitFor();
+  assert.deepEqual(await fingerprints(root), mixedOriginals);
+  checks.push('both-modes-restart-and-assembly-reference-tree-bytes-size-mtime-unchanged');
+
+  await rename(join(root, '单件.SLDPRT'), join(root, '单件已改名.SLDPRT'));
+  await page.getByRole('button', { name: '刷新作品', exact: true }).click();
+  await page.getByRole('button', { name: '查看作品：单件已改名.SLDPRT', exact: true }).waitFor();
+  assert.equal(await page.getByRole('button', { name: '查看作品：单件.SLDPRT', exact: true }).count(), 0);
+  await unlink(join(root, '单件已改名.SLDPRT'));
+  await page.getByRole('button', { name: '刷新作品', exact: true }).click();
+  await page.getByText('7 个作品', { exact: true }).waitFor();
+  checks.push('standalone-external-rename-and-removal-refresh');
+
   await page.getByRole('button', { name: '深色', exact: true }).click();
   await page.screenshot({ path: join(output, 'dark.png'), fullPage: true });
   await page.getByRole('button', { name: '浅色', exact: true }).click();
+  await page.getByLabel('文件类型', { exact: true }).selectOption('DWG');
   await page.setViewportSize({ width: 390, height: 844 });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
   await page.screenshot({ path: join(output, 'mobile.png'), fullPage: true });

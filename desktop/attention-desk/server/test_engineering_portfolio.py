@@ -193,3 +193,128 @@ def test_missing_root_and_environment_override(portfolio, tmp_path, monkeypatch)
     assert not result['exists'] and not result['items'] and result['managed']
     assert not (tmp_path / 'not-created').exists()
     assert client_for(portfolio).put('/api/personal/portfolio/root', json={'root': str(portfolio.root())}).status_code == 409
+
+
+@pytest.mark.parametrize('extension', ['SLDPRT', 'sldasm', 'SLDDRW', 'DWG', 'dxf', 'PDF', 'JPG', 'jpeg', 'PNG', 'STEP', 'stp'])
+def test_standalone_files_keep_original_name_type_bytes_and_restart(portfolio, extension):
+    root = portfolio.root()
+    path = root / f'独立作品（原名）.{extension}'
+    path.write_bytes(b'synthetic standalone original')
+    before = fingerprints(root)
+    paths = {str(item.relative_to(root)) for item in root.rglob('*')}
+    client = client_for(portfolio)
+    response = client.get('/api/personal/portfolio')
+    assert response.status_code == 200
+    items = response.json()['items']
+    assert len(items) == 1
+    item = items[0]
+    assert item['title'] == path.name and item['kind'] == 'file'
+    assert item['types'] == [extension.upper()]
+    assert len(item['files']) == 1 and item['files'][0]['name'] == path.name
+    assert item['cover'] == (encode(path.name) if extension.upper() in {'JPG', 'JPEG', 'PNG'} else None)
+    preview = client.get(f'/api/personal/portfolio/projects/{item["id"]}/preview/{item["files"][0]["id"]}')
+    if extension.upper() in {'JPG', 'JPEG', 'PNG', 'PDF'}:
+        assert preview.status_code == 200 and preview.content == path.read_bytes()
+        assert preview.headers['cache-control'] == 'no-store'
+    else:
+        assert preview.status_code == 415
+    assert Portfolio(portfolio.settings, portfolio.repository).scan() == portfolio.scan()
+    assert fingerprints(root) == before
+    assert {str(item.relative_to(root)) for item in root.rglob('*')} == paths
+
+
+def test_mixed_modes_do_not_promote_or_duplicate_assembly_files(portfolio):
+    root = portfolio.root()
+    for name in ['零件.SLDPRT', '零件.DWG']:
+        (root / name).write_bytes(b'synthetic standalone')
+    assembly = root / '复杂装配项目'
+    (assembly / 'parts').mkdir(parents=True)
+    (assembly / '总成.SLDASM').write_bytes('synthetic references: 零件.SLDPRT; parts/零件.SLDPRT'.encode())
+    (assembly / '零件.SLDPRT').write_bytes(b'synthetic assembly child')
+    (assembly / 'parts' / '零件.SLDPRT').write_bytes(b'synthetic nested child')
+    before = fingerprints(root)
+    paths = {str(item.relative_to(root)) for item in root.rglob('*')}
+    for service in [portfolio, Portfolio(portfolio.settings, portfolio.repository)]:
+        for _ in range(2):
+            items = service.scan()['items']
+            assert len(items) == 3
+            assert {item['title'] for item in items} == {'零件.SLDPRT', '零件.DWG', assembly.name}
+            assert len({item['id'] for item in items}) == 3
+            folder = next(item for item in items if item['kind'] == 'folder')
+            assert {file['name'] for file in folder['files']} == {'总成.SLDASM', '零件.SLDPRT', 'parts/零件.SLDPRT'}
+    assert fingerprints(root) == before
+    assert {str(item.relative_to(root)) for item in root.rglob('*')} == paths
+
+
+@pytest.mark.parametrize('name', [
+    '~$零件.SLDPRT', '~临时图.DWG', '.hidden.PNG', 'Backup of 零件.SLDPRT',
+    'Backup (2) of 总成.SLDASM', 'Auto-recover save of 零件.SLDPRT',
+    '零件.bak.SLDPRT', '图纸.tmp.DWG', '旧图.old.pdf', '照片.backup.JPG', '照片.bak.2.PNG',
+    '零件.SLDPRT.bak', '图纸.dwg.bak', '图纸.sv$', '图纸.dwl', '图纸.dwl2',
+    '图纸.ac$', '零件.SLDPRT~', 'readme.txt', 'script.exe',
+])
+def test_temp_backup_and_unsupported_files_are_ignored_in_both_modes(portfolio, name):
+    root = portfolio.root()
+    folder = root / '保留的项目'
+    folder.mkdir()
+    for base in [root, folder]:
+        (base / name).write_bytes(b'synthetic ignored original')
+    (folder / '保留.dwg').write_bytes(b'keep')
+    before = fingerprints(root)
+    items = portfolio.scan()['items']
+    assert len(items) == 1 and items[0]['title'] == folder.name
+    assert [file['name'] for file in items[0]['files']] == ['保留.dwg']
+    client = client_for(portfolio)
+    assert client.get(f'/api/personal/portfolio/projects/{encode(name)}/preview/{encode(name)}').status_code == 404
+    assert client.get(f'/api/personal/portfolio/projects/{encode(folder.name)}/preview/{encode(name)}').status_code in {404, 415}
+    assert fingerprints(root) == before
+
+
+def test_backup_words_in_legitimate_titles_are_not_guessed(portfolio):
+    names = ['Backup bracket.SLDPRT', 'My backup plate.DWG', '备份支架设计.PDF']
+    for name in names:
+        (portfolio.root() / name).write_bytes(b'original')
+    assert {item['title'] for item in portfolio.scan()['items']} == set(names)
+
+
+def test_standalone_preview_cannot_read_sibling_or_folder_file(portfolio):
+    root = portfolio.root()
+    (root / '独立.png').write_bytes(b'standalone')
+    (root / '另一张.png').write_bytes(b'other')
+    folder = root / '项目'
+    folder.mkdir()
+    (folder / '内部.png').write_bytes(b'inside')
+    client = client_for(portfolio)
+    prefix = f'/api/personal/portfolio/projects/{encode("独立.png")}/preview/'
+    assert client.get(prefix + encode('另一张.png')).status_code == 404
+    assert client.get(prefix + encode('项目/内部.png')).status_code == 404
+    assert client.get(prefix + encode('../另一张.png')).status_code == 400
+
+
+def test_standalone_explorer_opens_parent_and_missing_file_is_not_opened(portfolio, monkeypatch):
+    root = portfolio.root()
+    path = root / '独立总成.SLDASM'
+    path.write_bytes(b'synthetic assembly with references')
+    before = fingerprints(root)
+    calls = []
+    monkeypatch.setattr(os, 'startfile', lambda *args: calls.append(args), raising=False)
+    if os.name != 'nt':
+        pytest.skip('Windows Explorer contract')
+    client = client_for(portfolio)
+    endpoint = f'/api/personal/portfolio/projects/{encode(path.name)}/open'
+    assert client.post(endpoint).status_code == 200
+    assert calls == [(str(root), 'explore')]
+    assert fingerprints(root) == before
+    path.unlink()  # External user action, never performed by the application.
+    assert client.post(endpoint).status_code == 404
+    assert len(calls) == 1
+
+
+def test_project_limit_counts_files_and_folders_together(portfolio, monkeypatch):
+    import server.engineering_portfolio as module
+    monkeypatch.setattr(module, 'MAX_PROJECTS', 2)
+    (portfolio.root() / '项目').mkdir()
+    (portfolio.root() / '零件.SLDPRT').write_bytes(b'part')
+    (portfolio.root() / '图纸.DWG').write_bytes(b'drawing')
+    result = portfolio.scan()
+    assert len(result['items']) == 2 and result['warnings']

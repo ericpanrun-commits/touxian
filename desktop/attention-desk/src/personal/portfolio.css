@@ -18,6 +18,8 @@
 .portfolio-card:focus-within { overflow: visible; outline: 3px solid var(--blue); outline-offset: 3px; }
 .portfolio-cover { aspect-ratio: 4 / 3; display: grid; place-items: center; background: var(--soft); color: var(--muted); overflow: hidden; }
 .portfolio-cover img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.portfolio-type-icon { display: grid; justify-items: center; gap: 12px; }
+.portfolio-type-icon small { font-size: 12px; }
 .portfolio-card-body { display: block; padding: 18px; }
 .portfolio-card-body strong { display: block; font-size: 17px; line-height: 1.5; margin-bottom: 8px; overflow-wrap: anywhere; }
 .portfolio-card-body > span, .portfolio-card-body small { display: block; color: var(--muted); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }

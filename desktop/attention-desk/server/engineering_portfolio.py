@@ -1,4 +1,4 @@
-"""Read-only folder portfolio. No originals, index or metadata enter a database."""
+"""Read-only file/folder portfolio. No originals, index or metadata enter a database."""
 from __future__ import annotations
 
 import base64
@@ -6,6 +6,7 @@ import binascii
 import ipaddress
 import json
 import os
+import re
 import stat
 import threading
 from datetime import datetime, timezone
@@ -21,6 +22,21 @@ TYPES = {".jpg", ".jpeg", ".png", ".pdf", ".sldprt", ".sldasm", ".slddrw", ".dwg
 IMAGES = {".jpg", ".jpeg", ".png"}
 MAX_PROJECTS, MAX_FILES, MAX_ENTRIES, MAX_DEPTH = 500, 2000, 20000, 12
 REPOSITORY = Path(__file__).resolve().parents[3]
+BACKUP_NAME = re.compile(r"^(?:backup(?:\s*\(\d+\))? of |auto-recover save of )|\.(?:bak|backup|tmp|temp|old)(?:\.\d+)?\.", re.IGNORECASE)
+
+
+def ignored(name: str) -> bool:
+    # Match recognizable temporary/backup names, not arbitrary words in titles.
+    return name.startswith((".", "~")) or bool(BACKUP_NAME.search(name))
+
+
+def file_info(path: Path, base: Path) -> dict:
+    info = path.stat(follow_symlinks=False)
+    relative = path.relative_to(base).as_posix()
+    extension = path.suffix.lower()
+    return {"id": encode(relative), "name": relative, "type": extension[1:].upper(),
+            "size": info.st_size, "modified_at": datetime.fromtimestamp(info.st_mtime, timezone.utc).isoformat(),
+            "preview": "image" if extension in IMAGES else "pdf" if extension == ".pdf" else None}
 
 
 def fail(status: int, code: str, message: str):
@@ -101,11 +117,21 @@ class Portfolio:
         root = self.root()
         project = root / name
         try:
-            if not project.is_dir() or linked(project) or (project / ".git").exists():
-                fail(404, "project_missing", "作品文件夹已移动或删除，请刷新作品集。")
+            if ignored(name) or linked(project):
+                fail(404, "project_missing", "作品已移动、删除或被过滤，请刷新作品集。")
+            if project.is_dir() and not (project / ".git").exists():
+                return project
+            if project.is_file() and project.suffix.lower() in TYPES:
+                return project
+            fail(404, "project_missing", "作品已移动、删除或类型不受支持，请刷新作品集。")
         except OSError:
-            fail(404, "project_missing", "作品文件夹暂时无法读取，请刷新作品集。")
-        return project
+            fail(404, "project_missing", "作品暂时无法读取，请刷新作品集。")
+
+    def scan_file(self, path: Path) -> dict:
+        file = file_info(path, path.parent)
+        return {"id": encode(path.name), "title": path.name, "kind": "file", "files": [file],
+                "types": [file["type"]], "cover": file["id"] if file["preview"] == "image" else None,
+                "warnings": []}
 
     def scan_project(self, project: Path) -> dict:
         files, warnings = [], set()
@@ -124,7 +150,7 @@ class Portfolio:
                             warnings.add("作品文件较多，仅展示前 2,000 个支持文件（最多检查 20,000 个目录项）。")
                             return
                         path = Path(entry.path)
-                        if entry.name.startswith(".") or entry.name.startswith("~$"):
+                        if ignored(entry.name):
                             continue
                         try:
                             if linked(path):
@@ -133,11 +159,7 @@ class Portfolio:
                                 if not (path / ".git").exists():
                                     walk(path, depth + 1)
                             elif entry.is_file(follow_symlinks=False) and path.suffix.lower() in TYPES:
-                                info = entry.stat(follow_symlinks=False)
-                                relative = path.relative_to(project).as_posix()
-                                files.append({"id": encode(relative), "name": relative, "type": path.suffix[1:].upper(),
-                                              "size": info.st_size, "modified_at": datetime.fromtimestamp(info.st_mtime, timezone.utc).isoformat(),
-                                              "preview": "image" if path.suffix.lower() in IMAGES else "pdf" if path.suffix.lower() == ".pdf" else None})
+                                files.append(file_info(path, project))
                         except OSError:
                             warnings.add("部分文件暂时无法读取，可稍后刷新。")
             except OSError:
@@ -147,7 +169,7 @@ class Portfolio:
         files.sort(key=lambda item: (item["name"].casefold(), item["name"]))
         images = [item for item in files if item["preview"] == "image"]
         images.sort(key=lambda item: (item["name"].casefold() not in {"cover.jpg", "cover.png"}, item["name"].casefold(), item["name"]))
-        return {"id": encode(project.name), "title": project.name, "files": files,
+        return {"id": encode(project.name), "title": project.name, "kind": "folder", "files": files,
                 "types": sorted({item["type"] for item in files}), "cover": images[0]["id"] if images else None,
                 "warnings": sorted(warnings)}
 
@@ -161,16 +183,19 @@ class Portfolio:
                 with os.scandir(root) as entries:
                     for entry in entries:
                         path = Path(entry.path)
-                        if entry.name.startswith(".") or not entry.is_dir(follow_symlinks=False):
+                        if ignored(entry.name):
                             continue
                         try:
                             if linked(path) or (path / ".git").exists():
                                 result["warnings"].append(f"已跳过链接或 Git 仓库：{entry.name}")
                                 continue
+                            directory = entry.is_dir(follow_symlinks=False)
+                            if not directory and not (entry.is_file(follow_symlinks=False) and path.suffix.lower() in TYPES):
+                                continue
                             if len(result["items"]) >= MAX_PROJECTS:
                                 result["warnings"].append("仅展示前 500 个作品，请缩小作品总目录范围。")
                                 break
-                            result["items"].append(self.scan_project(path))
+                            result["items"].append(self.scan_project(path) if directory else self.scan_file(path))
                         except OSError:
                             result["warnings"].append(f"暂时无法读取：{entry.name}")
             except OSError:
@@ -184,9 +209,15 @@ class Portfolio:
         relative = Path(name)
         if relative.anchor or not name or any(part in {".", ".."} for part in name.replace("\\", "/").split("/")) or ":" in name or "\x00" in name:
             fail(400, "invalid_file", "文件路径无效，请刷新作品集。")
-        path = project / relative
+        if any(ignored(part) for part in name.replace("\\", "/").split("/")):
+            fail(404, "file_missing", "文件已移动、删除或被过滤，请刷新作品集。")
+        standalone = project.is_file()
+        if standalone and name != project.name:
+            fail(404, "file_missing", "此文件不属于当前作品，请刷新作品集。")
+        base = project.parent if standalone else project
+        path = base / relative
         try:
-            if any(linked(part) or (part / ".git").exists() for part in (path, *path.parents) if part != project and part.is_relative_to(project)) or not path.resolve().is_relative_to(project):
+            if any(linked(part) or (part / ".git").exists() for part in (path, *path.parents) if part != base and part.is_relative_to(base)) or not path.resolve().is_relative_to(base):
                 fail(404, "file_missing", "文件已移动或无法读取，请刷新作品集。")
             if not path.is_file():
                 fail(404, "file_missing", "文件已移动或删除，请刷新作品集。")
@@ -247,10 +278,11 @@ def preview(project_id: str, file_id: str, portfolio: Portfolio = Depends(servic
 @router.post("/projects/{project_id}/open")
 def open_project(project_id: str, portfolio: Portfolio = Depends(service)):
     project = portfolio.project(project_id)
+    folder = project.parent if project.is_file() else project
     if os.name != "nt":
         fail(501, "windows_required", "请在 Windows 本地工作台打开作品文件夹。")
     try:
-        os.startfile(str(project), "explore")
+        os.startfile(str(folder), "explore")
     except OSError:
         fail(503, "explorer_failed", "资源管理器未能打开，请稍后重试。")
     return {"opened": True}

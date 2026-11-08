@@ -16,7 +16,9 @@ Keep study and engineering work easy to find with little maintenance. The local 
 
 ## Phase 6 local portfolio
 
-A folder is a project. Read immediate children of `D:\Engineering-Portfolio`, use folder names as titles, discover supported files, and prefer cover.jpg / cover.png, another image, then an icon. Search names, filter file extensions, inspect metadata/local image/PDF previews, and explicitly open Windows Explorer.
+Read immediate children of `D:\Engineering-Portfolio`: each supported standalone file is one project, and each subfolder remains one multi-file project. Standalone titles retain the original filename including extension; type comes from that extension. Never promote a folder's internal files into extra cards or regroup/move assembly references. Images preview themselves; other standalone files use a matching type icon. Folder covers remain optional, preferring cover.jpg / cover.png, another image, then a folder icon. Search names, filter file extensions, inspect metadata/local image/PDF previews, and explicitly open the containing folder in Windows Explorer.
+
+Ignore unsupported extensions, hidden/temporary names and recognizable backup/recovery filename patterns in both modes. Filtering changes the index only and never deletes files. Do not guess backup status from an ordinary project title containing the word backup.
 
 The root may change but must remain outside Git. Refresh is manual; restart reads the same originals. Only the root preference is saved. Never create project database records or copy, rename, modify, delete, upload, sync or parse the original engineering files. No new dependencies, independent backend, cloud storage, AI recognition, modeling or engineering knowledge base.
 
