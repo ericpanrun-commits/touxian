@@ -22,7 +22,7 @@ def evaluator(tmp_path, monkeypatch):
         source_time='2026-11-08T10:00:00+08:00', time_reliability='reliable') for i in range(3)]
     namespace['AISettings'] = lambda _: SimpleNamespace(
         _read=lambda: ({}, AIConfig()), resolved=lambda: (AIConfig(), SecretStr('synthetic-key')))
-    namespace['validate_output'] = lambda *args: ({'items':[]}, [])
+    namespace['validate_output'] = lambda *args, **kwargs: ({'items':[]}, [])
     calls = []
     async def request(self, body, config, key, **kwargs):
         calls.append(body)
@@ -56,7 +56,7 @@ def test_two_network_failures_stop_run_and_unknowns_are_not_repeated(evaluator, 
 
 def test_validation_failure_keeps_receipt_and_does_not_rebill(evaluator):
     namespace, calls = evaluator
-    def invalid(*args):
+    def invalid(*args, **kwargs):
         raise ExtractionFailure('invalid_evidence', 'synthetic invalid quote')
     namespace['validate_output'] = invalid
     asyncio.run(namespace['main'](True))
@@ -64,7 +64,7 @@ def test_validation_failure_keeps_receipt_and_does_not_rebill(evaluator):
     assert len(calls) == 3
     results = json.loads((namespace['OUT']/'results.json').read_text(encoding='utf8'))
     assert all(r['state'] == 'received' and r['validation'] == 'failed' for r in results)
-    namespace['validate_output'] = lambda *args: ({'items':[]}, [])
+    namespace['validate_output'] = lambda *args, **kwargs: ({'items':[]}, [])
     asyncio.run(namespace['main'](True, replay_only=True))
     results = json.loads((namespace['OUT']/'results.json').read_text(encoding='utf8'))
     assert len(calls) == 3

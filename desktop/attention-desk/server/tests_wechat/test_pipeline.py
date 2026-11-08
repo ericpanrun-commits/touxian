@@ -31,7 +31,7 @@ def output_for(payload,*,role=None,confidence=0.95):
     message=payload['messages'][-1]
     quote=block['text']
     return {'schema_version':'wechat.v1','batch_id':payload['batch_id'],
-            'items':[{'id':'notice1','important':True,'relevant':True,'action_required':True,'category':'task',
+            'items':[{'id':'notice1','is_school_notice':True,'important':True,'relevant':True,'action_required':True,'category':'task',
                       'attention_level':'action','information_complete':True,'await_more_context':False,'title':'提交材料','summary':quote,'start_time':None,'end_time':None,'deadline':None,
                       'location':None,'action':'提交材料','target_people':[role] if role else [],
                       'priority':'P0','confidence':confidence,'evidence_message_ids':[message['message_id']],

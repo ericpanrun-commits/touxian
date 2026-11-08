@@ -1,7 +1,7 @@
 import pytest
 import json
 
-from server.wechat_collect.analysis import resolve_clock, validate_output, verified_calendar
+from server.wechat_collect.analysis import resolve_clock, validate_output, verified_calendar, resolve_range
 from server.tests_wechat.test_pipeline import output_for
 
 
@@ -66,3 +66,14 @@ def test_calendar_uses_source_week_and_shanghai_not_system_today():
     assert shifted['下周二']=='2026-11-17'
     assert verified_calendar({'source_time':'2026-11-08T10:00:00+08:00','time_reliability':'unverified'})=={}
     assert verified_calendar({'source_time':'broken','time_reliability':'reliable'})=={}
+
+
+@pytest.mark.parametrize('phrase,source,expected',[
+    ('2026年11月7～14日',None,('2026-11-07','2026-11-14')),
+    ('11月13-14日','2026-11-07T12:00:00+08:00',('2026-11-13','2026-11-14')),
+    ('11月13-14日',None,(None,None)),
+    ('2026年2月27～30日',None,(None,None)),
+    ('2026年11月14～7日',None,(None,None)),
+])
+def test_shared_month_date_range_is_source_backed(phrase,source,expected):
+    assert resolve_range(phrase,source,'date')==expected

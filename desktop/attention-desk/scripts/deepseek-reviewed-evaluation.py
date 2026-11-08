@@ -40,6 +40,12 @@ def save(path, value):
     temporary.replace(path)
 
 
+def verify_reviewed_inputs(samples, path):
+    approved = json.loads(path.read_text(encoding='utf8'))
+    if samples != approved:
+        raise ValueError('approved_reviewed_inputs_changed')
+
+
 def prepare():
     labels = json.loads((LABELS/'private-label-map.json').read_text(encoding='utf8'))
     assert len(labels) == 7
@@ -60,6 +66,7 @@ def prepare():
                 raise ValueError('unreviewed_contact_remaining')
             samples.append({'id':label['sample'], 'text':text, 'source_time':row[1],
                             'time_reliability':row[2], 'original_sha256':label['text_sha256_now']})
+    verify_reviewed_inputs(samples, OUT/'reviewed-inputs.json')
     return samples
 
 
@@ -119,13 +126,13 @@ async def main(execute, *, replay_only=False):
             for field in ('parsed','warnings','validation_error'):
                 result.pop(field, None)
             try:
-                parsed, warnings = validate_output(result['raw'], batch, snapshot, context)
+                parsed, warnings = validate_output(result['raw'], batch, snapshot, context, require_notice=True)
                 result.update(validation='passed', parsed=parsed, warnings=warnings)
             except ExtractionFailure as exc:
                 result.update(validation='failed', validation_error=exc.code)
             save(journal, result)
         summary = {k:result[k] for k in ('sample','state','usage','validation','validation_error','error','warnings') if k in result}
-        summary['items'] = [{k:i[k] for k in ('title','category','attention_level','action_required','relevant','start_time','deadline','actions')} for i in result.get('parsed',{}).get('items',[])]
+        summary['items'] = [{k:i[k] for k in ('is_school_notice','title','category','attention_level','action_required','relevant','start_time','deadline','actions')} for i in result.get('parsed',{}).get('items',[])]
         results.append(summary)
         print(json.dumps({k:v for k,v in summary.items() if k != 'items'}, ensure_ascii=True), flush=True)
         failures = failures+1 if result['state'] != 'received' else 0

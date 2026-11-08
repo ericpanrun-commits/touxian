@@ -116,6 +116,7 @@ class WeChatEvidence(StrictModel):
 
 class WeChatItem(StrictModel):
     id: str = Field(min_length=1, max_length=64)
+    is_school_notice: bool | None = None
     important: bool
     relevant: bool | None
     action_required: bool
