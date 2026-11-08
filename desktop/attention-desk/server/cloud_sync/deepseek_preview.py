@@ -7,6 +7,7 @@ from contextlib import contextmanager
 import hashlib
 import json
 import re
+from datetime import datetime
 
 from ..personal_store import encode
 from ..wechat_collect.analysis import PROMPT_VERSION, primary_message_ids, snapshot_with_metadata
@@ -43,6 +44,48 @@ def _spans(positions):
     return result
 
 
+def _current_text_snapshot(connection,personal,grant,batch,job,projection):
+    """Accept an attachment-only refresh, never an unverified new analysis.
+
+    The file evidence pipeline copies the original text and review to a new
+    snapshot after analysis. Keep using that saved response only when both
+    snapshots have the same owner, text, decisions and exact text projection.
+    The current snapshot/review then owns the outgoing records and guards.
+    """
+    current_id=batch['snapshot_id']
+    if current_id==job['snapshot_id']:
+        return current_id
+    previous=connection.execute('SELECT * FROM raw_snapshot WHERE id=?',(job['snapshot_id'],)).fetchone()
+    current=connection.execute('SELECT * FROM raw_snapshot WHERE id=?',(current_id,)).fetchone()
+    old_review=connection.execute('SELECT * FROM raw_review WHERE raw_snapshot_id=?',(job['snapshot_id'],)).fetchone()
+    review=connection.execute('SELECT * FROM raw_review WHERE raw_snapshot_id=?',(current_id,)).fetchone()
+    if (not previous or not current or not old_review or not review
+            or previous['raw_item_id']!=batch['raw_item_id'] or current['raw_item_id']!=batch['raw_item_id']
+            or any(current[key]!=previous[key] for key in ('original_text','source_time','source_timezone','hash'))
+            or datetime.fromisoformat(current['created_at'])<datetime.fromisoformat(previous['created_at'])
+            or old_review['extraction_id']!=job['extraction_id'] or review['extraction_id']!=job['extraction_id']
+            or review['status'] not in {'pending','archived'} or review['version']<=old_review['version']):
+        raise ValueError('analysis_snapshot_lineage_changed')
+    decisions=lambda row:{key:row[key] for key in row.keys()
+        if key not in {'raw_snapshot_id','created_at','updated_at','version'}}
+    if decisions(review)!=decisions(old_review):
+        raise ValueError('analysis_snapshot_review_changed')
+    for message_id in projection.message_ids.values():
+        mappings=[]
+        for sid in (job['snapshot_id'],current_id):
+            mappings.append([tuple(row) for row in connection.execute('''
+                SELECT block_id,message_id,media_id,content_revision FROM wechat_snapshot_message
+                WHERE snapshot_id=? AND message_id=? ORDER BY block_id''',(sid,message_id))])
+        if len(mappings[0])!=1 or mappings[0]!=mappings[1] or mappings[0][0][2] is not None:
+            raise ValueError('analysis_snapshot_mapping_changed')
+    refreshed=snapshot_with_metadata(connection,current)
+    fresh=prepare_authorized_projection(personal,batch,refreshed,grant)
+    if (fresh.snapshot!=projection.snapshot or fresh.blocks!=projection.blocks
+            or fresh.message_ids!=projection.message_ids):
+        raise ValueError('analysis_snapshot_text_changed')
+    return current_id
+
+
 def build_deepseek_preview(connection, grant, job_id):
     """Use one caller-owned transaction, suitable for later protected rebuilds.
 
@@ -69,6 +112,7 @@ def build_deepseek_preview(connection, grant, job_id):
     snapshot=snapshot_with_metadata(connection,connection.execute('SELECT * FROM raw_snapshot WHERE id=?',(job['snapshot_id'],)).fetchone())
     projection=prepare_authorized_projection(personal,batch,snapshot,grant)
     parsed,_=projection.restore(attempts[0]['raw_output'],json.loads(job['profile_json']))
+    projection_snapshot=_current_text_snapshot(connection,personal,grant,batch,job,projection)
     candidates={r['model_item_id']:dict(r) for r in connection.execute('SELECT * FROM wechat_candidate WHERE batch_id=?',(batch['id'],))}
     selected=[]
     for item in parsed['items']:
@@ -100,7 +144,7 @@ def build_deepseek_preview(connection, grant, job_id):
     title=selected[0]['title'] if len(selected)==1 else '学校通知'
     if minimize_notice(title,names)!=title:
         raise ValueError('title_requires_review')
-    selection={'raw_item_id':batch['raw_item_id'],'snapshot_id':job['snapshot_id'],
+    selection={'raw_item_id':batch['raw_item_id'],'snapshot_id':projection_snapshot,
         'title':title,'reason':'已验证的 DeepSeek 学校通知；个人行动判断独立保留，云端传输尚未授权。',
         'messages':messages}
     preview=selected_text_preview(personal,[selection])
@@ -114,13 +158,13 @@ def build_deepseek_preview(connection, grant, job_id):
         raise ValueError('cloud_minimization_changed_meaning')
     bundle=minimized_projection_preview(personal,preview)
     raw=connection.execute('SELECT * FROM raw_item WHERE id=?',(batch['raw_item_id'],)).fetchone()
-    review=connection.execute('SELECT * FROM raw_review WHERE raw_snapshot_id=?',(job['snapshot_id'],)).fetchone()
+    review=connection.execute('SELECT * FROM raw_review WHERE raw_snapshot_id=?',(projection_snapshot,)).fetchone()
     # Local journal fingerprints are never included in the outgoing records.
-    bundle['local_guards']=[{'raw_id':batch['raw_item_id'],'snapshot_id':job['snapshot_id'],
+    bundle['local_guards']=[{'raw_id':batch['raw_item_id'],'snapshot_id':projection_snapshot,
         'raw_guard':hashlib.sha256(encode(dict(raw)).encode()).hexdigest(),
         'review_guard':hashlib.sha256(encode(dict(review)).encode()).hexdigest()}]
     records={record['kind']:record for record in bundle['records']}
-    validate_outbound(records,batch['raw_item_id'],job['snapshot_id'],records['raw_item']['payload']['source_id'])
+    validate_outbound(records,batch['raw_item_id'],projection_snapshot,records['raw_item']['payload']['source_id'])
     return {'preview_only':True,'upload_authorized':False,'job_id':job_id,
         'analysis_receipt_sha256':hashlib.sha256(encode([job_id,attempts[0]['id'],attempts[0]['raw_output']]).encode()).hexdigest(),
         'notice_count':len(selected),'mandatory_action_count':sum(bool(i['action_required']) for i in selected),
