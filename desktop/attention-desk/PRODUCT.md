@@ -26,4 +26,4 @@ The public PWA cannot read the Windows filesystem. Its portfolio entry explains 
 
 ## Brand and accessibility
 
-Extend incumbent DESIGN.md, runtime tokens, UX-CONTRACT.md, forms and detail sheet. zh-CN, Asia/Shanghai, keyboard controls and responsive light/dark surfaces. Preserve workflows outside this slice. Deliver a PR; do not merge or deploy.
+Extend incumbent DESIGN.md, runtime tokens, UX-CONTRACT.md, forms and detail sheet. zh-CN, Asia/Shanghai, keyboard controls and responsive light/dark surfaces. Preserve workflows outside this slice. On 2026-11-08 the owner authorized real-directory configuration, Windows acceptance, necessary fixes, and merge/deployment after acceptance without another routine approval.
