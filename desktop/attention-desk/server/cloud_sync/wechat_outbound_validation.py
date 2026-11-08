@@ -8,7 +8,7 @@ import hashlib
 import json
 import re
 import unicodedata
-from ..wechat_collect.qr_text_policy import document_warnings
+from ..wechat_collect.qr_text_policy import document_warnings, scan_notice
 
 
 RAW='id source_id kind source_type created_at title published_at inbox_original_snapshot_id inbox_snapshot_id inbox_course_id inbox_version redacted_excerpt minimization_policy'.split()
@@ -75,7 +75,7 @@ def _uuid(value):
     return isinstance(value,str) and UUID.fullmatch(value) is not None
 
 
-def _safe_text(value):
+def _safe_text(value, *, scan_audience=False):
     if not isinstance(value,str):return False
     try:
         if len(value.encode('utf-16-le'))//2>16000:return False
@@ -87,7 +87,8 @@ def _safe_text(value):
     if '[敏感内容待核对]' in canonical:return False
     canonical=_privacy_scan_text(canonical)
     if canonical is None:return False
-    unnamed=re.sub(r'有意参加的同学|各位同学|全体同学|所有同学|同学们|老师们','',canonical)
+    if scan_audience:canonical=canonical.replace('有意参加的同学','')
+    unnamed=re.sub(r'各位同学|全体同学|所有同学|同学们|老师们','',canonical)
     return not (EMAIL.search(canonical) or PHONE.search(canonical) or MENTION.search(canonical) or
                 SENSITIVE.search(canonical) or NAMED.search(unnamed))
 
@@ -97,15 +98,17 @@ def validate_outbound(records,raw_id,snapshot_id,source_id):
     _require(isinstance(records,dict) and set(records)=={'raw_item','inbox_item','inbox','raw_review'})
     raw,summary,detail,review=(records[k]['payload'] for k in ('raw_item','inbox_item','inbox','raw_review'))
     _require(_shape(raw,RAW) and _shape(summary,SUMMARY) and _shape(detail,DETAIL) and _shape(review,REVIEW))
+    scan_audience=scan_notice(review.get('snapshot',{}).get('wechat',{}).get('messages',[]))
+    safe_text=lambda value:_safe_text(value,scan_audience=scan_audience)
     _require(raw['id']==raw_id and raw['source_id']==source_id and raw['kind']=='wechat_batch' and
         raw['source_type']=='wechat_batch' and raw['inbox_snapshot_id']==snapshot_id and
         raw['inbox_original_snapshot_id']==snapshot_id and raw['inbox_course_id'] is None and
         raw['redacted_excerpt'] is True and raw['minimization_policy']==POLICY and
         _integer(raw['inbox_version'],1) and _stamp(raw['created_at']) and
-        _safe_text(raw['title']) and raw['title'].startswith('【脱敏节选】'))
+        safe_text(raw['title']) and raw['title'].startswith('【脱敏节选】'))
     _require(summary['id']==raw_id and summary['created_at']==raw['created_at'] and
         summary['source']=='微信通知（脱敏节选）' and summary['source_kind']=='wechat' and
-        summary['input_kind']=='text' and summary['title']==raw['title'] and _safe_text(summary['preview']) and
+        summary['input_kind']=='text' and summary['title']==raw['title'] and safe_text(summary['preview']) and
         summary['preview_source']=='text' and summary['original_snapshot_id']==snapshot_id and
         summary['snapshot_id']==snapshot_id and summary['redacted_excerpt'] is True and
         summary['needs_manual'] is True and summary['managed'] is False and
@@ -130,7 +133,7 @@ def validate_outbound(records,raw_id,snapshot_id,source_id):
         snapshot['raw_item_id']==raw_id and snapshot['redacted_excerpt'] is True and
         snapshot['minimization_policy']==POLICY and _stamp(snapshot['created_at']) and
         snapshot['source_timezone'] in ('Asia/Shanghai','UTC','Etc/UTC') and
-        _safe_text(snapshot['original_text']) and
+        safe_text(snapshot['original_text']) and
         snapshot['hash']==hashlib.sha256(snapshot['original_text'].encode('utf-8')).hexdigest() and
         snapshot['attachments']==[] and snapshot['attachment_jobs']==[] and
         snapshot['document_warnings']==document_warnings(snapshot.get('wechat',{}).get('messages',[])))
@@ -149,7 +152,7 @@ def validate_outbound(records,raw_id,snapshot_id,source_id):
             block['source_type']=='text' and block['section']=='脱敏节选' and block['needs_review'] is True and
             block['attachment_id'] is None and _integer(block['ordinal']) and _integer(message['content_revision']) and
             message['time_reliability']=='reliable' and _stamp(message['source_time']) and _stamp(message['captured_at']) and
-            _safe_text(message['raw_text']) and bool(message['raw_text'].strip()) and block['text']==message['raw_text'])
+            safe_text(message['raw_text']) and bool(message['raw_text'].strip()) and block['text']==message['raw_text'])
         seen.add(mid)
     _require(snapshot['original_text']=='\n'.join(message['raw_text'] for message in wx['messages']) and
         summary['preview']==snapshot['original_text'][:160] and raw['published_at']==wx['messages'][0]['source_time'] and

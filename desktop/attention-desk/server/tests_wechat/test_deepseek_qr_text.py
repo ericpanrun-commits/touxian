@@ -78,7 +78,24 @@ def test_scan_words_do_not_exempt_personal_or_encoded_data(text):
 @pytest.mark.parametrize('text',['有意参加的同学请扫码，张三同学负责。','有意参加的张三同学请扫码。'])
 def test_generic_audience_never_exempts_a_named_person(text):
     from server.cloud_sync.wechat_outbound_validation import _safe_text
-    assert not _safe_text(text)
+    assert not _safe_text(text,scan_audience=True)
+
+
+def test_generic_audience_exception_is_not_enabled_for_legacy_text():
+    from server.cloud_sync.wechat_outbound_validation import _safe_text
+    assert not _safe_text('有意参加的同学请扫码。')
+    assert _safe_text('有意参加的同学请扫码。',scan_audience=True)
+
+
+@pytest.mark.parametrize('reference',['二维码见群内图片','二维码详见附件','请参照附件中的二维码','请按照图片中的二维码'])
+def test_only_qr_reference_is_removed_from_dependency_check(reference):
+    from server.wechat_collect.qr_text_policy import dependency_text
+    text='请全体同学扫码登记。'+reference+'。截止时间见附件。'
+    messages=[dict(raw_text=text,source_time=EFFECTIVE_FROM,captured_at=EFFECTIVE_FROM,
+                   message_type='text',time_reliability='reliable')]
+    result=dependency_text(text,messages,dict(information_complete=True,await_more_context=False))
+    assert reference not in result and '截止时间见附件' in result
+    assert messages[0]['raw_text']==text
 
 
 def test_attachment_dependent_incomplete_notice_remains_held(personal):

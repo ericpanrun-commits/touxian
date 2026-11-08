@@ -10,7 +10,9 @@ EFFECTIVE_FROM = '2026-11-08T13:52:00+00:00'
 SCAN = re.compile(r'扫码|扫描\s*(?:二维)?码|二维码')
 # Remove only a bounded media reference from the dependency check, never from
 # stored or transmitted prose. Other "see attachment" instructions remain.
-QR_MEDIA_REFERENCE = re.compile(r'二维码(?:请)?(?:详见|见|在)(?:群内|群里|原群|下方|上方|所附|附带|的|中|\s)*(?:图片|上图|附件)(?:中|里)?')
+QR_MEDIA_REFERENCE = re.compile(
+    r'二维码(?:请)?(?:详见|见|在)(?:群内|群里|原群|下方|上方|所附|附带|的|中|\s)*(?:图片|上图|附件)(?:中|里)?'
+    r'|(?:详见|看|参照|按照|见|按)(?:群内|群里|下方|上方|所附|附带|的|\s)*(?:图片|上图|附件)(?:中|里)?(?:的)?二维码')
 HINT = '需扫码，二维码请返回原微信群查看'
 WARNING = {'code': 'qr_in_original_chat', 'message': HINT}
 INSTRUCTION = '''

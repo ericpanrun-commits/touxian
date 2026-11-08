@@ -20,7 +20,7 @@
   "files": {
     "deno.json": "077d20a78a681e54f2b61f2021b1b9b52a942303a995ef3dc9681be05dc0db03",
     "files.ts": "d24ed367828ab517bdc4459ef98c524ad4a00c8b4b9960d1beaeded74db489ca",
-    "guarded_wechat_publish.ts": "0a5fe458a1df15fe4f500449af3d30d96ba9b005b74ece72cc358c7b358f0f6e",
+    "guarded_wechat_publish.ts": "e40287f8381210108f1cd779b2f78078d9dc90731ab38a36876d15f0d3c4073b",
     "guarded_wechat_reconcile.ts": "159516832308ab4446269c99bb60540ae9cd634f11ef0285f35e4b2e08ed4a37",
     "guarded_wechat_session.ts": "56c195121fbbde8b13c61ea3f9042015cc23b6440f9e8f3be40f90348185c863",
     "handler.ts": "88de08e0a37c5a69b1d3db668fcfa4230d2686db50ad05b4aa105cea87c33959",

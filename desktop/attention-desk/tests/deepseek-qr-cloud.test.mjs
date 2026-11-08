@@ -23,6 +23,22 @@ test('Python protected dispatch QR text is accepted unchanged by cloud validator
   assert(snapshot.original_text.includes('11月10日中午12点'));
   assert(snapshot.original_text.includes('教学楼一楼'));
 });
+test('generic audience exception cannot change a pre-cutoff notice',async()=>{
+  const value=body(),text='有意参加的同学请扫码完成学校讲座登记。二维码见群内图片。';
+  const digest=await hash(text);
+  await update(value,(s,rows)=>{
+    s.original_text=text;s.hash=digest;s.blocks[0].text=text;s.wechat.messages[0].raw_text=text;
+    rows.inbox_item.preview=rows.inbox.preview=text;
+  });
+  await validateWechatBundle(value);
+  await update(value,(s,rows)=>{
+    const old='2026-11-08T13:51:00+00:00';
+    s.wechat.messages[0].source_time=old;s.wechat.messages[0].captured_at=old;
+    s.source_time=old;rows.raw_item.published_at=old;rows.raw_review.item=structuredClone(rows.raw_item);
+    s.document_warnings.pop();
+  });
+  await assert.rejects(()=>validateWechatBundle(value));
+});
 for(const kind of ['image','binary','extra warning','altered warning','missing warning','old publication','old capture','nontext']){
   test(`QR hint cannot authorize ${kind}`,async()=>{
     const value=body();

@@ -1,31 +1,56 @@
 --- a/guarded_wechat_publish.ts
 +++ b/guarded_wechat_publish.ts
-@@ -50,7 +50,7 @@
+@@ -38,7 +38,7 @@
+   }
+   return lines.map((line,i)=>matched[i]?'通用报名纪律要求':line).join('\n');
+ }
+-function safeText(value: any): boolean {
++function safeText(value: any, scanAudience=false): boolean {
+   if (typeof value!=='string' || value.length>16000) return false;
+   if (/&(?:#(?:x[0-9a-f]{1,6}|[0-9]{1,7});?|[a-z][a-z0-9]{1,31};)|%[0-9a-f]{2}|\\u[0-9a-f]{4}/i.test(value)) return false;
+   // Remove only the exact marker emitted by the local redactor before checking
+@@ -50,6 +50,7 @@
    const scanned=privacyScanText(canonical);
    if(scanned===null)return false;
    canonical=scanned;
--  const unnamed=canonical.replace(/各位同学|全体同学|所有同学|同学们|老师们/g,'');
-+  const unnamed=canonical.replace(/有意参加的同学|各位同学|全体同学|所有同学|同学们|老师们/g,'');
++  if(scanAudience)canonical=canonical.replaceAll('有意参加的同学','');
+   const unnamed=canonical.replace(/各位同学|全体同学|所有同学|同学们|老师们/g,'');
    if (/@[^\s@，,：:。；;！!\n]{1,40}/.test(canonical) ||
        /[a-z0-9._%+-]+[ \t]*@[ \t]*[a-z0-9-]+(?:[ \t]*\.[ \t]*[a-z0-9-]+)+/i.test(canonical) ||
-       /(?<!\d)(?:\+?86[ \t.()\-]*)?1[ \t.()\-]*[3-9](?:[ \t.()\-]*\d){9}(?!\d)/.test(canonical)) return false;
-@@ -101,14 +101,21 @@
-       !object(review.source,['id','kind','name']) || review.source.id!==body.source_id || review.source.kind!=='wechat' ||
-       review.source.name!=='微信通知（脱敏节选）' || !equal(review.item,raw) || !equal(detail.review,review)) invalid();
-   const snapshot=review.snapshot;
+@@ -73,12 +74,20 @@
+   }
+   const raw=records.raw_item,summary=records.inbox_item,detail=records.inbox,review=records.raw_review;
+   if (!object(raw,RAW) || !object(summary,SUMMARY) || !object(detail,DETAIL) || !object(review,REVIEW)) invalid();
 +  // Fixed display hint only; no media inspection, decoded content or old replay.
-+  const messages=snapshot?.wechat?.messages;
++  const messages=review?.snapshot?.wechat?.messages;
 +  const cutoff=Date.parse('2026-11-08T13:52:00+00:00');
 +  const scanNotice=Array.isArray(messages) && messages.length>0 &&
 +    messages.every((m:any)=>m && m.message_type==='text' && m.time_reliability==='reliable' &&
 +      ['source_time','captured_at'].every(k=>timestamp(m[k]) && Date.parse(m[k])>=cutoff)) &&
 +    messages.some((m:any)=>typeof m.raw_text==='string' && /扫码|扫描\s*(?:二维)?码|二维码/.test(m.raw_text));
++  const safe=(value:any)=>safeText(value,scanNotice);
+   if (raw.id!==body.raw_id || raw.source_id!==body.source_id || raw.kind!=='wechat_batch' || raw.source_type!=='wechat_batch' ||
+       raw.inbox_snapshot_id!==body.snapshot_id || raw.inbox_original_snapshot_id!==body.snapshot_id ||
+       raw.redacted_excerpt!==true || raw.minimization_policy!==POLICY || !integer(raw.inbox_version,1) || !timestamp(raw.created_at) ||
+-      !safeText(raw.title) || !raw.title.startsWith('【脱敏节选】')) invalid();
++      !safe(raw.title) || !raw.title.startsWith('【脱敏节选】')) invalid();
+   if (summary.id!==body.raw_id || summary.created_at!==raw.created_at || summary.source!=='微信通知（脱敏节选）' || summary.source_kind!=='wechat' ||
+-      summary.input_kind!=='text' || summary.preview_source!=='text' || summary.title!==raw.title || !safeText(summary.preview) ||
++      summary.input_kind!=='text' || summary.preview_source!=='text' || summary.title!==raw.title || !safe(summary.preview) ||
+       summary.original_snapshot_id!==body.snapshot_id || summary.snapshot_id!==body.snapshot_id ||
+       summary.redacted_excerpt!==true || summary.needs_manual!==true || summary.managed!==false ||
+       summary.processing_status!=='needs_review' || summary.processing_stage!=='review' || !['pending','archived'].includes(summary.review_status) ||
+@@ -101,14 +110,14 @@
+       !object(review.source,['id','kind','name']) || review.source.id!==body.source_id || review.source.kind!=='wechat' ||
+       review.source.name!=='微信通知（脱敏节选）' || !equal(review.item,raw) || !equal(detail.review,review)) invalid();
+   const snapshot=review.snapshot;
 +  const warnings=[{code:'redacted_excerpt',message:'这是经最小化的文字节选，完整原文仅保留在本机。'}];
 +  if(scanNotice)warnings.push({code:'qr_in_original_chat',message:'需扫码，二维码请返回原微信群查看'});
    if (!object(snapshot,SNAPSHOT) || !equal(detail.original,snapshot) || snapshot.id!==body.snapshot_id ||
        snapshot.raw_item_id!==body.raw_id || snapshot.redacted_excerpt!==true || snapshot.minimization_policy!==POLICY ||
        !timestamp(snapshot.created_at) || !['Asia/Shanghai','UTC','Etc/UTC'].includes(snapshot.source_timezone) ||
-       !safeText(snapshot.original_text) || snapshot.hash!==await hash(snapshot.original_text) ||
+-      !safeText(snapshot.original_text) || snapshot.hash!==await hash(snapshot.original_text) ||
++      !safe(snapshot.original_text) || snapshot.hash!==await hash(snapshot.original_text) ||
        !empty(snapshot.attachments) || !empty(snapshot.attachment_jobs) ||
 -      !Array.isArray(snapshot.document_warnings) || snapshot.document_warnings.length!==1 ||
 -      !object(snapshot.document_warnings[0],['code','message']) || snapshot.document_warnings[0].code!=='redacted_excerpt' ||
@@ -34,3 +59,12 @@
    const wx=snapshot.wechat;
    if (!object(wx,WECHAT) || wx.source!=='wechat' || !uuid(wx.batch_id) || !empty(wx.analysis) ||
        !equal(wx.warnings,['redacted_excerpt']) || wx.superseded_by!==null || wx.latest_snapshot_id!==body.snapshot_id ||
+@@ -123,7 +132,7 @@
+         message.message_type!=='text' || block.source_type!=='text' || block.section!=='脱敏节选' ||
+         block.needs_review!==true || block.attachment_id!==null || !integer(block.ordinal) ||
+         !integer(message.content_revision) || message.time_reliability!=='reliable' ||
+-        !timestamp(message.source_time) || !timestamp(message.captured_at) || !safeText(message.raw_text) || !message.raw_text.trim() ||
++        !timestamp(message.source_time) || !timestamp(message.captured_at) || !safe(message.raw_text) || !message.raw_text.trim() ||
+         block.text!==message.raw_text) invalid();
+     ids.add(message.message_id);blocks.add(message.block_id);
+   }
