@@ -1,6 +1,6 @@
 import { useLayoutEffect, useState } from 'react';
 import CloudChrome from '../cloud/CloudChrome';
-import { Bell, BookOpen, Inbox, CalendarDays, CheckCheck, Globe2, ListTodo, MessageCircle, Monitor, Moon, Plus, Settings2, Sun, History, CircleCheck, Ellipsis, FolderOpen } from 'lucide-react';
+import { Bell, BookOpen, Inbox, CalendarDays, CheckCheck, Globe2, ListTodo, MessageCircle, Monitor, Moon, Plus, Settings2, Sun, History, CircleCheck, Ellipsis, FolderOpen, Activity } from 'lucide-react';
 
 export default function DeskChrome({ mode, busy, onNavigate, onSwitchScreen, cloud = false }) {
   const [theme, setTheme] = useState(() => {
@@ -14,7 +14,7 @@ export default function DeskChrome({ mode, busy, onNavigate, onSwitchScreen, clo
     try { localStorage.setItem('attention-desk-theme', theme); } catch { /* Appearance still works without persistent storage. */ }
     return () => media.removeEventListener('change', update);
   }, [theme]);
-  const routes = cloud ? [['today','Today',Sun],['courses','课程',BookOpen],['inbox','Inbox',Inbox],['reviews','Review',CircleCheck],['recent','最近',History],['learning','学习',BookOpen],['tasks','事项',ListTodo]] : [['today', '今天', Sun], ['learning', 'Learning', BookOpen], ['eric-inbox', 'Inbox', Inbox], ['wechat-inbox', '待确认', Bell], ['list', '所有事项', ListTodo], ['calendar', '日历', CalendarDays], ['portfolio', '工程作品集', FolderOpen]];
+  const routes = cloud ? [['today','Today',Sun],['courses','课程',BookOpen],['inbox','Inbox',Inbox],['reviews','Review',CircleCheck],['recent','最近',History],['learning','学习',BookOpen],['tasks','事项',ListTodo]] : [['today', '今天', Sun], ['learning', 'Learning', BookOpen], ['eric-inbox', 'Inbox', Inbox], ['wechat-inbox', '待确认', Bell], ['list', '所有事项', ListTodo], ['calendar', '日历', CalendarDays], ['portfolio', '工程作品集', FolderOpen], ['health', 'Health', Activity]];
   const phoneRoutes = [['today','Today',Sun],['capture','Capture',Plus],['inbox','Inbox',Inbox],['reviews','Review',CircleCheck],['more','更多',Ellipsis]];
   if (cloud) return <CloudChrome mode={mode} busy={busy} onNavigate={onNavigate} theme={theme} setTheme={setTheme}/>;
   const settings = /settings|user-context/.test(mode);

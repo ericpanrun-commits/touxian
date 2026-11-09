@@ -241,3 +241,7 @@ The public manifest uses the shared light canvas theme and existing standalone d
 - **Don't** add task deletion, weather, remote fonts or new confirmation owners through this visual change.
 - **Don't** claim that token inheritance completes the redesign of a deeper screen.
 - **Don't** claim physical-device installation, safe-area acceptance or public deployment from browser tests.
+
+## Phase 7 Health Overview
+
+The lightweight Health page consumes the existing typography, semantic colors, surfaces and native disclosure patterns. Six daily-metric cards use three/two/one columns on desktop/tablet/phone, with small SVG trends, hollow partial-data points and gaps for missing dates. No new tokens, fonts, illustration, chart dependency or Today composition is introduced. Behavior and privacy are owned by UX-CONTRACT.md and HEALTH-OVERVIEW.md.

@@ -223,3 +223,5 @@ export class Views {
     throw new AppFault(404,'not_found','这个入口暂时不可用，请从 Eric OS 导航打开。');
   }
 }
+
+

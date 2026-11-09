@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { BookOpen, CheckCheck, ChevronRight, CircleCheck, Ellipsis, FolderOpen, GraduationCap, History, Home, Inbox, ListTodo, Monitor, Moon, PanelLeftClose, PanelLeftOpen, Plus, Search, Settings2, Sun, X } from 'lucide-react';
+import { BookOpen, CheckCheck, ChevronRight, CircleCheck, Ellipsis, FolderOpen, GraduationCap, History, Home, Inbox, ListTodo, Monitor, Moon, PanelLeftClose, PanelLeftOpen, Plus, Search, Settings2, Sun, X, Activity } from 'lucide-react';
 import DeskSheet from '../personal/DeskSheet';
 import usePersonalResource from '../personal/usePersonalResource';
 
-const routes = [['today', 'Today', Home], ['courses', '课程', BookOpen], ['learning', '学习', GraduationCap], ['tasks', '任务', ListTodo], ['inbox', 'Inbox', Inbox], ['reviews', 'Review', CircleCheck], ['recent', '最近', History], ['portfolio', '工程作品集', FolderOpen]];
+const routes = [['today', 'Today', Home], ['courses', '课程', BookOpen], ['learning', '学习', GraduationCap], ['tasks', '任务', ListTodo], ['inbox', 'Inbox', Inbox], ['reviews', 'Review', CircleCheck], ['recent', '最近', History], ['portfolio', '工程作品集', FolderOpen], ['health', 'Health', Activity]];
 const phoneRoutes = [routes[0], routes[1], routes[2], routes[4], ['more', '更多', Ellipsis]];
 const selected = (mode, id) => mode === id || id === 'courses' && ['course', 'lecture', 'textbooks'].includes(mode) || id === 'reviews' && mode === 'review';
 

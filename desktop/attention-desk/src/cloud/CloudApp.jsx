@@ -14,7 +14,7 @@ const PendingChanges=lazy(()=>import('./PendingChanges'));
 setPersonalTransport(cloudRequest);setPersonalFileResolver(cloudFile);setPersonalPdfResolver(cloudPdfSource);
 setPersonalEditorDraftResolver(editorDraft);
 
-const names={today:'Today',capture:'Capture',inbox:'Inbox',courses:'课程',course:'课程',lecture:'课堂',reviews:'Review',review:'课堂复盘',recent:'最近',learning:'学习',tasks:'事项',event:'事项',textbooks:'教材',portfolio:'工程作品集',system:'设备与状态',more:'更多','raw-review':'待确认'};
+const names={today:'Today',capture:'Capture',inbox:'Inbox',courses:'课程',course:'课程',lecture:'课堂',reviews:'Review',review:'课堂复盘',recent:'最近',learning:'学习',tasks:'事项',event:'事项',textbooks:'教材',portfolio:'工程作品集',health:'Health',system:'设备与状态',more:'更多','raw-review':'待确认'};
 function readRoute(){const query=new URLSearchParams(location.search),view=query.get('view')||query.get('personal_view')||(location.hash.startsWith('#learning-share=')?'learning':null);return {view:names[view]?view:'today',id:query.get('id')||query.get('inbox_item')||null,query:query.toString()};}
 
 export default function CloudApp() {

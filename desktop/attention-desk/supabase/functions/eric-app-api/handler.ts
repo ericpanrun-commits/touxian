@@ -68,7 +68,7 @@ export async function commandInput(store: CloudStore,workspace: string,device: s
   return {id:uuid(value.id),device_id:device,resource_key,method:value.method,path,body:value.body,expected_revision:expected};
 }
 
-export function createHandler(options: {base:string;secret:string;visionSecret?:string;origins?:string[];fetcher?:typeof fetch;clock?:()=>Date}) {
+export function createHandler(options: {base:string;secret:string;visionSecret?:string;origins?:string[];fetcher?:typeof fetch;clock?:()=>Date;healthOverview?:(workspace:string,owner:string)=>Promise<any>;officialHealth?:(workspace:string)=>Promise<any>;guardedWechatPublish?:(workspace:string,processor:string,body:any)=>Promise<any>;guardedWechatSession?:(workspace:string,processor:string,body:any)=>Promise<any>;guardedWechatReconcile?:(workspace:string,processor:string,body:any)=>Promise<any>}) {
   const store=new CloudStore(options),origins=new Set(options.origins||[]);
   function json(value: any,status=200): Response {return Response.json(value,{status,headers:{'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer'}});}
   async function route(req: Request,url: URL,path: string): Promise<Response> {
@@ -86,6 +86,10 @@ export function createHandler(options: {base:string;secret:string;visionSecret?:
       return json({device:device[0],timezone:p.workspace.timezone,account:{id:p.user.id,email:p.user.email}});
     }
     const principal=await store.session(req),workspace=principal.workspace.id,views=new Views(store,workspace);
+    if(path==='/health/overview'&&req.method==='GET') {
+      if(!options.healthOverview)throw new AppFault(503,'health_unavailable','Health 暂未连接，可以打开 HealthData 查看。');
+      return json(await options.healthOverview(workspace,principal.user.id));
+    }
     if(path==='/devices'&&req.method==='GET')return json({items:await store.db('eric_app_devices?workspace_id=eq.'+workspace+'&select=id,label,platform,created_at,last_seen_at,revoked_at&order=created_at.desc&limit=200'),current:principal.device.id});
     if(path==='/devices/revoke'&&req.method==='POST') {const body=await boundedJson(req,1000);return json({revoked:await store.rpc('revoke_device',{p_workspace:workspace,p_device:uuid(body.id)})});}
     if(path==='/processors'&&req.method==='GET')return json({items:await store.db('eric_app_processors?workspace_id=eq.'+workspace+'&select=id,label,created_at,last_seen_at,revoked_at&order=created_at.desc&limit=20')});
@@ -164,6 +168,33 @@ export function createHandler(options: {base:string;secret:string;visionSecret?:
   async function workerRoute(req: Request,url: URL,path: string): Promise<Response> {
     if(path.startsWith('/worker/vision/')) return visionRoute(store,req,url,path,options.visionSecret||'',json);
     const principal=await store.worker(req),workspace=principal.workspace.id;
+    if(path==='/worker/wechat-status'&&req.method==='GET') {
+      if(!options.guardedWechatPublish||!options.guardedWechatReconcile||!options.guardedWechatSession)
+        throw new AppFault(503,'scoped_publish_unavailable','同步保护暂时不可用，内容仍保留在本机。');
+      const rows=await store.db('eric_app_workers?workspace_id=eq.'+workspace+'&select=publisher_epoch,source_generation&limit=2');
+      const current=rows?.[0],generation=current?.source_generation;
+      if(!Array.isArray(rows)||rows.length!==1||typeof current?.publisher_epoch!=='string'||!UUID.test(current.publisher_epoch)||
+          !Number.isSafeInteger(generation)||generation<0)
+        throw new AppFault(503,'publisher_unavailable','发布会话暂时无法确认，内容仍保留在本机。');
+      return json({protocol:'wechat-receipt-fence-v1',workspace_id:workspace,processor_id:principal.device.id,
+        epoch:current.publisher_epoch,generation});
+    }
+    if(path==='/worker/official-health'&&req.method==='GET') {
+      if(!options.officialHealth)throw new AppFault(503,'source_health_not_configured','官网健康状态暂时无法读取。');
+      return json(await options.officialHealth(workspace));
+    }
+    if(path==='/worker/wechat-publish'&&req.method==='POST') {
+      if(!options.guardedWechatPublish)throw new AppFault(503,'scoped_publish_unavailable','同步保护暂时不可用，内容仍保留在本机。');
+      return json(await options.guardedWechatPublish(workspace,principal.device.id,await boundedJson(req,512_000)));
+    }
+    if(path==='/worker/wechat-hello'&&req.method==='POST') {
+      if(!options.guardedWechatSession)throw new AppFault(503,'scoped_publish_unavailable','同步保护暂时不可用，内容仍保留在本机。');
+      return json(await options.guardedWechatSession(workspace,principal.device.id,await boundedJson(req,2000)));
+    }
+    if(path==='/worker/wechat-reconcile'&&req.method==='POST') {
+      if(!options.guardedWechatReconcile)throw new AppFault(503,'scoped_publish_unavailable','同步保护暂时不可用，内容仍保留在本机。');
+      return json(await options.guardedWechatReconcile(workspace,principal.device.id,await boundedJson(req,4000)));
+    }
     if(path==='/worker/hello'&&req.method==='POST') {const body=await boundedJson(req,2000);await store.rpc('begin_publish',{p_workspace:workspace,p_epoch:uuid(body.epoch)});await store.db('eric_app_processors?id=eq.'+principal.device.id,'PATCH',{last_seen_at:store.clock().toISOString()});return json({workspace_id:workspace,part_bytes:PART_BYTES,record_catalogue:true});}
     if(path==='/worker/resources'&&req.method==='GET') {const {offset}=paging(url);return json({items:await store.db('eric_app_resources?workspace_id=eq.'+workspace+'&complete=eq.true&select=id,sha256,bytes&order=id.asc&limit=500&offset='+offset),offset,limit:500});}
     if(path==='/worker/records'&&req.method==='GET') {const {offset}=paging(url);return json({items:await store.db('eric_app_records?workspace_id=eq.'+workspace+'&deleted=eq.false&source_epoch=not.is.null&select=kind,id,source_hash&order=kind.asc,id.asc&limit=500&offset='+offset),offset,limit:500});}
@@ -213,3 +244,5 @@ export function createHandler(options: {base:string;secret:string;visionSecret?:
     return response;
   };
 }
+
+
