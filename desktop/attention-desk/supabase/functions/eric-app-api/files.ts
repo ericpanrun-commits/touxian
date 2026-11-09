@@ -177,3 +177,5 @@ export async function fileResponse(store: CloudStore,req: Request,workspace: str
   if (req.method==='HEAD') {await stream.cancel();return new Response(null,{status:range?206:200,headers});}
   return new Response(stream,{status:range?206:200,headers});
 }
+
+
