@@ -12,7 +12,7 @@ Deno.test('HealthData router → real read-only Edge adapter → authenticated E
   const worker=(await import(pathToFileURL(source.replaceAll('\\','/')+'/worker/index.js').href)).default;
   const owner='11111111-1111-4111-8111-111111111111',workspace='22222222-2222-4222-8222-222222222222',session='44444444-4444-4444-8444-444444444444';
   const now=new Date(),end=new Date(now.getTime()+8*3600_000).toISOString().slice(0,10),previous=new Date(Date.parse(end)-86400_000).toISOString().slice(0,10),received=now.toISOString(),cloudToken='C'.repeat(43);
-  const summary={metrics:Object.fromEntries(Object.keys(HEALTH_METRICS).map((metric,index)=>[metric,{daily:{[previous]:42+index,[end]:10}}])),server_received_at:received,source_generated_at:received,latest_health_date:end};
+  const summary={metrics:Object.fromEntries(Object.keys(HEALTH_METRICS).map((metric,index)=>[metric,{daily:{[previous]:42+index,[end]:10}}])),day_statuses:{[previous]:'complete',[end]:'partial'},server_received_at:received,source_generated_at:received,latest_health_date:end};
   let kvReads=0,statusReads=0,proxyReads=0;
   const env={HEALTH_OVERVIEW_CLOUD_TOKEN:cloudToken,HEALTH_OVERVIEW_DESKTOP_TOKEN:'D'.repeat(43),SUPABASE_URL:'https://healthsynthetic.supabase.co',SUPABASE_SECRET_KEY:'sb_secret_synthetic',HEALTH_USER_ID:owner,HEALTH_DATA:{get:async(key:string)=>{kvReads++;assert.equal(key,'latest_summary_json');return JSON.stringify(summary);},put:()=>{throw Error('Forbidden KV write');},delete:()=>{throw Error('Forbidden KV delete');}}};
   const native=globalThis.fetch;

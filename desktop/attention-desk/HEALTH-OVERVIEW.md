@@ -20,9 +20,9 @@ The window ends today in Asia/Shanghai. Latest complete values come from the
 same rolling 30-day calculation as HealthData. Missing values are never zero;
 valid zero remains zero. An isolated point remains a point; missing dates break
 lines. Partial values are plotted with hollow dots but excluded from latest
-complete values. Existing KV conversion does not retain every incoming explicit
-day status; this feature follows HealthData's existing normalization rather than
-reinterpreting the source or changing ingestion.
+complete values. HealthData now preserves explicit upload day-status evidence in
+its existing KV history and summary. Partial never becomes complete just because
+the day passed; historical values without reliable evidence remain partial.
 
 `source_generated_at`, `received_at`, `latest_health_date` and `fetched_at` have
 different meanings. Refreshing never advances source timestamps. Analysis status

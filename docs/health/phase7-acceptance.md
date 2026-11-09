@@ -110,8 +110,10 @@ from an older repository baseline. Preserve all concurrent v28/Windows fixes.
 For reduced scope, choose `summary` on the Edge and Windows configuration. For
 disconnect, choose `off` and revoke Overview tokens. Authentication problems never
 fall back to an unprotected endpoint. Rollback needs no database recovery or
-HealthData deletion. Existing KV-vs-Supabase consistency and partial-status limits
-are documented in [the implementation contract](../../desktop/attention-desk/HEALTH-OVERVIEW.md).
+HealthData deletion. Existing KV-vs-Supabase consistency is documented in
+[the implementation contract](../../desktop/attention-desk/HEALTH-OVERVIEW.md).
+The [P2 review-fix addendum](phase7-review-fixes.md) supersedes the inherited
+day-status limitation and records upload/KV/midnight and v23 QR compatibility checks.
 
 ## Review artifacts
 
