@@ -68,7 +68,7 @@ export async function commandInput(store: CloudStore,workspace: string,device: s
   return {id:uuid(value.id),device_id:device,resource_key,method:value.method,path,body:value.body,expected_revision:expected};
 }
 
-export function createHandler(options: {base:string;secret:string;visionSecret?:string;origins?:string[];fetcher?:typeof fetch;clock?:()=>Date;officialHealth?:(workspace:string)=>Promise<any>;guardedWechatPublish?:(workspace:string,processor:string,body:any)=>Promise<any>;guardedWechatSession?:(workspace:string,processor:string,body:any)=>Promise<any>;guardedWechatReconcile?:(workspace:string,processor:string,body:any)=>Promise<any>}) {
+export function createHandler(options: {base:string;secret:string;visionSecret?:string;origins?:string[];fetcher?:typeof fetch;clock?:()=>Date;healthOverview?:(workspace:string,owner:string)=>Promise<any>;officialHealth?:(workspace:string)=>Promise<any>;guardedWechatPublish?:(workspace:string,processor:string,body:any)=>Promise<any>;guardedWechatSession?:(workspace:string,processor:string,body:any)=>Promise<any>;guardedWechatReconcile?:(workspace:string,processor:string,body:any)=>Promise<any>}) {
   const store=new CloudStore(options),origins=new Set(options.origins||[]);
   function json(value: any,status=200): Response {return Response.json(value,{status,headers:{'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer'}});}
   async function route(req: Request,url: URL,path: string): Promise<Response> {
@@ -86,6 +86,10 @@ export function createHandler(options: {base:string;secret:string;visionSecret?:
       return json({device:device[0],timezone:p.workspace.timezone,account:{id:p.user.id,email:p.user.email}});
     }
     const principal=await store.session(req),workspace=principal.workspace.id,views=new Views(store,workspace);
+    if(path==='/health/overview'&&req.method==='GET') {
+      if(!options.healthOverview)throw new AppFault(503,'health_unavailable','Health 暂未连接，可以打开 HealthData 查看。');
+      return json(await options.healthOverview(workspace,principal.user.id));
+    }
     if(path==='/devices'&&req.method==='GET')return json({items:await store.db('eric_app_devices?workspace_id=eq.'+workspace+'&select=id,label,platform,created_at,last_seen_at,revoked_at&order=created_at.desc&limit=200'),current:principal.device.id});
     if(path==='/devices/revoke'&&req.method==='POST') {const body=await boundedJson(req,1000);return json({revoked:await store.rpc('revoke_device',{p_workspace:workspace,p_device:uuid(body.id)})});}
     if(path==='/processors'&&req.method==='GET')return json({items:await store.db('eric_app_processors?workspace_id=eq.'+workspace+'&select=id,label,created_at,last_seen_at,revoked_at&order=created_at.desc&limit=20')});

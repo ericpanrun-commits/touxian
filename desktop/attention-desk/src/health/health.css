@@ -1,0 +1,28 @@
+.health-overview { max-width: 1200px; margin-inline: auto; }
+.health-heading, .health-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.health-heading h1 { display: flex; align-items: center; gap: 10px; }
+.health-actions .button { min-height: 44px; text-decoration: none; }
+.health-status { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 20px; margin-block: 24px; }
+.health-status span,.health-status strong,.health-status small { display: block; }
+.health-status span,.health-status small { color: var(--muted); font-size: 12px; }
+.health-status strong { margin-block: 6px; overflow-wrap: anywhere; font-weight: 600; }
+.health-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 16px; }
+.health-grid .health-metric { margin: 0; min-width: 0; }
+.health-metric h2 { font-size: 16px; font-weight: 600; margin: 0; }
+.health-value { font-size: 32px; font-weight: 600; font-variant-numeric: tabular-nums; margin: 18px 0 2px; }
+.health-value span { font-size: 13px; color: var(--muted); font-weight: 400; margin-left: 8px; }
+.health-chart { display: block; width: 100%; height: auto; color: var(--blue-text); margin-top: 12px; }
+.health-chart-line { stroke: currentColor; stroke-width: 2; }
+.health-chart-axis { stroke: var(--line-soft); stroke-width: 1; }
+.health-point { fill: currentColor; }
+.health-point-partial { fill: var(--panel); stroke: currentColor; stroke-width: 2; }
+.health-chart-empty { font-size: 13px; fill: var(--muted); }
+.health-chart-dates { display: flex; justify-content: space-between; color: var(--muted); font-size: 12px; }
+.health-values { margin-top: 16px; font-size: 13px; }
+.health-values summary { cursor: pointer; min-height: 44px; display: list-item; padding-top: 10px; }
+.health-values dl { margin: 4px 0; }
+.health-values dl div { display: flex; justify-content: space-between; gap: 8px; padding-block: 6px; border-bottom: 1px solid var(--line-soft); }
+.health-values dd { margin: 0; text-align: right; }
+.health-times { margin-top: 20px; font-size: 12px; color: var(--muted); }
+@media(max-width:1100px) { .health-grid { grid-template-columns: repeat(2,minmax(0,1fr)); } .health-status { grid-template-columns: 1fr 1fr; } }
+@media(max-width:639px) { .health-grid,.health-status { grid-template-columns: 1fr; } .health-heading { align-items: start; } .health-actions { width: 100%; justify-content: start; } }

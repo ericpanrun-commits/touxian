@@ -11,6 +11,7 @@ import {local,subscribe,currentIdentity,request,progress,saveCommand,captureLoca
 import {Connectivity} from './Connectivity';
 import TodayPage from './TodayPage';
 import TaskRow from '../personal/TaskRow';
+import {readCloudOverview,subscribeHealthPrivacy} from './health';
 import CourseCard, {CourseArtwork} from '../personal/CourseCard';
 import {courseDetails} from '../personal/coursePresentation';
 const ReviewView=lazy(()=>import('../personal/SchoolWorkspace').then(module=>({default:module.ReviewView})));
@@ -21,6 +22,7 @@ const Inbox=lazy(()=>import('../personal/EricInbox'));
 const ReviewEditor=lazy(()=>import('../personal/ReviewEditor'));
 const Textbooks=lazy(()=>import('./TextbooksPage'));
 const LocalPortfolioNotice=lazy(()=>import('./LocalPortfolioNotice'));
+const HealthOverview=lazy(()=>import('../health/HealthOverview'));
 const time=value=>value?new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Shanghai',hour:'2-digit',minute:'2-digit',hour12:false}).format(new Date(value)):'';
 const date=value=>value?new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Shanghai',dateStyle:'medium',timeStyle:'short'}).format(new Date(value)):'';
 const STATES={local_pending:'待发送',uploading:'发送中',received:'已接收',processing:'整理中',completed:'已完成',failed:'处理未完成',needs_confirmation:'需要核对',pending:'等待处理',needs_review:'待核对',accepted:'已采用',rejected:'已拒绝',superseded:'历史版本'};
@@ -45,6 +47,7 @@ export default function Pages(props){const {route,navigate}=props;let page;
   else if(route.view==='review')page=<Review {...props}/>;
   else if(route.view==='textbooks')page=<Textbooks {...props}/>;
   else if(route.view==='portfolio')page=<LocalPortfolioNotice/>;
+  else if(route.view==='health')page=<HealthOverview readOverview={readCloudOverview} subscribePrivacy={subscribeHealthPrivacy}/>;
   else if(route.view==='recent')page=<Recent {...props}/>;
   else if(route.view==='inbox')page=<><CaptureReceipts {...props} compact/><Inbox key={route.id||'list'} cloud onAdd={()=>navigate('capture')} onNavigate={(view,id)=>navigate(view==='review'?'raw-review':view,id)} onDirtyChange={props.onDirtyChange} onBusyChange={()=>{}}/></>;
   else if(route.view==='learning')page=<Learning cloud captureId={route.id} onNavigate={(view,id)=>navigate(view==='review'?'raw-review':view,id)} onDirtyChange={props.onDirtyChange} onBusyChange={()=>{}}/>;
@@ -52,7 +55,7 @@ export default function Pages(props){const {route,navigate}=props;let page;
   else if(route.view==='event')page=<EventDetail {...props}/>;
   else if(route.view==='raw-review')page=<RawReview {...props}/>;
   else if(route.view==='system')page=<System {...props}/>;
-  else page=<section className="personal-section"><ul className="cloud-link-list">{[['courses','课程与课堂'],['reviews','Review'],['recent','最近收集与学习'],['learning','学习工作台'],['tasks','所有事项'],['textbooks','教材'],['portfolio','工程作品集'],['system','设备与状态']].map(([view,label])=><li key={view}><button type="button" onClick={()=>navigate(view)}>{label}<ArrowRight size={17}/></button></li>)}</ul></section>;
+  else page=<section className="personal-section"><ul className="cloud-link-list">{[['courses','课程与课堂'],['reviews','Review'],['recent','最近收集与学习'],['learning','学习工作台'],['tasks','所有事项'],['textbooks','教材'],['portfolio','工程作品集'],['health','Health'],['system','设备与状态']].map(([view,label])=><li key={view}><button type="button" onClick={()=>navigate(view)}>{label}<ArrowRight size={17}/></button></li>)}</ul></section>;
   return <Suspense fallback={<p role="status">正在打开…</p>}>{page}</Suspense>;
 }
 

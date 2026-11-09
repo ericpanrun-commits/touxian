@@ -146,6 +146,8 @@ app.include_router(reminder_router)
 app.include_router(official_router)
 app.include_router(notification_router)
 app.include_router(portfolio_router)
+from server.health_overview import router as health_overview_router
+app.include_router(health_overview_router)
 app.add_middleware(UploadBodyLimit)
 app.add_middleware(
     CORSMiddleware,

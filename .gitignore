@@ -61,6 +61,8 @@ secrets.*
 credentials.*
 ai-settings.json
 ai-settings.json.*.tmp
+health-overview.json
+health-overview.json.tmp
 collector-pairing-state.json
 collector-pairing-state.json.*.tmp
 collector-settings.json
