@@ -34,6 +34,14 @@ export function deadlineState(item: any,at: Date): any {
       (overdue?'已逾期 ':'还有 ')+(Math.abs(endInstant!-at.getTime())>=86400000?Math.floor(Math.abs(endInstant!-at.getTime())/86400000)+' 天':Math.abs(endInstant!-at.getTime())>=3600000?Math.floor(Math.abs(endInstant!-at.getTime())/3600000)+' 小时':Math.max(1,Math.floor(Math.abs(endInstant!-at.getTime())/60000))+' 分钟'),display_timezone:'Asia/Shanghai'};
 }
 export function dto(row: any): any {return {...row.payload,_cloud:{kind:row.kind,id:row.id,revision:row.revision,updated_at:row.updated_at}};}
+// Pending progress is a saved intention. Once acknowledged, the current task
+// owns status again: an old acknowledgement cannot undo a later Windows edit.
+export function taskView(task: any): any {
+  const progress=task.progress||{_cloud:{revision:0}};
+  const pending=progress.application_state==='pending'&&typeof progress.completed==='boolean';
+  return {...task,progress,canonical_status:task.status,
+    status:pending?(progress.completed?'done':'todo'):task.status};
+}
 function bounded(value: string|null,fallback: number,min: number,max: number): number {
   const result=value===null?fallback:Number(value);
   if (!Number.isSafeInteger(result)||result<min||result>max) throw new AppFault(400,'invalid_page','请从列表重新选择范围。');
@@ -99,13 +107,12 @@ export class Views {
   }
   async taskStates(): Promise<Map<string,any>> {
     const [records,progress]=await Promise.all([this.store.rows(this.workspace,'task'),this.progress('task_progress')]);
-    return new Map(records.map(row=>[row.id,{...dto(row),progress:progress.get(row.id)||{_cloud:{revision:0}}}]));
+    return new Map(records.map(row=>[row.id,taskView({...dto(row),progress:progress.get(row.id)})]));
   }
   eventTasks(event: any,states: Map<string,any>): any {
-    return {...event,tasks:(event.tasks||[]).map((task: any)=>{
-      const current=states.get(task.id);if(!current)return task;
-      const progress=current.progress;
-      return {...task,_cloud:current._cloud,progress,status:progress.application_state!=='needs_confirmation'&&typeof progress.completed==='boolean'?(progress.completed?'done':'todo'):task.status};
+    return {...event,deadlines:(event.deadlines||[]).map((date: any)=>deadlineState(date,this.store.clock())),tasks:(event.tasks||[]).map((task: any)=>{
+      const current=states.get(task.id);
+      return current&&current.event_id===event.id?{...task,...current}:task;
     })};
   }
   async reviewList(url: URL): Promise<any> {
@@ -138,7 +145,20 @@ export class Views {
     const includeTerminal=url.searchParams.get('include_terminal')==='true';
     const reminders=(await this.store.rows(this.workspace,'reminder')).map(x=>x.payload);
     const reminderIds=new Set(reminders.filter(r=>!['cancelled','dismissed'].includes(r.status)&&[r.snoozed_until||r.scheduled_at,r.fired_at].some(v=>v&&civilDay(new Date(v))===today)).map(r=>r.deadline_id));
-    let items=facts.items.filter((item: any)=>includeTerminal||!['done','cancelled'].includes(item.event_status)).map((item: any)=>deadlineState(item,at)).filter((x: any)=>x.state!=='needs_confirmation');
+    const [states,eventRows]=await Promise.all([this.taskStates(),this.store.rows(this.workspace,'event')]);
+    const events=new Map(eventRows.map(row=>[row.id,dto(row)]));
+    const byEvent=new Map<string,any[]>();
+    for(const task of states.values()){
+      let group=byEvent.get(task.event_id);
+      if(!group)byEvent.set(task.event_id,group=[]);
+      group.push(task);
+    }
+    let items=facts.items.map((item: any)=>{
+      const event=events.get(item.event_id),tasks=byEvent.get(item.event_id)||[];
+      return {...item,event_status:event?.status||item.event_status,
+        tasks:tasks.filter(task=>(task.status!=='done'||['pending','needs_confirmation'].includes(task.progress?.application_state))&&(!task.deadline_id||task.deadline_id===item.id)),
+        remaining_task_count:tasks.filter(task=>task.canonical_status!=='done').length};
+    }).filter((item: any)=>includeTerminal||!['done','cancelled'].includes(item.event_status)).map((item: any)=>deadlineState(item,at)).filter((x: any)=>x.state!=='needs_confirmation');
     if (path==='/planning/today') items=items.filter((x: any)=>['overdue','today'].includes(x.state)||reminderIds.has(x.id)).map((x: any)=>({...x,reasons:[x.state==='overdue'?x.relative_label:x.state==='today'?'今天截止':'今天有提醒']}));
     else {
       const days=bounded(url.searchParams.get('days'),7,7,30);
@@ -149,26 +169,51 @@ export class Views {
     items.sort((a: any,b: any)=>a.end_date.localeCompare(b.end_date)||a.id.localeCompare(b.id));
     return {items,total:items.length,timezone:'Asia/Shanghai',today};
   }
+  async tasks(url: URL): Promise<any> {
+    const status=url.searchParams.get('status')||'todo';
+    if(!['todo','done','all'].includes(status))throw new AppFault(400,'invalid_status','请选择任务状态。');
+    const {limit,offset}=paging(url),at=this.store.clock();
+    const [states,eventRows,deadlineRows]=await Promise.all([this.taskStates(),this.store.rows(this.workspace,'event'),this.store.rows(this.workspace,'deadline')]);
+    const events=new Map(eventRows.map(row=>[row.id,dto(row)]));
+    const deadlines=new Map(deadlineRows.map(row=>[row.id,dto(row)]));
+    let items=[...states.values()].flatMap(task=>{
+      const event=events.get(task.event_id);
+      if(!event||['done','cancelled'].includes(event.status))return [];
+      const unsettled=['pending','needs_confirmation'].includes(task.progress?.application_state);
+      if(status!=='all'&&(status==='todo'?task.status==='done'&&!unsettled:task.canonical_status!=='done'||unsettled))return [];
+      const source=deadlines.get(task.deadline_id);
+      const fact=source?.event_id===event.id?deadlineState(source,at):null;
+      const keys=['id','label','value','end_value','precision','range_precision','timezone','display_timezone','confirmed_by_user','uncertain','state','all_day','start_date','end_date','start_at','end_at','relative_label'];
+      const deadline=fact?Object.fromEntries(keys.map(key=>[key,fact[key]??null])):null;
+      return [{...task,event_title:event.title,event_status:event.status,event_version:event.version,
+        course_id:event.course_id||null,course:event.course||null,deadline,date_state:deadline?.state||'undated'}];
+    });
+    const rank: Record<string,number>={overdue:0,today:1,upcoming:2,needs_confirmation:3,undated:4};
+    items.sort((a,b)=>rank[a.date_state]-rank[b.date_state]||(a.deadline?.end_date||'').localeCompare(b.deadline?.end_date||'')||
+      (a.deadline?.end_at||'').localeCompare(b.deadline?.end_at||'')||a.id.localeCompare(b.id));
+    return {items:items.slice(offset,offset+limit),total:items.length,limit,offset,timezone:'Asia/Shanghai',today:civilDay(at)};
+  }
   async dashboard(url: URL): Promise<any> {
     const at=this.store.clock(),today=civilDay(at);
-    const [timetable,planning,reviews,events,inbox,worker,taskStates]=await Promise.all([
+    const [timetable,planning,reviews,taskPage,inbox,worker]=await Promise.all([
       this.facade('/timetable'),this.planning(url,'/planning/today'),
-      this.reviewList(new URL('?limit=8&unread_only=true',url)),this.store.rows(this.workspace,'event','&payload->>status=not.in.(done,cancelled)'),
+      this.reviewList(new URL('?limit=8&unread_only=true',url)),this.tasks(new URL('?limit=5',url)),
       this.store.rpc('inbox_page',{p_workspace:this.workspace,p_status:'needs_review',p_scope:'submitted',p_offset:0,p_limit:1}),
-      this.store.db('eric_app_workers?workspace_id=eq.'+this.workspace+'&limit=1'),this.taskStates()]);
+      this.store.db('eric_app_workers?workspace_id=eq.'+this.workspace+'&limit=1')]);
     const classes=(timetable.sessions||[]).filter((item: any)=>civilDay(new Date(item.start))===today).map((item: any)=>({...item,course_id:timetable.course_mappings?.[item.title]||null,
       state:Date.parse(item.end)<at.getTime()?'finished':Date.parse(item.start)<=at.getTime()?'in_progress':'upcoming'})).sort((a: any,b: any)=>a.start.localeCompare(b.start));
-    const tasks=events.flatMap(row=>this.eventTasks(dto(row),taskStates).tasks.filter((x: any)=>x.status!=='done'||x.progress?.application_state==='needs_confirmation').map((x: any)=>({...x,event_id:row.id,event_title:row.payload.title,event_version:row.payload.version})));
+    const tasks=taskPage.items;
     const unread=reviews.items;
     const nextClass=classes.find((x: any)=>x.state!=='finished');
     const next=nextClass?{kind:'class',title:nextClass.state==='in_progress'?'正在上课：'+nextClass.title:'下一节：'+nextClass.title,item:nextClass}:unread.length?{kind:'review',title:'读一份课堂复盘',id:unread[0].id}:tasks.length?{kind:'event',title:tasks[0].title,id:tasks[0].event_id}:inbox.total?{kind:'inbox',title:'核对待确认内容'}:{kind:'capture',title:'随手记下今天的新想法'};
     const seen=worker[0]?.last_seen_at;
-    return {today,timezone:'Asia/Shanghai',classes,deadlines:planning.items,tasks,reviews:unread,review_count:reviews.unread_total,review_incomplete_count:reviews.incomplete_total,needs_confirmation:inbox.total,next_action:next,
+    return {today,timezone:'Asia/Shanghai',classes,deadlines:planning.items,tasks,task_count:taskPage.total,reviews:unread,review_count:reviews.unread_total,review_incomplete_count:reviews.incomplete_total,needs_confirmation:inbox.total,next_action:next,
       processing_online:Boolean(seen&&at.getTime()-Date.parse(seen)<90_000),published_at:worker[0]?.published_at||null};
   }
   async read(path: string,url: URL): Promise<any> {
     if (/^\/documents\/[^/]+$/.test(path)) return this.require('document',identifier(decodeURIComponent(path.split('/')[2])));
     if (path==='/dashboard') return this.dashboard(url);
+    if (path==='/planning/tasks') return this.tasks(url);
     if (['/planning/today','/planning/upcoming'].includes(path)) return this.planning(url,path);
     if (path==='/courses') return this.list('course',url);
     if (/^\/courses\/[^/]+$/.test(path)) return this.require('course',identifier(decodeURIComponent(path.split('/')[2])));
@@ -177,7 +222,7 @@ export class Views {
       if (!['active','all','done','cancelled'].includes(status)) throw new AppFault(400,'invalid_status','请选择事项状态。');
       const page=await this.list('event',url,status==='all'?'':status==='active'?'&payload->>status=not.in.(done,cancelled)':'&payload->>status=eq.'+status);
       const states=await this.taskStates();
-      return {...page,items:page.items.map((e: any)=>{const event=this.eventTasks(e,states);return {...event,task_count:event.tasks.length,completed_task_count:event.tasks.filter((t: any)=>t.status==='done').length,deadline_count:e.deadlines.length};})};
+      return {...page,items:page.items.map((e: any)=>{const event=this.eventTasks(e,states);return {...event,task_count:event.tasks.length,completed_task_count:event.tasks.filter((t: any)=>(t.canonical_status||t.status)==='done').length,deadline_count:e.deadlines.length};})};
     }
     if (/^\/events\/[^/]+$/.test(path)) {const [event,states]=await Promise.all([this.require('event',identifier(decodeURIComponent(path.split('/')[2]))),this.taskStates()]);return this.eventTasks(event,states);}
     if (path==='/inbox') {

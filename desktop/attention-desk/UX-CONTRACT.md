@@ -367,3 +367,28 @@ The deeper Learning, Lecture, Review, Inbox, Capture, Textbooks and system-form 
 ## Phase 7 Health Overview
 
 HealthOverview owns the shared desktop/PWA read-only health view; HealthData remains the data/analysis authority. It uses the existing semantic tokens, native details disclosure, app navigation and read feedback. It fetches on entry/manual Refresh only, bypasses Dexie and all private caches, and clears values plus invalidates requests on route exit, offline, pagehide and identity expiry/change. Restoring a previous-day view requires explicit Refresh. Health is in desktop/rail/More navigation, preserving phone bottom tabs and Today. Fixed seven-day UTC+8 windows, partial/missing/zero handling and independent source/read timestamps follow HEALTH-OVERVIEW.md. Full reports and management use a credential-free original-site link. Verification owners: tests/health-browser.mjs, tests/health-contract.test.mjs, server/test_health_overview.py and the Edge health tests.
+
+
+## Planner Phase 9
+
+The existing Task, Event and Deadline identities remain canonical. The read-only
+`/planning/tasks` projection filters active parents and task status, sorts all
+matching tasks by overdue/today/future/unconfirmed/undated and stable ID, then
+paginates. A task without an explicit deadline binding stays undated.
+`PlannerTasks`, `TaskRow` and `planningHelpers` own shared list and date behavior;
+PWA supplies its existing owner-scoped offline read and progress controls.
+
+Cloud pending progress is a visible intention. Applied progress does not override
+a newer formal task projection. List, details, dashboard and Planning summaries
+compose state through the same Edge task view. Local save, cloud receipt, Windows
+application, conflict and failure remain distinct. Accepted progress can still be
+reversed while Windows is offline; terminal parents require restoration first.
+Existing request receipts and version checks remain unchanged. Upload/paid-AI holds
+are never cleared by Planner actions. New lists publish no new source material.
+
+Today partitions deadline IDs between current/overdue/reminder and recent groups;
+full Upcoming, Calendar, Reminder and ICS membership rules are preserved. Native
+action selection and deadline fields are shared by ReviewEditor and CandidateSheet.
+Removing a retained date immediately explains which actions become undated. Only
+explicit final confirmation creates selected formal tasks, retaining original
+evidence and transactional confirmation idempotency.
