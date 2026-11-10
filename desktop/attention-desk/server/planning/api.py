@@ -1,5 +1,6 @@
 """Desktop-only local planning API. Never mounted on the LAN Collector."""
 from uuid import UUID
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
@@ -11,6 +12,12 @@ from .ics import export
 from .query import PlanningQuery
 
 router = APIRouter(prefix='/api/personal',tags=['planning'])
+
+
+@router.get('/planning/tasks')
+def tasks(status:Literal['todo','done','all']='todo',limit:int=Query(20,ge=1,le=100),
+          offset:int=Query(0,ge=0),store=Depends(store_for)):
+    return perform(lambda:PlanningQuery(store).tasks(status=status,limit=limit,offset=offset))
 
 
 @router.get('/planning/today')

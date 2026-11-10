@@ -23,6 +23,7 @@ import DeskChrome from './DeskChrome';
 import DeskSheet from './DeskSheet';
 import { CourseEditor } from './CourseField';
 import TodayDesk from './TodayDesk';
+import PlannerTasks from './PlannerTasks';
 import './desk.css';
 
 const EngineeringPortfolio = lazy(() => import('./EngineeringPortfolio'));
@@ -64,6 +65,8 @@ export default function PersonalWorkspace({ navigationGuardRef, onSwitchScreen }
   const initialView = new URLSearchParams(window.location.search).get('personal_view');
   const [mode, setMode] = useState(initialCollector ? 'collector' : initialSettings ? 'settings' : initialId ? 'detail' : initialRaw ? 'review' : ['today', 'upcoming', 'list', 'calendar', 'reminders', 'reminder-settings', 'bark-settings', 'wechat-settings', 'wechat-inbox', 'user-context', 'eric-inbox', 'school', 'learning', 'portfolio', 'health'].includes(initialView) ? initialView : 'today');
   const [listStatus, setListStatus] = useState('active');
+  const [listMode, setListMode] = useState(new URLSearchParams(location.search).get('planner_list') === 'tasks' ? 'tasks' : 'events');
+  const changeListMode = value => { setListMode(value); const url = new URL(location.href); url.searchParams.set('planner_list', value); history.replaceState({}, '', url); };
   const [selectedId, setSelectedId] = useState(initialId || initialRaw);
   const [intent, setIntent] = useState(() => { const candidateId = new URLSearchParams(window.location.search).get('personal_candidate'); return candidateId ? { candidateId } : null; });
   const [event, setEvent] = useState(null);
@@ -136,6 +139,7 @@ export default function PersonalWorkspace({ navigationGuardRef, onSwitchScreen }
 
   const navigate = (nextMode, id = null, nextIntent = null) => {
     const performNavigation = () => {
+    if (nextMode === 'list' && nextIntent?.taskList) changeListMode('tasks');
     focusAfterLoad.current = true;
     setEditor(null); setEditorDirty(false); setCollectionDirty(false); setSelectedEvidence(null); setError(null); setNotice('');
     setEvent(null); setSelectedId(id); setMode(nextMode); setIntent(nextIntent); setReloadVersion(current => current + 1);
@@ -219,7 +223,8 @@ export default function PersonalWorkspace({ navigationGuardRef, onSwitchScreen }
       {mode === 'reminder-settings' ? <ReminderSettings key={reloadVersion} onDirtyChange={setCollectionDirty} onBusyChange={reportChildBusy} /> : null}
       {mode === 'bark-settings' ? <BarkSettings key={reloadVersion} onDirtyChange={setCollectionDirty} onBusyChange={reportChildBusy} /> : null}
 
-      {mode === 'list' && !loading && (!error || items.length > 0) ? <section className="personal-section"><div className="personal-section-heading"><h1 ref={headingRef} tabIndex={-1}>我的事项</h1><span className="personal-meta">共 {total} 件</span></div>
+      {mode === 'list' ? <><div className="planning-views" role="group" aria-label="待办与事项">{[['tasks', '待办'], ['events', '事项']].map(([key, label]) => <button type="button" key={key} className={"button " + (listMode === key ? 'button-primary' : 'button-quiet')} aria-pressed={listMode === key} disabled={busy} onClick={() => changeListMode(key)}>{label}</button>)}</div>{listMode === 'tasks' ? <><div className="desk-page-heading"><h1 ref={headingRef} tabIndex={-1}>我的待办</h1></div><PlannerTasks onOpen={id => navigate('detail', id)} onBusyChange={reportChildBusy} /></> : null}</> : null}
+      {mode === 'list' && listMode === 'events' && !loading && (!error || items.length > 0) ? <section className="personal-section"><div className="personal-section-heading"><h1 ref={headingRef} tabIndex={-1}>我的事项</h1><span className="personal-meta">共 {total} 件</span></div>
         <label className="personal-checkbox-label">事项状态 <select aria-label="事项状态" value={listStatus} disabled={busy} onChange={change => setListStatus(change.target.value)}><option value="active">未完成 / 未取消</option><option value="done">已完成</option><option value="cancelled">已取消</option><option value="all">全部状态</option></select></label>
         {!items.length ? <div className="personal-empty"><h2>还没有收集事项</h2><p>粘贴一条通知，把截止时间和要做的事情保留下来。</p><button type="button" className="button button-primary" onClick={() => navigate('collect')}><Plus size={16} />粘贴第一条通知</button></div> : <ul className="personal-event-list">{items.map((item) => <li key={item.id}><button type="button" className="personal-event-row" onClick={() => navigate('detail', item.id)}>
           <span><strong>{item.title}</strong>{item.course ? <small>{item.course.name}</small> : null}<small>{wechatCategory(item.category)} · {item.deadline_count} 个截止时间 · {item.completed_task_count}/{item.task_count} 个任务完成</small><small>更新于 {displayTimestamp(item.updated_at)}</small></span><span className={`personal-status ${item.status}`}>{STATUS[item.status]}</span>
