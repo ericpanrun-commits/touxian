@@ -43,7 +43,7 @@ def note_processing(connection, raw, snapshot_id, *, recovery_database_path=None
                 (work['review_id'], context.get('lecture_id') or work.get('lecture_id'))).fetchone()
             failure = json.loads(review['error_json'] or '{}') if review else {}
             if isinstance(failure, dict) and failure.get('code') == 'review_validation':
-                labels = {'conditions_required': '部分方法缺少适用条件依据',
+                labels = {'conditions_required': '部分方法的适用条件依据未通过校验',
                     'notes_evidence': '部分笔记结论缺少笔记来源引用',
                     'unreliable_method': '方法引用了尚未核对的识别内容',
                     'unreliable_answer': '自测答案引用了尚未核对的识别内容',
