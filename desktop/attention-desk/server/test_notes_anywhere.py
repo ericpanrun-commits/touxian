@@ -47,6 +47,46 @@ def remote(data,*,corrupt=False,ack_fails=False,download_url=None):
     return row,state,httpx.AsyncClient(transport=httpx.MockTransport(handler))
 
 
+def test_scoped_receipt_never_polls_recovers_or_acks_other_notes(tmp_path,monkeypatch):
+    async def run():
+        async with rig(tmp_path) as r:
+            controls=tmp_path/'recovery-controls.json'
+            controls.write_text(json.dumps({'version':1,'hold_cloud_uploads':True,'pause_paid_ai':True}))
+            before=controls.read_bytes()
+            data=text_pdf(tmp_path/'fixture.pdf',['Isolated selected note.']).read_bytes()
+            row,state,remote_client=remote(data)
+            requests=[]
+            async def transport(request):
+                requests.append((request.method,request.url.path))
+                assert request.method=='GET' and '/storage/v1/object/sign/' in request.url.path
+                return await remote_client._transport.handle_async_request(request)
+            client=httpx.AsyncClient(transport=httpx.MockTransport(transport))
+            scheduled=[]
+            monkeypatch.setattr(r.service,'_schedule',lambda raw:scheduled.append(raw))
+            async def forbidden():raise AssertionError('must not resume historical work')
+            monkeypatch.setattr(r.service,'resume_notes',forbidden)
+            service=AnywhereNotes(r.store,r.service,settings(tmp_path),client=client)
+            try:
+                assert (await service.sync_once())['uploads_held'] is True
+                assert requests==[]
+                for _ in range(2):
+                    result=await service.sync_once(selected=[row])
+                    assert result['selected_saved']==[row['id']] and result['ack_deferred'] is True
+                assert len(requests)==1 and state['acks']==0 and state['pending'] is True
+                assert len(scheduled)==1
+                with r.store.connection() as c:
+                    assert c.execute('SELECT count(*) FROM inbox_receipt').fetchone()[0]==1
+                    assert c.execute("SELECT count(*) FROM raw_item WHERE kind='inbox_lecture_note'").fetchone()[0]==1
+                    assert c.execute('SELECT count(*) FROM school_ai_attempt').fetchone()[0]==0
+                assert controls.read_bytes()==before
+                with pytest.raises(NotesSyncError):await service.sync_once(selected=[row,row])
+                with pytest.raises(NotesSyncError):await service.sync_once(selected=[row,row,row])
+                with pytest.raises(NotesSyncError):await service.sync_once(selected=[{**row,'download_url':'https://example.com/x'}])
+                assert len(requests)==1
+            finally:await service.close();await client.aclose();await remote_client.aclose()
+    asyncio.run(run())
+
+
 def test_cloud_note_commits_original_inbox_and_share_time_before_ack(tmp_path,monkeypatch):
     async def run():
         async with rig(tmp_path) as r:

@@ -53,6 +53,7 @@ export function isImageOrPdf(item: any): boolean {
 export function inboxCard(item: any): any {
   const analysis=item?.vision_analysis&&typeof item.vision_analysis==='object'&&!Array.isArray(item.vision_analysis)?item.vision_analysis:{};
   const status=item?.vision_status||null;
+  const note=item?.note_processing;
   const low=item?.vision_confidence==='low'||item?.preview_source==='low_confidence'||analysis.confidence==='low';
   const file=(item?.attachments||[])[0]||{};
   let body_source='text', body=typeof item?.preview==='string'?item.preview:'', notice: string|null=null;
@@ -60,9 +61,15 @@ export function inboxCard(item: any): any {
   else if (status==='failed'||item?.preview_source==='failed') {body_source='failed'; body=FAILED_COPY; notice=FAILED_COPY;}
   else if ((status==='completed'||item?.preview_source==='vision'||item?.preview_source==='low_confidence')&&low) {body_source='low_confidence'; body=LOW_COPY; notice=LOW_COPY;}
   else if (status==='completed'||item?.preview_source==='vision') {body_source='vision'; body=analysis.summary||analysis.readable_content||body||WAITING_COPY;}
+  else if (note&&typeof note.message==='string') {body_source='note'; body=note.summary||note.message; notice=note.message;}
+  else if (item?.input_kind==='pdf'||[...(item?.attachments||[]),...(item?.files||[])].some((f: any)=>(f?.mime_type||f?.mime)==='application/pdf'||String(f?.extension||'').toLowerCase()==='pdf')) {
+    body_source='saved';
+    const reasons: Record<string,string>={extracting:'正在提取 PDF 内容。',analyzing:'正在分析这份笔记。',failed:'PDF 处理未完成，请核对后重试。',recovery_needed:'PDF 处理已中断，原件保留。'};
+    body=item?.error?.message||reasons[item?.processing_status]||'PDF 已保存，尚无已确认的 AI 分析结果。'; notice=body;
+  }
   else if (isImageOrPdf(item)) {body_source='waiting'; body=WAITING_COPY; notice=WAITING_COPY;}
   return {body_source, body, notice, title:analysis.title||item?.title||file.filename||'', course:item?.course?.name||item?.course?.label||analysis.probable_course||null,
-    summary:analysis.summary||null, readable_content:analysis.readable_content||null, vision_status:status, confidence:item?.vision_confidence||analysis.confidence||null,
+    summary:analysis.summary||(body_source==='note'?note.summary:null)||null, readable_content:analysis.readable_content||null, vision_status:status, confidence:item?.vision_confidence||analysis.confidence||null,
     key_point_count:Array.isArray(analysis.key_points)?analysis.key_points.length:0, equation_count:Array.isArray(analysis.equations)?analysis.equations.length:0,
     filename:file.filename||null, mime:file.mime_type||file.mime||null};
 }

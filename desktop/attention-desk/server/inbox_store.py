@@ -1,7 +1,7 @@
 """Eric Inbox is a projection of RawItem, not a parallel capture/review system.
 
-Image and PDF previews follow human text, then a vision summary, then the
-waiting, failed, or low-confidence copy. Unverified OCR stays in ``ocr_preview``.
+Previews preserve human/vision content and project the existing note workflow.
+Unverified OCR stays in ``ocr_preview``; a missing PDF result is not a queued job.
 
 ``InboxStore(personal).project(c, row)`` is the SQLite row projection used by
 ``list``, ``detail``, and ``link``. The cloud publisher calls
@@ -214,7 +214,7 @@ class InboxStore:
         return projected
 
     @staticmethod
-    def project(c, row, vision=None, human_text=None):
+    def project(c, row, vision=None, human_text=None, *, recovery_database_path=None):
         r = dict(row)
         sid = r['current_snapshot_id']
         attachments = [dict(a) for a in c.execute('''SELECT a.id,a.filename,a.extension,a.mime_type,a.size,a.parse_status,a.parse_error,a.sha256,a.needs_review
@@ -294,6 +294,27 @@ class InboxStore:
             for key, value in card.items():
                 if key.startswith('vision_') and key != 'vision_notice':
                     result[key] = value
+        if r['kind'] == 'inbox_lecture_note':
+            from .learning.note_projection import note_processing
+            note = note_processing(c, r, sid, recovery_database_path=recovery_database_path)
+            if note:
+                result['note_processing'] = note
+                # Keep the existing filter vocabulary; the exact reason belongs
+                # to note_processing, not a fabricated vision job.
+                result['processing_status'] = {'needs_context': 'needs_review', 'paused': 'needs_review',
+                    'processing': 'analyzing'}.get(note['status'], note['status'])
+                result['processing_stage'] = 'note_' + note['status']
+                result['needs_manual'] = note['status'] in {'needs_context', 'needs_review', 'failed', 'paused'}
+                if preview_source not in {'human', 'vision', 'low_confidence', 'failed'}:
+                    result.update(preview=(note['summary'] or note['message'])[:ROW_PREVIEW_LIMIT],
+                                  preview_source='note', vision_notice=None)
+                if note['status'] == 'completed':
+                    result['error'] = None
+        if kind == 'pdf' and result['preview_source'] == 'waiting':
+            reasons = {'extracting': '正在提取 PDF 内容。', 'analyzing': '正在分析这份笔记。',
+                       'failed': 'PDF 处理未完成，请核对后重试。', 'recovery_needed': 'PDF 处理已中断，原件保留。'}
+            result.update(preview=(result['error'] or {}).get('message') or reasons.get(result['processing_status'])
+                          or 'PDF 已保存，尚无已确认的 AI 分析结果。', preview_source='saved', vision_notice=None)
         return result
 
     def list(self, status='all', limit=20, offset=0, scope='all'):
@@ -313,10 +334,10 @@ class InboxStore:
             return self.project_detail(c, row)
 
     @classmethod
-    def project_detail(cls, c, row):
+    def project_detail(cls, c, row, *, recovery_database_path=None):
         # The same detail owner serves a single view and a consistent cloud export.
         # Exporting N rows must not repeat the complete N-row source join N times.
-        result = cls.project(c, row)
+        result = cls.project(c, row, recovery_database_path=recovery_database_path)
         raw_id = result['id']
         original = c.execute('SELECT * FROM raw_snapshot WHERE id=?', (result['original_snapshot_id'],)).fetchone()
         result['original'] = snapshot_with_metadata(c, original)
