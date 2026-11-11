@@ -156,6 +156,8 @@ class InboxStore:
         else:
             error = None
         with self.personal.connection(write=True) as c:
+            previous = json.loads(c.execute('SELECT inbox_classification_json FROM raw_item WHERE id=?',(raw_id,)).fetchone()[0] or '{}')
+            result.update({key:previous[key] for key in ('note_mode','note_classification') if key in previous})
             c.execute('UPDATE raw_item SET inbox_classification_json=? WHERE id=?', (encode(result), raw_id))
         self.state(raw_id, status, 'classified', error, snapshot_id)
 
@@ -296,7 +298,9 @@ class InboxStore:
                     result[key] = value
         if r['kind'] == 'inbox_lecture_note' and kind == 'pdf':
             from .learning.note_projection import note_processing
-            note = note_processing(c, r, sid, recovery_database_path=recovery_database_path)
+            from .notes_anywhere.classification import MODE, project as project_classification
+            filing = (result['classification'] or {}).get('note_classification')
+            note = project_classification(filing) if filing and result['classification'].get('note_mode') == MODE else note_processing(c, r, sid, recovery_database_path=recovery_database_path)
             if note:
                 result['note_processing'] = note
                 # Keep the existing filter vocabulary; the exact reason belongs

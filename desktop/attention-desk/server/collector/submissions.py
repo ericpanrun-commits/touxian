@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import time
 from types import SimpleNamespace
 from urllib.parse import urlsplit
@@ -89,6 +90,10 @@ class SubmissionService:
                     bundle = self.reviews.collect(RawInput(original_text=body, title_hint=title, source_time=stamp), key, connection=c, **source)
                 raw_id, fresh = bundle['snapshot']['raw_item_id'], True
                 self.inbox.attach(c, bundle, self.input_kind(kind, files), content_hash)
+                if payload.get('purpose') == 'lecture_note' and self.input_kind(kind, files) == 'pdf':
+                    from ..notes_anywhere.classification import MODE
+                    c.execute('UPDATE raw_item SET inbox_classification_json=? WHERE id=?',
+                              (encode({'note_mode':MODE}), raw_id))
                 if kind == 'url':
                     c.execute('UPDATE raw_item SET original_url=?,title=?,discovered_at=? WHERE id=?', (payload['url'], title, now(), raw_id))
             if confirmed_course_id is not None:
@@ -200,7 +205,9 @@ class SubmissionService:
                         return
                     await asyncio.sleep(.25)
                 errors=result.get('error') or []
-                notes_without_text=row['kind']=='inbox_lecture_note' and bool(errors) and all(e.get('code')=='empty_text' for e in errors)
+                from ..notes_anywhere.classification import MODE
+                filing_note = json.loads(row['inbox_classification_json'] or '{}').get('note_mode') == MODE
+                notes_without_text=row['kind']=='inbox_lecture_note' and bool(errors) and all(e.get('code') in ({'empty_text','ocr_empty','ocr_unavailable'} if filing_note else {'empty_text'}) for e in errors)
                 if not result.get('result_snapshot_id') and not notes_without_text:
                     attachments = await asyncio.to_thread(lambda: self.reviews.get(sid)['snapshot']['attachments'])
                     if attachments and all(a['parse_status'] == 'unsupported' for a in attachments):
@@ -212,6 +219,11 @@ class SubmissionService:
             stage = 'classify'
             self.inbox.state(raw_id, 'classifying', stage, snapshot_id=sid)
             await asyncio.to_thread(self.inbox.classify, raw_id, sid)
+            if (row['kind'] == 'inbox_lecture_note' and row['inbox_kind'] == 'pdf'
+                    and json.loads(row['inbox_classification_json'] or '{}').get('note_mode') == MODE):
+                from ..notes_anywhere.classification import classify_note
+                await classify_note(self, raw_id, sid)
+                return
             learning = getattr(self, 'learning', None)
             if learning:
                 stage = 'learning_projection'

@@ -40,3 +40,15 @@ test('cloud list/detail presentation survives refresh without exposing OCR',()=>
   assert.equal(presentInbox(saved,new URL('https://test.local/inbox')).preview,'Saved result');
   assert.equal(presentInbox(saved,new URL('https://test.local/inbox/id')).preview,'Saved result');
 });
+
+test('one-call classification reuses cloud fields and never becomes a waiting placeholder',()=>{
+  const classification={note_mode:'note-course-tags-v1',note_classification:{status:'completed',course_id:'course-math-ii',knowledge_point:'导数',tags:['求导'],summary:null}};
+  const saved={...pdf,classification,course:{id:'course-math-ii',name:'高等数学'},note_processing:{mode:'note-course-tags-v1',status:'completed',summary:'导数',message:'已分类'}};
+  for(const path of ['/inbox','/inbox/id']) {
+    const shown=presentInbox(saved,new URL('https://test.local'+path));
+    assert.equal(shown.preview,'导数');
+    assert.deepEqual(shown.classification,classification);
+    assert.equal(shown.course.id,'course-math-ii');
+    assert.equal(shown.attachments[0].mime_type,'application/pdf');
+  }
+});
