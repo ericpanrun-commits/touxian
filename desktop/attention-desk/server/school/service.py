@@ -161,6 +161,7 @@ class SchoolService:
     def _index(self, job_id):
         payload = self.jobs.get(job_id)['payload']; doc_id = payload['document_id']
         completed, failed, cached, ocr = [], [], 0, 0
+        blank_pages = self.learning.blank_pages(doc_id)
         for index in payload['pages']:
             if self.stopping.is_set():
                 self.jobs.update(job_id, 'recovery_needed', '处理已中断，已成功页面保留', result={'completed': completed, 'failed': failed, 'total': len(payload['pages'])})
@@ -170,6 +171,8 @@ class SchoolService:
                 page = self.learning.page(doc_id, index)
                 if page['current_extraction_key'] and page['status'] in {'indexed', 'needs_review'}:
                     cached += 1; completed.append(index); continue
+                if index in blank_pages:
+                    completed.append(index); continue
                 destination = self.learning.cache / f'{job_id}-page-{index}.json'
                 self.documents.worker(self.learning.files.path(self.learning.attachment(doc_id)), f'school-page:{index}', destination, 180)
                 result = json.loads(destination.read_text(encoding='utf-8'))
@@ -184,7 +187,8 @@ class SchoolService:
                 failed.append({'page': index, 'code': code, 'message': message})
         self.jobs.update(job_id, 'partial' if failed and completed else 'failed' if failed else 'completed',
                          '部分页面需要核对' if failed else '当前章节解析完成',
-                         result={'completed': completed, 'failed': failed, 'processed': len(completed)+len(failed), 'total': len(payload['pages']), 'cached': cached, 'ocr_pages': ocr, 'local_cost_cny': 0}, errors=failed)
+                         result={'completed': completed, 'failed': failed, 'processed': len(completed)+len(failed), 'total': len(payload['pages']), 'cached': cached, 'ocr_pages': ocr,
+                                 'blank_pages': sorted(blank_pages.intersection(payload['pages'])), 'local_cost_cny': 0}, errors=failed)
 
     def _local_error(self, job_id, error):
         code = getattr(error, 'code', 'processing_failed')

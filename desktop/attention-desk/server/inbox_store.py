@@ -294,7 +294,7 @@ class InboxStore:
             for key, value in card.items():
                 if key.startswith('vision_') and key != 'vision_notice':
                     result[key] = value
-        if r['kind'] == 'inbox_lecture_note':
+        if r['kind'] == 'inbox_lecture_note' and kind == 'pdf':
             from .learning.note_projection import note_processing
             note = note_processing(c, r, sid, recovery_database_path=recovery_database_path)
             if note:

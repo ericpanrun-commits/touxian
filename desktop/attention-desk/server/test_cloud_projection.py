@@ -46,6 +46,25 @@ def test_projection_removes_machine_credentials_but_preserves_real_evidence_path
     assert record('course','course-math-ii',value) == record('course','course-math-ii',value)
 
 
+def test_pdf_projection_keeps_existing_png_note_status(tmp_path,monkeypatch):
+    from PIL import Image
+    async def run():
+        async with rig(tmp_path) as r:
+            monkeypatch.setattr(r.service,'_schedule',lambda raw:None)
+            path=tmp_path/'note.png';Image.new('RGB',(40,40),'white').save(path)
+            receipt=await r.service.submit('desktop','file',{'submission_id':str(uuid4()),'purpose':'lecture_note'},[(path.name,'image/png',path)])
+            rid=receipt['submission_id']
+            before=InboxStore(r.store).detail(rid)
+            with r.store.connection(write=True) as c:
+                c.execute('INSERT INTO learning_capture VALUES (?,?,?,?,?,?,NULL,NULL,?)',
+                    ('png-capture',rid,before['snapshot_id'],'png-fixture','needs_context',
+                     json.dumps({'note_share':True,'note_automation':{'status':'needs_context'}}),now()))
+            after=InboxStore(r.store).detail(rid)
+            assert after.pop('learning_capture')=={'id':'png-capture','status':'needs_context'}
+            assert after==before and 'note_processing' not in after
+    asyncio.run(run())
+
+
 def test_projection_publishes_only_small_reading_metadata_and_preserves_document_identity(tmp_path,monkeypatch):
     store=PersonalStore(tmp_path/'personal.sqlite3');store.initialize()
     path=text_pdf(tmp_path/'book.pdf',['Synthetic page '+str(index) for index in range(70)])

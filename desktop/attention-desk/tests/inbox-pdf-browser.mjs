@@ -12,6 +12,8 @@ assert(process.env.ERIC_PDF_FIXTURE_DIR,'Set ERIC_PDF_FIXTURE_DIR to private his
 const root=process.cwd(),out=resolve(process.env.ERIC_PDF_FIXTURE_DIR,'browser');
 await mkdir(out,{recursive:true});
 const fixtures=await Promise.all(['historical','new'].map(async name=>JSON.parse(await readFile(resolve(process.env.ERIC_PDF_FIXTURE_DIR,name+'-inbox.json'),'utf8'))));
+const newLabel={needs_context:'待确认信息',needs_review:'待核对',paused:'已暂停',failed:'处理失败',completed:'分析已完成'}[fixtures[1].note_processing.status];
+assert(newLabel,'Expected a recorded terminal or paused sample state');
 const require=createRequire(import.meta.url);
 const worker=await readFile(require.resolve('pdfjs-dist/legacy/build/pdf.worker.min.mjs'));
 const compiled=await build({stdin:{contents:`
@@ -62,11 +64,11 @@ await page.route('**/*',route=>{
 });
 try {
   await page.goto('http://127.0.0.1:'+server.address().port);
-  await page.getByText('分析已完成',{exact:true}).waitFor();
-  await page.getByText('待确认信息',{exact:true}).waitFor();
+  await page.getByText('分析已完成',{exact:true}).first().waitFor();
+  await page.locator('.eric-inbox-list .personal-status').filter({hasText:new RegExp('^'+newLabel+'$')}).first().waitFor();
   assert.equal(await page.getByText('等待 AI 分析',{exact:false}).count(),0);
   await page.screenshot({path:resolve(out,'real-two-sample-list.png'),fullPage:true});
-  report.checks.push('Real saved review summary and new needs_context reason appear in list.');
+  report.checks.push('Real saved review summary and new '+fixtures[1].note_processing.status+' reason appear in list.');
   await page.locator('.eric-inbox-list button').first().click();
   await page.getByText(fixtures[0].note_processing.message,{exact:true}).waitFor();
   await page.getByText(fixtures[0].note_processing.summary,{exact:true}).waitFor();
@@ -91,7 +93,7 @@ try {
   }
   await page.setViewportSize({width:390,height:844});
   await page.goto('http://127.0.0.1:'+server.address().port);
-  await page.getByText('待确认信息',{exact:true}).waitFor();
+  await page.locator('.eric-inbox-list .personal-status').filter({hasText:new RegExp('^'+newLabel+'$')}).first().waitFor();
   await page.screenshot({path:resolve(out,'mobile-two-sample-list.png'),fullPage:true});
   report.reads=await page.evaluate(()=>window.__reads);
   assert.deepEqual(errors,[]);assert.equal(report.production_requests,0);report.console_errors=errors;report.passed=true;

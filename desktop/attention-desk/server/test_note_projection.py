@@ -125,3 +125,26 @@ def test_auto_review_stops_before_model_reservation_and_keeps_resumable_state(tm
     assert context['note_automation']['status'] == 'needs_setup'
     assert '暂停' in context['note_automation']['message']
     assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize('errors', [[{'code':'provider_error','message':'Saved school failure'}],
+                                  {'message':'Saved school failure'}, None, [], 'unexpected'])
+def test_failed_job_accepts_both_existing_error_shapes(database, errors):
+    capture(database,'processing',review_job_id='job')
+    database.execute('INSERT INTO attachment_job VALUES (?,?,?)',('job','failed',json.dumps(errors)))
+    result=project(database)
+    assert result['status']=='failed' and result['message']
+    if errors and not isinstance(errors,str):assert result['message']=='Saved school failure'
+
+
+@pytest.mark.parametrize('lecture', ['lecture','unrelated'])
+def test_validation_failure_displays_bound_review_reason(database,lecture):
+    capture(database,'needs_review',review_id='review',lecture_id='lecture',message='Generic pending review')
+    failure={'code':'review_validation','issues':[{'code':'conditions_required'},{'code':'notes_evidence'}]}
+    database.execute('INSERT INTO review_artifact VALUES (?,?,?,NULL,?)',
+        ('review',lecture,'needs_review',json.dumps(failure)))
+    result=project(database)
+    assert result['status']=='needs_review' and result['summary'] is None
+    if lecture=='lecture':
+        assert '适用条件依据' in result['message'] and '笔记来源引用' in result['message']
+    else:assert result['message']=='Generic pending review'

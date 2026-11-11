@@ -38,6 +38,20 @@ def note_processing(connection, raw, snapshot_id, *, recovery_database_path=None
         result.update(status='failed', message=message or '笔记处理未完成，原件保留，请核对后重试。')
     elif state in {'needs_review', 'needs_source', 'needs_vision_permission'}:
         result.update(status='needs_review', message=message or '笔记原件已保存，仍需核对处理条件。')
+        if state == 'needs_review' and work.get('review_id'):
+            review = connection.execute('SELECT error_json FROM review_artifact WHERE id=? AND lecture_id=?',
+                (work['review_id'], context.get('lecture_id') or work.get('lecture_id'))).fetchone()
+            failure = json.loads(review['error_json'] or '{}') if review else {}
+            if isinstance(failure, dict) and failure.get('code') == 'review_validation':
+                labels = {'conditions_required': '部分方法缺少适用条件依据',
+                    'notes_evidence': '部分笔记结论缺少笔记来源引用',
+                    'unreliable_method': '方法引用了尚未核对的识别内容',
+                    'unreliable_answer': '自测答案引用了尚未核对的识别内容',
+                    'source_role': '笔记与教材的来源标注不符',
+                    'unbound_math': '数学表述未绑定原文依据'}
+                reasons = list(dict.fromkeys(labels[issue['code']] for issue in failure.get('issues', [])
+                    if isinstance(issue, dict) and issue.get('code') in labels))[:2]
+                result['message'] = '复盘未通过来源校验' + ('：' + '；'.join(reasons) if reasons else '') + '。原件与识别结果已保留，请核对后继续。'
     else:
         database = recovery_database_path or connection.execute('PRAGMA database_list').fetchone()[2]
         if paid_ai_paused(database) or state == 'paused':
@@ -50,7 +64,10 @@ def note_processing(connection, raw, snapshot_id, *, recovery_database_path=None
             if job and job['status'] in {'waiting', 'running'}:
                 result.update(status='processing', message='正在处理这份笔记。')
             elif job and job['status'] == 'failed':
-                reason = json.loads(job['error_json'] or '{}').get('message')
+                errors = json.loads(job['error_json'] or '{}')
+                entries = errors if isinstance(errors, list) else [errors]
+                reason = next((entry['message'] for entry in entries
+                               if isinstance(entry, dict) and isinstance(entry.get('message'), str) and entry['message'].strip()), None)
                 result.update(status='failed', message=reason or '笔记处理未完成，原件保留，请核对后重试。')
             else:
                 result.update(status='needs_review', message='笔记已保存，尚无已确认的 AI 分析结果。')
