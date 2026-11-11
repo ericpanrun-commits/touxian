@@ -93,6 +93,9 @@ class AutoNotes:
         value=context.get('note_automation',{})
         if value.get('status') not in {'local_ready','needs_vision_permission','needs_source'}:return
         if not context.get('lecture_id'):return
+        from ..recovery_controls import paid_ai_paused
+        if paid_ai_paused(self.personal.path):
+            value.update(status='needs_setup',message='笔记已保存，AI 处理已暂停；已有结果保留。');return
         if not self.service.analysis_status()['enabled']:
             value.update(status='needs_setup',message='笔记已整理；后台文字处理处于暂停状态。');return
         lecture=self.school.store.lecture(context['lecture_id'])

@@ -13,6 +13,30 @@ from server.documents.storage import AttachmentStore
 from server.personal_store import PersonalStore,now
 
 
+def test_note_pause_survives_cloud_backup_directory(tmp_path,monkeypatch):
+    async def run():
+        async with rig(tmp_path) as r:
+            # Exercise the real on-disk control lookup, not the test env override.
+            monkeypatch.delenv('ATTENTION_RECOVERY_CONTROL_PATH')
+            controls=tmp_path/'recovery-controls.json'
+            controls.write_text(json.dumps({'version':1,'hold_cloud_uploads':True,'pause_paid_ai':True}))
+            monkeypatch.setattr(r.service,'_schedule',lambda raw:None)
+            path=text_pdf(tmp_path/'note.pdf',['Synthetic note; no model request.'])
+            receipt=await r.service.submit('desktop','file',{'submission_id':str(uuid4()),'purpose':'lecture_note'},[(path.name,'application/pdf',path)])
+            with r.store.connection(write=True) as c:
+                raw=c.execute('SELECT * FROM raw_item WHERE id=?',(receipt['submission_id'],)).fetchone()
+                c.execute('INSERT INTO learning_capture VALUES (?,?,?,?,?,?,NULL,NULL,?)',
+                    ('capture-paused',raw['id'],raw['inbox_original_snapshot_id'],'fixture-hash','received',
+                     json.dumps({'note_share':True,'note_automation':{'status':'local_ready'}}),now()))
+            records=CloudProjection(r.store,tmp_path/'cloud-cache').records()
+            for kind in ('inbox_item','inbox'):
+                value=next(row['payload'] for row in records if row['kind']==kind and row['id']==raw['id'])
+                assert value['note_processing']['status']=='paused'
+                assert value['processing_status']=='needs_review'
+            assert json.loads(controls.read_text())['pause_paid_ai'] is True
+    asyncio.run(run())
+
+
 def test_projection_removes_machine_credentials_but_preserves_real_evidence_paths():
     value = public_value({'id':'existing-id','local_path':'C:/private/original.pdf',
         'nested':{'api_key':'never publish','protected_sync_key':'never publish','field_path':'tasks.existing.title'},
@@ -20,6 +44,25 @@ def test_projection_removes_machine_credentials_but_preserves_real_evidence_path
     assert value == {'id':'existing-id','nested':{'field_path':'tasks.existing.title'},
         'source':{'document_id':'doc-stable','page':12,'quote':'Original evidence'}}
     assert record('course','course-math-ii',value) == record('course','course-math-ii',value)
+
+
+def test_pdf_projection_keeps_existing_png_note_status(tmp_path,monkeypatch):
+    from PIL import Image
+    async def run():
+        async with rig(tmp_path) as r:
+            monkeypatch.setattr(r.service,'_schedule',lambda raw:None)
+            path=tmp_path/'note.png';Image.new('RGB',(40,40),'white').save(path)
+            receipt=await r.service.submit('desktop','file',{'submission_id':str(uuid4()),'purpose':'lecture_note'},[(path.name,'image/png',path)])
+            rid=receipt['submission_id']
+            before=InboxStore(r.store).detail(rid)
+            with r.store.connection(write=True) as c:
+                c.execute('INSERT INTO learning_capture VALUES (?,?,?,?,?,?,NULL,NULL,?)',
+                    ('png-capture',rid,before['snapshot_id'],'png-fixture','needs_context',
+                     json.dumps({'note_share':True,'note_automation':{'status':'needs_context'}}),now()))
+            after=InboxStore(r.store).detail(rid)
+            assert after.pop('learning_capture')=={'id':'png-capture','status':'needs_context'}
+            assert after==before and 'note_processing' not in after
+    asyncio.run(run())
 
 
 def test_projection_publishes_only_small_reading_metadata_and_preserves_document_identity(tmp_path,monkeypatch):

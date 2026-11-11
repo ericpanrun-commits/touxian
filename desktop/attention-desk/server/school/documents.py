@@ -62,6 +62,19 @@ class LearningDocuments:
     def attachment(self, doc_id):
         return self.files.get(self.get(doc_id)['attachment_id'])
 
+    def blank_pages(self, doc_id):
+        """Reuse the saved PDF parser's rendered-blank proof, never an OCR miss."""
+        doc = self.get(doc_id)
+        att = self.files.get(doc['attachment_id'])
+        if att['extension'] != 'pdf' or att['sha256'] != doc['sha256']:
+            return set()
+        manifest = json.loads(att.get('parse_manifest_json') or '{}')
+        meta = manifest.get('metadata') or {}
+        if meta.get('page_count') != doc['page_count']:
+            return set()
+        return {p for p in meta.get('blank_pages', [])
+                if type(p) is int and 1 <= p <= doc['page_count']}
+
     @staticmethod
     def page_id(doc_id, index):
         return 'page-' + digest(doc_id + ':' + str(index))[:32]

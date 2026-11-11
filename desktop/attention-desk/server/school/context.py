@@ -78,13 +78,16 @@ class ContextBuilder:
         sources = [self.block_source(b, 'notes') for b in selected]
         needs_vision = []
         for doc in lecture['notes']:
+            blank_pages = self.documents.blank_pages(doc['id'])
             for page in self.documents.pages(doc['id'], limit=2000):
+                if page['page_index'] in blank_pages: continue
                 page_blocks = [b for b in note_blocks if b['document_id'] == doc['id'] and b['page_index'] == page['page_index']]
                 current_vision = any(b['extraction_method'] == 'deepseek_vision' for b in page_blocks)
                 if not current_vision and not page.get('vision_status') and (not page_blocks or any(b['extraction_quality'] != 'text_extracted' for b in page_blocks)):
                     needs_vision.append({'document_id': doc['id'], 'page': page['page_index']})
             # At most two original note pages accompany a frame or vision request.
             for page in self.documents.pages(doc['id'], limit=2):
+                if page['page_index'] in blank_pages: continue
                 if len([s for s in sources if s['kind'] == 'page_image']) < 2:
                     sources.append(self.image_source(doc, page['page_index']))
         queries=[lecture['title']]

@@ -88,10 +88,12 @@ async def collect(request:Request):
 
 
 @router.get('/attachments/{attachment_id}/original')
-def original(attachment_id:str,request:Request):
+def original(attachment_id:str,request:Request,inline:bool=False):
     def get():
         service=service_for(request); att=service.files.get(attachment_id)
-        return FileResponse(service.files.path(att),media_type='application/octet-stream',filename=att['filename'],headers={'X-Content-Type-Options':'nosniff'})
+        preview = inline and att['extension']=='pdf'
+        return FileResponse(service.files.path(att),media_type='application/pdf' if preview else 'application/octet-stream',
+            filename=att['filename'],content_disposition_type='inline' if preview else 'attachment',headers={'X-Content-Type-Options':'nosniff'})
     return perform(get)
 
 

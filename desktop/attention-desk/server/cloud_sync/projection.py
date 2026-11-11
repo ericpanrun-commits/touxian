@@ -106,8 +106,8 @@ class CloudProjection:
 
         with personal.connection() as c:
             for row in InboxStore._rows(c):
-                add('inbox_item', row['id'], InboxStore.project(c, row))
-                add('inbox', row['id'], InboxStore.project_detail(c, row))
+                add('inbox_item', row['id'], InboxStore.project(c, row, recovery_database_path=self.source.path))
+                add('inbox', row['id'], InboxStore.project_detail(c, row, recovery_database_path=self.source.path))
             for row in c.execute('SELECT * FROM raw_item ORDER BY id'):
                 add('raw_item', row['id'], dict(row))
             for row in c.execute('SELECT raw_snapshot_id FROM raw_review ORDER BY raw_snapshot_id').fetchall():

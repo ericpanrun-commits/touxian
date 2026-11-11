@@ -140,7 +140,7 @@ class LearningAnalysis:
             changed=c.execute("UPDATE learning_artifact SET model=?,payload_json=json_set(payload_json,'$.phase','dispatched','$.dispatched_at',?) WHERE id=? AND status='running' AND model IS NULL",(model,now(),aid)).rowcount
             if changed!=1:raise PersonalError('请求已经处理，未重复发送。','request_already_attempted',409)
 
-    def finish(self,parent,aid,config,response=None,error=None,value=None,status='completed'):
+    def finish(self,parent,aid,config,response=None,error=None,value=None,status='completed',cloud_images=0):
         usage=response.usage if response else getattr(error,'usage',None)
         raw=response.raw_output if response else getattr(error,'raw_output',None)
         model=response.response_model or config.model if response else config.model
@@ -152,6 +152,7 @@ class LearningAnalysis:
         cost=estimate('deepseek',model,usage,config.base_url) if complete else {'estimated_cost':None,'basis':'请求可能已发送，用量不完整、费用未知；停止自动重试。'}
         if cost['estimated_cost'] is None:cost['reserved_cost_cny']=reserved
         if not dispatched:cost={'estimated_cost':0,'basis':'请求未发出。'}
+        if cloud_images:cost['cloud_images']=cloud_images if dispatched else 0
         failure={'code':getattr(error,'code','invalid_learning_output'),'message':'后台处理未完成，原件保留；自动请求已停止。'} if error else None
         if failure and getattr(error,'code',None) in {'consent_required','learning_budget','provider_scope','missing_key'}:failure['message']=str(error)
         payload=json.loads(call['payload_json']) if call and call['payload_json'] else {}

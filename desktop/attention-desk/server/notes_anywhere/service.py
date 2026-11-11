@@ -121,19 +121,30 @@ class AnywhereNotes:
         if size!=row['bytes'] or digest.hexdigest()!=row['sha256']:raise NotesSyncError('download_hash_mismatch')
         validate_file(target,'pdf','application/pdf')
 
-    async def sync_once(self):
-        if cloud_uploads_held(self.personal.path):
+    async def sync_once(self, *, selected=None):
+        # Operator-only replay of at most two exact metadata rows. Never poll
+        # /pending here: that endpoint also recovers unrelated uploading rows.
+        if selected is not None:
+            if not isinstance(selected, list) or not 1 <= len(selected) <= 2:
+                raise NotesSyncError('invalid_note_selection')
+        held = cloud_uploads_held(self.personal.path)
+        if held and selected is None:
             self.state.update(uploads_held=True,last_error=None,message='本地恢复期间云端收发暂停；原件与队列保留。')
             return self.public()
-        self.state['uploads_held']=False
+        self.state['uploads_held']=held
         config=self.settings.read()
         self.state.update(configured=bool(config),enabled=bool(config and config.get('enabled')))
         if not config or not config.get('enabled'):return self.public()
         if self.lock.locked():return self.public()
         async with self.lock:
-            await self.intake.resume_notes()
-            result=await self._request(config,'GET','/pending')
-            rows=result.get('submissions')
+            self.state.update(ack_deferred=False,selected_saved=[])
+            if selected is None:
+                await self.intake.resume_notes()
+                result=await self._request(config,'GET','/pending')
+                rows=result.get('submissions')
+            else:
+                rows=[self._metadata(row,config) for row in selected]
+                if len({row['id'] for row in rows}) != len(rows):raise NotesSyncError('invalid_note_selection')
             if not isinstance(rows,list) or len(rows)>5:raise NotesSyncError('invalid_cloud_response')
             self.state['last_error']=None
             owner='anywhere:'+config['installation_id']
@@ -153,6 +164,13 @@ class AnywhereNotes:
                             receipt=await asyncio.to_thread(self._receipt,owner,row)
                             if not receipt:raise NotesSyncError('local_original_unverified')
                         finally:target.unlink(missing_ok=True)
+                    if selected is not None:
+                        # An isolated verification copy must never ACK the live
+                        # queue or allow transit cleanup. Paid holds also remain.
+                        self.state['selected_saved'].append(row['id'])
+                        self.state.update(ack_deferred=True,
+                            message='指定笔记已保存到本地；云端确认与全局自动处理保持暂停。')
+                        continue
                     ack=await self._request(config,'POST','/ack',{
                         'id':row['id'],'sha256':row['sha256'],'bytes':row['bytes'],'local_receipt_id':receipt['id']})
                     if ack.get('acked') is not True:raise NotesSyncError('cloud_ack_unconfirmed')
@@ -162,7 +180,7 @@ class AnywhereNotes:
                     if isinstance(error,httpx.TransportError):await self._reconnect()
                     self.state.update(last_error=error.code if isinstance(error,NotesSyncError) else 'local_receive_failed',message='有一份云端笔记尚未确认保存，原件保留，稍后自动重试。')
                     continue
-            if not self.state.get('last_error'):self.state['message']='已连接；笔记会自动取回并沿用现有整理流程。'
+            if not self.state.get('last_error') and not self.state.get('ack_deferred'):self.state['message']='已连接；笔记会自动取回并沿用现有整理流程。'
             return self.public()
 
     def _source_context(self,row):
