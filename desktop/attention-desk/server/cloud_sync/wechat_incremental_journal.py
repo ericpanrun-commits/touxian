@@ -46,6 +46,11 @@ def _instant(value):
 
 def freeze_bundle(bundle, scope_id):
     """Reduce a fresh four-view projection to identifiers and fingerprints."""
+    from ..wechat_collect.automation import POLICY as ACTION_POLICY
+    if isinstance(bundle,dict) and bundle.get('policy')==ACTION_POLICY:
+        from .automatic_actions import freeze_actions
+        try: return freeze_actions(bundle,scope_id)
+        except (ValueError,KeyError,TypeError): raise JournalError('invalid_automatic_projection') from None
     if (not isinstance(bundle,dict) or bundle.get('preview_only') is not True
         or bundle.get('upload_authorized') is not False or bundle.get('resources')!=[]
         or bundle.get('record_count')!=4 or not isinstance(scope_id,str) or not SHA.fullmatch(scope_id)):
@@ -130,6 +135,10 @@ def _valid_metadata(value):
     expected=hashlib.sha256(encode([value['source_id'],value['raw_id'],mids]).encode()).hexdigest()
     if value['dedupe_key']!=expected:return False
     rows=value['records']
+    if isinstance(rows,list) and len(rows)>4:
+        from .automatic_actions import metadata_valid
+        try: return metadata_valid(value)
+        except (ValueError,KeyError,TypeError): return False
     if not isinstance(rows,list) or len(rows)!=4 or any(not isinstance(r,dict) for r in rows):return False
     kinds={'raw_item':value['raw_id'],'inbox_item':value['raw_id'],'inbox':value['raw_id'],'raw_review':value['snapshot_id']}
     if [r.get('kind') for r in rows]!=sorted(kinds):return False
@@ -325,7 +334,7 @@ class WeChatIncrementalJournal:
             return json.loads(json.dumps(values))
 
     def claim(self,key,*,at,daily_limit,cycle_limit,epoch,generation):
-        if type(daily_limit) is not int or not 1<=daily_limit<=1000:
+        if type(daily_limit) is not int or not 1<=daily_limit<=10000:
             raise JournalError('invalid_daily_limit')
         if type(cycle_limit) is not int or not 1<=cycle_limit<=daily_limit:
             raise JournalError('invalid_cycle_limit')
@@ -338,6 +347,7 @@ class WeChatIncrementalJournal:
             value=self._read();entry=value['entries'].get(key)
             if not entry or entry['state'] not in {'prepared','unconfirmed'}:
                 raise JournalError('entry_not_retryable')
+            seconds=60 if len(entry['records'])>4 else 900;cycle=int(at.timestamp()//seconds)
             if entry['attempts']:
                 previous=entry['attempts'][-1]
                 if (previous['epoch'],previous['generation'])!=(epoch,generation):
@@ -347,7 +357,7 @@ class WeChatIncrementalJournal:
                 last=entry['history'][-1]['fence']
                 if generation<last['generation']:raise JournalError('attempt_fenced')
                 if at<_instant(last['at']):raise JournalError('clock_moved_backwards')
-            self._check_quota(value,day,cycle,daily_limit,cycle_limit)
+            self._check_quota(value,day,cycle,daily_limit,cycle_limit,cycle_seconds=seconds)
             if len(entry['attempts'])>=10000:raise JournalError('attempt_history_limit')
             # Commit the unknown-outcome marker before any possible network call.
             entry['attempts'].append({'at':at.isoformat(),'epoch':epoch,'generation':generation});entry['state']='unconfirmed'
@@ -355,27 +365,28 @@ class WeChatIncrementalJournal:
             return dict(entry)
 
     @staticmethod
-    def _check_quota(value,day,cycle,daily_limit,cycle_limit):
+    def _check_quota(value,day,cycle,daily_limit,cycle_limit,*,cycle_seconds=900):
         stamps=[attempt['at'] for entry in value['entries'].values() for attempt in entry['attempts']]
         stamps.extend(stamp for entry in value['entries'].values() for stamp in entry['reconciliations'])
         stamps.extend(attempt['at'] for entry in value['entries'].values() for prior in entry['history'] for attempt in prior['attempts'])
         stamps.extend(stamp for entry in value['entries'].values() for prior in entry['history'] for stamp in prior['reconciliations'])
         if sum(_instant(stamp).astimezone(ZoneInfo('Asia/Shanghai')).date().isoformat()==day for stamp in stamps)>=daily_limit:
             raise JournalError('daily_limit_reached')
-        if sum(int(_instant(stamp).timestamp()//900)==cycle for stamp in stamps)>=cycle_limit:
+        if sum(int(_instant(stamp).timestamp()//cycle_seconds)==cycle for stamp in stamps)>=cycle_limit:
             raise JournalError('cycle_limit_reached')
 
     def claim_reconciliation(self,key,*,at,daily_limit,cycle_limit):
-        if type(daily_limit) is not int or not 1<=daily_limit<=1000:raise JournalError('invalid_daily_limit')
+        if type(daily_limit) is not int or not 1<=daily_limit<=10000:raise JournalError('invalid_daily_limit')
         if type(cycle_limit) is not int or not 1<=cycle_limit<=daily_limit:raise JournalError('invalid_cycle_limit')
         at=_instant(at);day=at.astimezone(ZoneInfo('Asia/Shanghai')).date().isoformat();cycle=int(at.timestamp()//900)
         with self.lock:
             value=self._read();entry=value['entries'].get(key)
             if not entry or entry['state']!='unconfirmed':raise JournalError('entry_not_unconfirmed')
+            seconds=60 if len(entry['records'])>4 else 900;cycle=int(at.timestamp()//seconds)
             last=entry['reconciliations'][-1] if entry['reconciliations'] else entry['attempts'][-1]['at']
             if _instant(last)>at:raise JournalError('clock_moved_backwards')
             if len(entry['reconciliations'])>=10000:raise JournalError('attempt_history_limit')
-            self._check_quota(value,day,cycle,daily_limit,cycle_limit)
+            self._check_quota(value,day,cycle,daily_limit,cycle_limit,cycle_seconds=seconds)
             entry['reconciliations'].append(at.isoformat());self._save(value)
             return dict(entry)
 

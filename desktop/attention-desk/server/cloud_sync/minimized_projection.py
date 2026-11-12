@@ -40,7 +40,7 @@ def _fresh_review(personal, preview):
     return fresh
 
 
-def minimized_projection_preview(personal, preview):
+def minimized_projection_preview(personal, preview, *, lineage_batch_id=None):
     """Explicit construction prevents hidden source/Review/Inbox fields escaping.
 
     Not connected to CloudSync.publish. A bundle hash binds all four projections
@@ -58,6 +58,8 @@ def minimized_projection_preview(personal, preview):
             original=c.execute('SELECT * FROM raw_snapshot WHERE id=?',(sid,)).fetchone()
             owner=c.execute('SELECT * FROM raw_review WHERE raw_snapshot_id=?',(sid,)).fetchone()
             batch=c.execute('SELECT id FROM wechat_batch WHERE raw_item_id=? AND snapshot_id=?',(raw_id,sid)).fetchone()
+            if not batch and lineage_batch_id is not None:
+                batch=c.execute('SELECT id FROM wechat_batch WHERE id=? AND raw_item_id=?',(lineage_batch_id,raw_id)).fetchone()
             source=c.execute('SELECT kind FROM source WHERE id=?',(value['source_id'],)).fetchone()
             if not owner or not batch or not source:raise ValueError('existing_projection_owner_missing')
             title='【脱敏节选】'+value['title'];blocks=[];messages=[]

@@ -34,6 +34,8 @@ class ConsumerState:
                 CREATE TABLE checks(at REAL NOT NULL);
             ''')
             db.execute('INSERT INTO runtime VALUES (?,0,0,0)',(self.scope.binding(),))
+            if self.scope.policy=='wechat-personal-actions-v2':
+                db.execute('CREATE TABLE deferred_jobs(job_id TEXT PRIMARY KEY,review_version INTEGER NOT NULL)')
             db.commit()
 
     @contextmanager
@@ -57,10 +59,12 @@ class ConsumerState:
         carried across processes; a restart waits for the next eligible slot.
         """
         stamp=instant(at).timestamp()
+        from ..wechat_collect.automation import POLICY as ACTION_POLICY
+        automatic=self.scope.policy==ACTION_POLICY
         with self.connection() as db:
             latest=db.execute('SELECT MAX(at) FROM checks').fetchone()[0]
-            if latest is not None and stamp-latest<900:return False
-            if db.execute('SELECT COUNT(*) FROM checks WHERE at>?',(stamp-86400,)).fetchone()[0]>=30:return False
+            if latest is not None and stamp-latest<(60 if automatic else 900):return False
+            if db.execute('SELECT COUNT(*) FROM checks WHERE at>?',(stamp-86400,)).fetchone()[0]>=(max(1440,self.scope.daily_limit*2) if automatic else 30):return False
             db.execute('INSERT INTO checks VALUES (?)',(stamp,))
             return True
 
@@ -76,14 +80,17 @@ class ConsumerState:
                 db.execute('UPDATE runtime SET failures=0,cooldown=0')
 
 
-TERMINAL={'acknowledged','held','blocked','credential_revoked'}
+TERMINAL={'acknowledged','held','blocked','credential_revoked','delivery_attempt_limit_reached'}
 HALT={'credential_revoked','grant_not_current','cloud_approval_changed','cloud_evidence_changed',
       'cloud_scope_or_session_changed','cloud_authorization_inactive','global_holds_required'}
 
 
-def verify_status(value,scope):
+def verify_status(value,scope,automation_hash=None):
     expected={'protocol':'wechat-receipt-fence-v1','workspace_id':scope.workspace_id,
               'processor_id':scope.processor_id,'epoch':scope.epoch,'generation':scope.generation}
+    if scope.policy=='wechat-personal-actions-v2':
+        expected.update(protocol=scope.policy,activation_hash=automation_hash,not_before=scope.not_before,
+                        source_ids=[s.source_id for s in scope.sources])
     if type(value) is not dict or value!=expected or type(value.get('generation')) is not int:
         raise DispatchDenied('publisher_identity_changed')
 
@@ -134,7 +141,18 @@ class DeepSeekCloudConsumer:
                 source.row_factory=sqlite3.Row
                 try:
                     source.execute('PRAGMA query_only=ON');source.execute('BEGIN')
-                    rows=source.execute('''SELECT j.rowid AS position,j.id FROM wechat_analysis_job j
+                    automatic=self.scope.policy=='wechat-personal-actions-v2'
+                    if automatic:
+                        source.execute('ATTACH DATABASE ? AS notification_runtime',(self.state.path.resolve().as_uri()+'?mode=ro',))
+                        rows=source.execute('''SELECT j.rowid AS position,j.id,r.version AS review_version FROM wechat_analysis_job j
+                            JOIN wechat_batch b ON b.id=j.batch_id JOIN raw_item raw ON raw.id=b.raw_item_id
+                            JOIN raw_review r ON r.raw_snapshot_id=b.snapshot_id
+                            LEFT JOIN notification_runtime.jobs known ON known.job_id=j.id
+                            LEFT JOIN notification_runtime.deferred_jobs waiting ON waiting.job_id=j.id AND waiting.review_version=r.version
+                            WHERE j.status='parsed' AND j.rowid>? AND julianday(raw.created_at)>=julianday(?)
+                              AND known.job_id IS NULL AND waiting.job_id IS NULL ORDER BY j.rowid LIMIT 100''',(cursor,self.scope.not_before)).fetchall()
+                    else:
+                        rows=source.execute('''SELECT j.rowid AS position,j.id FROM wechat_analysis_job j
                         JOIN wechat_batch b ON b.id=j.batch_id JOIN raw_item r ON r.id=b.raw_item_id
                         WHERE j.status='parsed' AND j.rowid>? AND julianday(r.created_at)>=julianday(?)
                         ORDER BY j.rowid LIMIT 100''',(cursor,self.scope.not_before)).fetchall()
@@ -142,11 +160,15 @@ class DeepSeekCloudConsumer:
                     for row in rows:
                         if state.execute('SELECT 1 FROM jobs WHERE job_id=?',(row['id'],)).fetchone():continue
                         try:
-                            preview=build_deepseek_preview(source,deepseek,row['id'])
+                            preview=self.local.build_preview(source,deepseek,row['id'],self.scope) if hasattr(self.local,'build_preview') else build_deepseek_preview(source,deepseek,row['id'])
                             validate_future_scope(source,self.scope,preview)
                             frozen=freeze_bundle(preview['bundle'],self.scope.binding())
                             receipt=preview['analysis_receipt_sha256'];bundle=frozen['bundle_hash'];outcome='ready'
-                        except (ValueError,KeyError,TypeError,ExtractionFailure):
+                        except (ValueError,KeyError,TypeError,ExtractionFailure) as error:
+                            from ..wechat_collect.automation import POLICY as ACTION_POLICY
+                            if self.scope.policy==ACTION_POLICY and str(error)=='no_automatic_personal_tasks':
+                                state.execute('INSERT OR REPLACE INTO deferred_jobs VALUES (?,?)',(row['id'],row['review_version']))
+                                continue
                             # Rejected content stays local. No error strings or text are persisted.
                             receipt=bundle=None;outcome='held'
                         state.execute('INSERT INTO jobs VALUES (?,?,?,?,?)',
@@ -170,8 +192,9 @@ class DeepSeekCloudConsumer:
         # If no publish/reconcile allowance remains, do not spend a metadata GET.
         from zoneinfo import ZoneInfo
         at=instant(self.clock())
+        seconds=60 if self.scope.policy=='wechat-personal-actions-v2' else 900
         self.journal._check_quota(self.journal._read(),at.astimezone(ZoneInfo('Asia/Shanghai')).date().isoformat(),
-            int(at.timestamp()//900),self.scope.daily_limit,self.scope.cycle_limit)
+            int(at.timestamp()//seconds),self.scope.daily_limit,self.scope.cycle_limit,cycle_seconds=seconds)
         if not self.state.reserve_status(at):return {'state':'status_backoff','discovered':discovered}
         with self.local.files(self.scope) as (_,__,config):
             if (not config or config.get('enabled') is not True or config.get('endpoint')!=self.scope.destination
@@ -180,7 +203,7 @@ class DeepSeekCloudConsumer:
             config=dict(config)
         # No file lease or SQLite write lock is held across a remote await.
         value=await self.status_read(config)
-        verify_status(value,self.scope)
+        verify_status(value,self.scope,getattr(self.local,'automation_hash',None))
         self.status_at=instant(self.clock())
         sender=self.sender_factory(self.current)
         results=[]

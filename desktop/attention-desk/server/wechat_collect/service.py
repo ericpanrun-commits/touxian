@@ -32,9 +32,12 @@ class WeChatService:
         self.repository.configure(self.document,enforce_allowlist=getattr(self.adapter,'is_database',False))
         self.repository.recover()
         self.context=UserContextStore(personal.path.parent)
-        from .quality import reclassify_saved,prune_processing
-        reclassify_saved(personal,self.context.read().model_dump())
-        prune_processing(personal,self.context.read().model_dump(),clock())
+        from ..recovery_controls import controls
+        if not controls(personal.path,use_override=False)['pause_paid_ai']:
+            # A restart under the global hold cannot reclassify saved backlog.
+            from .quality import reclassify_saved,prune_processing
+            reclassify_saved(personal,self.context.read().model_dump())
+            prune_processing(personal,self.context.read().model_dump(),clock())
         self.policy=SchedulerPolicy(self.document.wechat,clock)
         self.schedule=ScheduleState(self.policy)
         self.analysis=AnalysisQueue(personal,settings,self.policy,transport=transport,clock=clock,

@@ -34,9 +34,9 @@ def prepare_batch(personal, chat, scan_id, plan, *, at, delay_seconds=0, connect
             if media:
                 original_parts.extend(b['text'] for b in json.loads(media['blocks_json'] or '[]'))
         content = '\n\n'.join(original_parts)
-        digest = hashlib.sha256(encode([[(m['id'],m['content_signature']) for m in messages],media_revisions] if media_revisions else [(m['id'],m['content_signature']) for m in messages]).encode()).hexdigest()
+        batch_digest = hashlib.sha256(encode([[(m['id'],m['content_signature']) for m in messages],media_revisions] if media_revisions else [(m['id'],m['content_signature']) for m in messages]).encode()).hexdigest()
         c.execute('INSERT INTO raw_item(id,source_id,kind,submission_id,submission_hash,created_at) VALUES (?,?,?,?,?,?)',
-                  (raw_id,chat['source_id'],'wechat_batch','wechat:'+batch_id,digest,stamp))
+                  (raw_id,chat['source_id'],'wechat_batch','wechat:'+batch_id,batch_digest,stamp))
         snapshot_id = ReviewStore._new_snapshot(c,raw_id,content,stamp,None,chat['name']+' · 微信候选')
         warnings = ['context_budget_truncated'] if plan.context_truncated else []
         for ordinal,message in enumerate(messages):
@@ -73,9 +73,9 @@ def prepare_batch(personal, chat, scan_id, plan, *, at, delay_seconds=0, connect
                         attachment_id=identifier()
                         ext=path.suffix.lstrip('.')
                         name=reference.get('title') or ('微信图片.'+ext if reference.get('kind')=='image' else '微信附件.'+ext)
-                        digest=reference.get('evidence_sha256') or reference.get('encrypted_evidence_sha256')
+                        attachment_digest=reference.get('evidence_sha256') or reference.get('encrypted_evidence_sha256')
                         c.execute('INSERT INTO attachment(id,raw_item_id,origin_snapshot_id,filename,local_path,mime_type,extension,size,sha256,downloaded_at,parse_status,version,needs_review,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-                                  (attachment_id,raw_id,snapshot_id,name,str(path),__import__('mimetypes').guess_type(name)[0] or 'application/octet-stream',ext,path.stat().st_size,digest,stamp,'downloaded',1,1,stamp))
+                                  (attachment_id,raw_id,snapshot_id,name,str(path),__import__('mimetypes').guess_type(name)[0] or 'application/octet-stream',ext,path.stat().st_size,attachment_digest,stamp,'downloaded',1,1,stamp))
                         c.execute('INSERT INTO snapshot_attachment VALUES (?,?)',(snapshot_id,attachment_id))
                 except (ValueError,TypeError):
                     pass
@@ -92,7 +92,7 @@ def prepare_batch(personal, chat, scan_id, plan, *, at, delay_seconds=0, connect
                 warnings.append('media_unavailable:'+message['id'])
         ready = (at+timedelta(seconds=delay_seconds)).isoformat()
         c.execute('INSERT INTO wechat_batch(id,chat_id,raw_item_id,snapshot_id,scan_id,input_hash,status,ready_at,warnings_json,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)',
-                  (batch_id,chat['id'],raw_id,snapshot_id,scan_id,digest,'waiting_context' if delay_seconds else 'pending',ready,encode(warnings),stamp))
+                  (batch_id,chat['id'],raw_id,snapshot_id,scan_id,batch_digest,'waiting_context' if delay_seconds else 'pending',ready,encode(warnings),stamp))
         # Keep potentially useful originals visible even if credentials/media/model fail.
         pending={'id':'_pending','title':'微信原文待核对','summary':content[:160],
                  'important':False,'relevant':None,'action_required':False,'category':'notice',

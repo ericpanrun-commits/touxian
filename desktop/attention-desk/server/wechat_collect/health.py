@@ -265,6 +265,8 @@ class CollectionHealthMonitor:
 
     def snapshot(self):
         health = wechat_health(self.personal, self.wechat.document, self.clock())
+        from ..notification_health import snapshot as automation_health
+        health['automation']=automation_health(self.personal.path.parent,self.clock())
         if getattr(self.wechat, 'lock', None) and self.wechat.lock.locked():
             with self.personal.connection() as c:
                 scan = c.execute("SELECT created_at FROM wechat_scan WHERE status='running' ORDER BY created_at DESC LIMIT 1").fetchone()
@@ -283,6 +285,11 @@ class CollectionHealthMonitor:
         for source in health['sources']:
             source.setdefault('pending_sync', None)
             source.setdefault('sync_state', 'unconfigured')
+        if health['sources'] and health['automation']['alert_required']:
+            # Reuse one existing incident/notification entry, not five duplicate alerts.
+            source=health['sources'][0]
+            source['alert_required']=True
+            source['latest_error']=source.get('latest_error') or 'notification_automation_requires_attention'
         if self.official is not None:
             external = not self.official.runtime.automatic_sync_allowed
             health['official'] = {'owner': 'cloud' if external else 'local',

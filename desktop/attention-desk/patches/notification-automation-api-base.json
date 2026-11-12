@@ -1,0 +1,23 @@
+{
+  "api_version": 33,
+  "bundle_hash": "3866c970f970ad8c71e5a40036b0d0bbe7701aede9d10b948a6b1b61e00fb823",
+  "files": {
+    "deno.json": "d54f72c26efedfa27b48a947a17837cc8521ceb2066f4013e0ce007b76e8777b",
+    "files.ts": "614cfaa68a25971d793e2c8e13f64d5ad3d2cf48f8b5979ca5790b34b34c0f1f",
+    "guarded_wechat_publish.ts": "a93ac615a1a8f51858aa51bd02d4a2591532c91eed97dd9439f5fdb2c8341bee",
+    "guarded_wechat_reconcile.ts": "159516832308ab4446269c99bb60540ae9cd634f11ef0285f35e4b2e08ed4a37",
+    "guarded_wechat_session.ts": "56c195121fbbde8b13c61ea3f9042015cc23b6440f9e8f3be40f90348185c863",
+    "handler.ts": "41b1fdc108148d19553fb69ceb11b1dea37cdcc810f5194f8d1926ecdcc12a5a",
+    "health_contract.js": "8a2b9e30db41842d8d7e6c9c81eca2c2d7195ca3db6d198b9583fadd3b6a41e6",
+    "health_overview.ts": "3cc0697357ce98fb9b1e38d8efab9fb042f7ac2357fc9333fe6e4591b80cd813",
+    "index.ts": "7c3dc3a86970b45e10b29a570f33b6c124b23292c51d41fbed2e050eab110dd9",
+    "official_health.ts": "86617a1b5acd2643cb10cb81daf6cc17dd2748769738dfd9b7f6442171e4f782",
+    "official_health_db.ts": "8ac082e0f53f6235928343b9222ba3b8f9cbd9b6ab0e4cea70895ce9acc5fd79",
+    "receipt_fence_experiment.ts": "9f2ec11303df064dad72e7e1f4a0e5c7a907a7125a46a5da5e0b9220b42515f5",
+    "scoped_notes.ts": "b0a938b4799f9d07dcd9f87f6486d473ad255d6e6d5df277bb55106b1a18fce2",
+    "scoped_notes_publish.ts": "6d4ed31101e98f25334477fb5e370853ed9addb5ab48d5e5f6996a2b382dac3c",
+    "store.ts": "4ebb589448f410cd24cd7719c6036ea9430c605eb4f0d2961ed0e6c6ca694735",
+    "views.ts": "9352855206ea02db4ab52c5e3afd8dd0c3aa6f5b3a7ede57d6a9addae228941a",
+    "vision.ts": "ca208de0cfc4f5b25f766f2528e35d1012f7004b130913ae9903c8569af97fb3"
+  }
+}

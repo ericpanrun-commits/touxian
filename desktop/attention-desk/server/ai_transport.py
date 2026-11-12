@@ -57,7 +57,7 @@ class DeepSeekTransport:
                         before_attempt()
                     count += 1
                     response = await client.post(endpoint,json=body,headers={'Authorization':'Bearer '+key})
-                    if response.status_code in {429,502,503} and index+1<attempts:
+                    if response.status_code in {429,500,502,503,504} and index+1<attempts:
                         await asyncio.sleep(0.5)
                         continue
                     if response.status_code>=400 or response.is_redirect:
@@ -71,7 +71,7 @@ class DeepSeekTransport:
                                 retry_after=max(0,min(86400,(parsedate_to_datetime(response.headers['Retry-After'])-datetime.now(timezone.utc)).total_seconds()))
                             except (ValueError,KeyError,TypeError):
                                 retry_after=300
-                        raise ExtractionFailure(code,message,attempts=count,retryable=response.status_code in {429,502,503},retry_after=retry_after)
+                        raise ExtractionFailure(code,message,attempts=count,retryable=response.status_code in {429,500,502,503,504},retry_after=retry_after)
                     if len(response.content)>2_000_000:
                         raise ExtractionFailure('response_too_large','模型返回过大。',attempts=count)
                     try:
@@ -91,6 +91,8 @@ class DeepSeekTransport:
                         raise ExtractionFailure('empty_output','模型返回为空，原文保留。',raw_output=raw,usage=usage,attempts=count)
                     model=data.get('model','')
                     return ProviderResult(raw,usage,model[:100].replace(key,'[redacted]') if isinstance(model,str) else '',reason,count)
+        except httpx.ConnectError:
+            raise ExtractionFailure('connection_unavailable','连接尚未建立，保留有限重试。',attempts=count,retryable=True,retry_after=30) from None
         except httpx.TimeoutException:
             raise ExtractionFailure('timeout','分析超时；结果未知，不自动重复请求。',attempts=count) from None
         except httpx.HTTPError:

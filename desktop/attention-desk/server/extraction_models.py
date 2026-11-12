@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from typing import Literal
-from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, ValidationInfo, field_validator, model_validator
 from .personal_models import EvidenceInput, normalize_time
 
 PROMPT_VERSION = "notice-extraction-4"
@@ -141,7 +141,7 @@ class ReviewDeadline(StrictModel):
     relation: Literal["current", "previous", "cancelled"] = "current"
 
     @model_validator(mode="after")
-    def date_valid(self):
+    def date_valid(self, info: ValidationInfo):
         if self.selected:
             if self.precision == 'unknown':
                 raise ValueError('未知日期请先核对，或取消选择')
@@ -155,7 +155,7 @@ class ReviewDeadline(StrictModel):
                     raise ValueError('结束时间不能早于开始时间')
             elif self.end_value or self.range_precision:
                 raise ValueError('只有范围日期可以填写结束值')
-            if not self.confirmed_by_user:
+            if not self.confirmed_by_user and (info.context or {}).get('automatic_policy') != 'wechat-personal-actions-v2':
                 raise ValueError("请核对并确认选中的截止时间")
         return self
 

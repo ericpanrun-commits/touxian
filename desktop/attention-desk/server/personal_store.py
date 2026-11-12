@@ -188,8 +188,12 @@ class PersonalStore:
         event["snapshot"] = snapshot_with_metadata(connection, connection.execute("SELECT * FROM raw_snapshot WHERE id = ?", (event["raw_snapshot_id"],)).fetchone())
         event["source"] = dict(connection.execute("SELECT s.* FROM source s JOIN raw_item r ON r.source_id = s.id WHERE r.id = ?", (event["raw_item_id"],)).fetchone())
         event["deadlines"] = [dict(row) for row in connection.execute("SELECT * FROM deadline WHERE event_id = ? ORDER BY value, created_at, id", (event_id,))]
+        automatic=connection.execute("SELECT after_json FROM user_decision WHERE event_id=? AND action='wechat_auto_created' AND json_extract(after_json,'$.automation.policy')='wechat-personal-actions-v2' LIMIT 1",(event_id,)).fetchone()
+        verified=json.loads(automatic[0]).get('verified_deadlines',{}) if automatic else {}
         for deadline in event["deadlines"]:
+            unchanged=verified.get(deadline['id'])==hashlib.sha256(encode(deadline).encode()).hexdigest()
             deadline["confirmed_by_user"] = bool(deadline["confirmed_by_user"])
+            if unchanged:deadline['verified_automatically']=True
         event["tasks"] = [dict(row) for row in connection.execute("SELECT * FROM task WHERE event_id = ? ORDER BY sort_order, created_at, id", (event_id,))]
         for task in event["tasks"]:
             task["order"] = task.pop("sort_order")
