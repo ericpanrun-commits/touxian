@@ -165,27 +165,44 @@ class TextAnalysisWorker:
             for batch in batches:
                 scoped_jobs.extend(row[0] for row in connection.execute('SELECT id FROM wechat_analysis_job WHERE batch_id=?',(batch['id'],)))
         self.recover_scoped(scoped_jobs)
+        from .recovery import eligible_job_ids
         result={'state':'ready','eligible_batches':len(batches),'enqueued':0,'parsed':0,'failed':0,'calls':0}
         processed=0
         for batch in batches:
             if processed>=self.policy.config.budget.batches_per_cycle:
                 break
             with self.personal.connection() as connection:
-                job=connection.execute('SELECT * FROM wechat_analysis_job WHERE batch_id=? ORDER BY created_at DESC LIMIT 1',(batch['id'],)).fetchone()
+                job=connection.execute('SELECT * FROM wechat_analysis_job WHERE batch_id=? AND snapshot_id=? ORDER BY created_at DESC LIMIT 1',(batch['id'],batch['snapshot_id'])).fetchone()
+                if not job:
+                    if self.queue.completed_job(connection,batch):
+                        continue
+                    review=connection.execute('SELECT status FROM raw_review WHERE raw_snapshot_id=?',(batch['snapshot_id'],)).fetchone()
+                    if not review or review['status'] not in {'pending','archived'}:
+                        continue
+                    captured=connection.execute("SELECT MAX(m.captured_at) FROM wechat_batch_message bm JOIN wechat_message m ON m.id=bm.message_id WHERE bm.batch_id=? AND bm.role='primary'",(batch['id'],)).fetchone()[0]
+                    # Keep unstarted history unchanged; the existing dispatch hold requires review.
+                    if captured and self.clock()-datetime.fromisoformat(captured)>=timedelta(hours=24):
+                        continue
             if not job:
                 job_id=self.queue.enqueue(batch['id'],UserContextStore(self.directory).read())
+                with self.personal.connection() as connection:
+                    job=connection.execute('SELECT * FROM wechat_analysis_job WHERE id=?',(job_id,)).fetchone()
+                if not job or job['batch_id']!=batch['id'] or job['snapshot_id']!=batch['snapshot_id']:
+                    continue
                 result['enqueued']+=1
             elif job['status'] in {'pending','retry','budget_deferred'}:
                 job_id=job['id']
             else:
                 continue
             with self.personal.connection() as connection:
+                if job['status'] not in {'pending','retry','budget_deferred'} or not eligible_job_ids(connection,[job],at=self.clock(),limit=1):
+                    continue
                 before=connection.execute('SELECT count(*) FROM wechat_llm_attempt WHERE job_id=?',(job_id,)).fetchone()[0]
             success=await self.queue.run_one(job_id)
             with self.personal.connection() as connection:
                 after=connection.execute('SELECT count(*) FROM wechat_llm_attempt WHERE job_id=?',(job_id,)).fetchone()[0]
                 state=connection.execute('SELECT status,error_code FROM wechat_analysis_job WHERE id=?',(job_id,)).fetchone()
-            processed+=1
+            processed+=int(success or after>before)
             result['calls']+=after-before
             result['parsed']+=int(success)
             result['failed']+=int(state['status'] in {'error','outcome_unknown'})

@@ -444,6 +444,37 @@ class AnalysisQueue:
             return ManualOverride(row['id'],datetime.fromisoformat(row['override_expires_at']))
         return None
 
+    def completed_job(self,connection,batch):
+        """Reuse only this batch's result, including a verified evidence-only refresh."""
+        review=connection.execute('SELECT * FROM raw_review WHERE raw_snapshot_id=?',(batch['snapshot_id'],)).fetchone()
+        jobs=connection.execute("SELECT * FROM wechat_analysis_job WHERE batch_id=? AND status='parsed' AND (snapshot_id=? OR extraction_id=?) ORDER BY created_at DESC",
+                                (batch['id'],batch['snapshot_id'],review['extraction_id'] if review else None)).fetchall()
+        for job in jobs:
+            if job['snapshot_id']==batch['snapshot_id']:
+                return job
+            previous=connection.execute('SELECT * FROM raw_snapshot WHERE id=?',(job['snapshot_id'],)).fetchone()
+            current=connection.execute('SELECT * FROM raw_snapshot WHERE id=?',(batch['snapshot_id'],)).fetchone()
+            old_review=connection.execute('SELECT * FROM raw_review WHERE raw_snapshot_id=?',(job['snapshot_id'],)).fetchone()
+            if (not previous or not current or not old_review or not review
+                    or previous['raw_item_id']!=batch['raw_item_id'] or current['raw_item_id']!=batch['raw_item_id']
+                    or old_review['extraction_id']!=job['extraction_id'] or review['extraction_id']!=job['extraction_id']
+                    or review['version']<=old_review['version']
+                    or any(previous[k]!=current[k] for k in ('original_text','source_time','source_timezone','hash'))):
+                continue
+            decisions=lambda row:{k:row[k] for k in row.keys() if k not in {'raw_snapshot_id','created_at','updated_at','version'}}
+            if decisions(old_review)!=decisions(review):
+                continue
+            def rows(table,snapshot,ignored):
+                return [{k:r[k] for k in r.keys() if k not in ignored} for r in connection.execute(
+                    'SELECT * FROM '+table+' WHERE '+('snapshot_id' if table=='wechat_snapshot_message' else 'raw_snapshot_id')+'=? ORDER BY block_id',(snapshot,))]
+            old_mappings=rows('wechat_snapshot_message',job['snapshot_id'],{'snapshot_id'})
+            if (not old_mappings or old_mappings!=rows('wechat_snapshot_message',batch['snapshot_id'],{'snapshot_id'})
+                    or rows('raw_source_block',job['snapshot_id'],{'raw_snapshot_id','attachment_id'})
+                       !=rows('raw_source_block',batch['snapshot_id'],{'raw_snapshot_id','attachment_id'})):
+                continue
+            return job
+        return None
+
     def enqueue(self,batch_id,context,*,force=False,connection=None):
         existing=self.settings._read()[1]
         config=existing.model_copy(update={'thinking':False,'max_output_tokens':min(4096,existing.max_output_tokens),'timeout':min(45,existing.timeout)})
@@ -453,11 +484,18 @@ class AnalysisQueue:
             if not batch or batch['superseded_by']:
                 raise PersonalError('候选已被更新，请重新读取。','superseded',409)
             if not force:
-                completed=c.execute("SELECT id FROM wechat_analysis_job WHERE batch_id=? AND status='parsed' ORDER BY created_at DESC LIMIT 1",(batch_id,)).fetchone()
+                completed=self.completed_job(c,batch)
                 if completed:
-                    return completed[0]
-            key=hashlib.sha256(encode([batch['input_hash'],context.fingerprint(),config.model_dump(),PROMPT_VERSION,'wechat.v1',identifier() if force else None]).encode()).hexdigest()
-            old=c.execute('SELECT id FROM wechat_analysis_job WHERE input_key=?',(key,)).fetchone()
+                    return completed['id']
+                review=c.execute('SELECT status FROM raw_review WHERE raw_snapshot_id=?',(batch['snapshot_id'],)).fetchone()
+                if not review or review['status'] not in {'pending','archived'}:
+                    raise PersonalError('审核已关闭，原确认和历史结果保留。','review_closed',409)
+            request_identity=[batch['input_hash'],context.fingerprint(),config.model_dump(),PROMPT_VERSION,'wechat.v1',identifier() if force else None]
+            key=hashlib.sha256(encode([batch_id,batch['snapshot_id'],*request_identity]).encode()).hexdigest()
+            # Preserve same-snapshot legacy dedupe without sharing another batch's result.
+            legacy_key=hashlib.sha256(encode(request_identity).encode()).hexdigest()
+            old=c.execute('SELECT id FROM wechat_analysis_job WHERE batch_id=? AND snapshot_id=? AND input_key IN (?,?) ORDER BY created_at DESC LIMIT 1',
+                          (batch_id,batch['snapshot_id'],key,legacy_key)).fetchone()
             if old:
                 return old[0]
             job_id,extraction_id,stamp=identifier(),identifier(),now()
