@@ -15,6 +15,7 @@ from ..wechat_collect.deepseek_content_gate import binding_digest
 SHA=re.compile(r'^[0-9a-f]{64}$')
 UUID=re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$')
 POLICY='deepseek-new-cloud-notices-v1'
+ACTION_POLICY='wechat-personal-actions-v2'
 UNTIL_REVOKED='9999-12-30T00:00:00+00:00'
 
 
@@ -66,14 +67,14 @@ class ContinuousCloudGrant:
             value=getattr(self,name)
             if not isinstance(value,str) or not UUID.fullmatch(value):raise ValueError('invalid_identity')
         for name in ('evidence_hash','api_bundle_hash'):fingerprint(getattr(self,name))
-        if (self.destination!=ENDPOINT or self.policy!=POLICY or type(self.sources) is not tuple
+        if (self.destination!=ENDPOINT or self.policy not in {POLICY,ACTION_POLICY} or type(self.sources) is not tuple
                 or len(self.sources)!=5 or any(type(source) is not CloudSource for source in self.sources)
                 or len({source.chat_id for source in self.sources})!=5):
             raise ValueError('five_explicit_sources_required')
         if not instant(self.approved_at)<=instant(self.not_before)<instant(self.expires_at):
             raise ValueError('invalid_future_window')
         if (type(self.generation) is not int or not 0<=self.generation<9007199254740990
-                or type(self.daily_limit) is not int or not 1<=self.daily_limit<=30
+                or type(self.daily_limit) is not int or not 1<=self.daily_limit<=(10000 if self.policy==ACTION_POLICY else 30)
                 or type(self.cycle_limit) is not int or not 1<=self.cycle_limit<=min(4,self.daily_limit)):
             raise ValueError('invalid_limits')
 
@@ -114,7 +115,7 @@ class ScopedCloudPublication:
     @property
     def generation(self):return self.scope.generation
     @property
-    def max_calls(self):return None  # Durable global quotas and backoff apply.
+    def max_calls(self):return 12 if self.scope.policy==ACTION_POLICY else None
     @property
     def daily_limit(self):return self.scope.daily_limit
     @property

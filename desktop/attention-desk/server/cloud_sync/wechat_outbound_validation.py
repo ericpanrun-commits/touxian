@@ -88,7 +88,7 @@ def _safe_text(value, *, scan_audience=False):
     canonical=_privacy_scan_text(canonical)
     if canonical is None:return False
     if scan_audience:canonical=canonical.replace('有意参加的同学','')
-    unnamed=re.sub(r'各位同学|全体同学|所有同学|同学们|老师们','',canonical)
+    unnamed=re.sub(r'各位同学|全体同学|全班同学|每位同学|所有同学|同学们|老师们','',canonical)
     return not (EMAIL.search(canonical) or PHONE.search(canonical) or MENTION.search(canonical) or
                 SENSITIVE.search(canonical) or NAMED.search(unnamed))
 

@@ -126,7 +126,7 @@ class ReviewedDeepSeekDispatch:
             count=len(entry['attempts'])+len(entry['reconciliations'])+sum(
                 len(h['attempts'])+len(h['reconciliations']) for h in history)
             if grant.max_calls is not None and count>=grant.max_calls:
-                return {'state':'test_call_limit_reached'}
+                return {'state':'delivery_attempt_limit_reached' if getattr(getattr(grant,'scope',None),'policy',None)=='wechat-personal-actions-v2' else 'test_call_limit_reached'}
             daily_limit=getattr(grant,'daily_limit',grant.max_calls)
             cycle_limit=getattr(grant,'cycle_limit',grant.max_calls)
             stamps=[a['at'] for a in entry['attempts']]+entry['reconciliations']
@@ -154,6 +154,9 @@ class ReviewedDeepSeekDispatch:
                 body={key:meta[key] for key in ('raw_id','snapshot_id','source_id')}
                 body.update(records=records,epoch=grant.epoch,generation=generation)
                 path='/worker/wechat-publish'
+            from ..wechat_collect.automation import POLICY as ACTION_POLICY
+            if getattr(getattr(grant,'scope',None),'policy',None)==ACTION_POLICY:
+                path='/worker/wechat-actions-reconcile' if reconcile else '/worker/wechat-actions'
             @contextmanager
             def snapshot():
                 with self.protected_preview(grant) as (fresh,new_config):

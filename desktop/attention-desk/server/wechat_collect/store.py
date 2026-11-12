@@ -220,6 +220,9 @@ class WeChatStore:
     def recover(self):
         with self.personal.connection(write=True) as c:
             c.execute("UPDATE wechat_scan SET status='interrupted',completed_at=?,error_code='interrupted' WHERE status='running'",(now(),))
+            from ..recovery_controls import controls
+            if controls(self.personal.path,use_override=False)['pause_paid_ai']:
+                return  # The dedicated owner reconciles only its new authorized scope.
             # A process crash after request dispatch has unknown billing outcome; never replay automatically.
             c.execute("UPDATE wechat_llm_attempt SET status='outcome_unknown',outcome_unknown=1,completed_at=? WHERE status='running'",(now(),))
             c.execute("UPDATE wechat_analysis_job SET status='outcome_unknown',error_code='interrupted' WHERE status='running'")

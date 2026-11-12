@@ -153,7 +153,7 @@ def apply(item,decision):
     return {**item,'evidence_message_ids':list(dict.fromkeys(item.get('evidence_message_ids') or [])),
             'attention_level':decision.attention_level,'information_complete':decision.information_complete,
             'await_more_context':decision.await_more_context,'action_required':decision.action_required,
-            'relevant':decision.relevant,'needs_review':decision.bucket=='action',
+            'relevant':decision.relevant,'needs_review':bool(item.get('needs_review')) or decision.bucket in {'unresolved','media_pending'},
             'important':decision.bucket=='action'}
 
 

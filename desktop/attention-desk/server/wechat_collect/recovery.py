@@ -19,7 +19,7 @@ from .analysis import build_text_request, primary_message_ids, validate_output
 from ..recovery_controls import paid_ai_paused
 
 
-def dispatch_hold(connection, job, at):
+def dispatch_hold(connection, job, at, *, automatic=None):
     """A stale backlog or a received/unknown response needs deliberate recovery."""
     if paid_ai_paused():
         return 'paid_analysis_paused'
@@ -35,17 +35,22 @@ def dispatch_hold(connection, job, at):
            or a['kind'] == 'vision' and a['status'] != 'success' and a['raw_output'] for a in attempts):
         return 'received_response_requires_local_review'
     scan = connection.execute('SELECT stats_json FROM wechat_scan WHERE id=?', (batch['scan_id'],)).fetchone()
-    if scan and json.loads(scan['stats_json']).get('recovery_requires_approval'):
+    scoped=False
+    if automatic is not None:
+        try:automatic.check(permission='analyze',at=at);scoped=automatic.contains(connection,batch)
+        except (OSError,ValueError,KeyError):return 'automation_changed'
+        if not scoped:return 'outside_automation_window'
+    if scan and json.loads(scan['stats_json']).get('recovery_requires_approval') and not scoped:
         return 'catch_up_requires_approval'
     captured = connection.execute("SELECT MAX(m.captured_at) FROM wechat_batch_message bm JOIN wechat_message m ON m.id=bm.message_id WHERE bm.batch_id=? AND bm.role='primary'", (job['batch_id'],)).fetchone()[0]
-    if captured and at - datetime.fromisoformat(captured) >= timedelta(hours=24):
+    if captured and at - datetime.fromisoformat(captured) >= timedelta(hours=24) and not scoped:
         return 'historical_source_requires_approval'
-    if at - datetime.fromisoformat(job['created_at']) >= timedelta(hours=24):
+    if at - datetime.fromisoformat(job['created_at']) >= timedelta(hours=24) and not scoped:
         return 'historical_recovery_requires_approval'
     return None
 
 
-def eligible_job_ids(connection, jobs, *, at, limit):
+def eligible_job_ids(connection, jobs, *, at, limit, automatic=None):
     """Select bounded runnable work without letting held history occupy the head.
 
     This is read-only. run_one/reserve must still recheck immediately before a
@@ -55,7 +60,7 @@ def eligible_job_ids(connection, jobs, *, at, limit):
     for job in jobs:
         if job['next_attempt_at'] and job['status'] != 'budget_deferred' and at < datetime.fromisoformat(job['next_attempt_at']):
             continue
-        if not dispatch_hold(connection, job, at):
+        if not dispatch_hold(connection, job, at,automatic=automatic):
             selected.append(job['id'])
             if len(selected) >= limit:
                 break

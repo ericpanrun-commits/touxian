@@ -19,14 +19,18 @@ def continuous_approval(raw):
         return result
     value=json.loads(raw,object_pairs_hook=unique)
     if (not isinstance(value,dict) or set(value)!={'version','mode','enabled','authorization_record','scope'}
-            or type(value['version']) is not int or value['version']!=1 or value['mode']!='continuous'
+            or type(value['version']) is not int or value['version'] not in {1,2} or value['mode']!='continuous'
             or value['enabled'] is not True or not isinstance(value['authorization_record'],str)
             or not value['authorization_record'].strip()):
         raise DispatchDenied('separate_continuous_cloud_approval_required')
     scope=dict(value['scope'])
     if type(scope.get('sources')) is not list:raise ValueError('five_explicit_sources_required')
     scope['sources']=tuple(CloudSource(**source) for source in scope['sources'])
-    return ContinuousCloudGrant(**scope)
+    from ..wechat_collect.automation import POLICY as ACTION_POLICY
+    parsed=ContinuousCloudGrant(**scope)
+    if (value['version']==2)!=(parsed.policy==ACTION_POLICY):
+        raise DispatchDenied('cloud_protocol_approval_mismatch')
+    return parsed
 
 
 class ContinuousLocalEvidence(ReviewedLocalEvidence):

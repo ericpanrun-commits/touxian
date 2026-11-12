@@ -24,10 +24,11 @@ EVIDENCE_FILES=('recovery-controls.json','cloud-worker-settings.json','wechat.ya
 
 
 def evidence_digest(files):
-    if set(files)!=set(EVIDENCE_FILES):
+    from ..wechat_collect.automation import FILENAME as AUTOMATION_FILE
+    if set(files) not in (set(EVIDENCE_FILES),set(EVIDENCE_FILES)|{AUTOMATION_FILE}):
         raise DispatchDenied('required_evidence_missing')
     return hashlib.sha256(json.dumps({name:hashlib.sha256(files[name]).hexdigest()
-        for name in EVIDENCE_FILES},sort_keys=True,separators=(',',':')).encode()).hexdigest()
+        for name in files},sort_keys=True,separators=(',',':')).encode()).hexdigest()
 
 
 def cloud_approval(raw):
@@ -62,12 +63,16 @@ class ReviewedLocalEvidence:
             raw=stack.enter_context(immutable_evidence(self.approval_path,max_bytes=16384))
             if hashlib.sha256(raw).hexdigest()!=self.approval_sha256 or self.parse_approval(raw)!=self.descriptor(grant):
                 raise DispatchDenied('cloud_approval_changed')
-            files={name:stack.enter_context(immutable_evidence(self.directory/name,max_bytes=65536)) for name in EVIDENCE_FILES}
+            from ..wechat_collect.automation import POLICY as ACTION_POLICY,FILENAME as AUTOMATION_FILE,activation
+            automatic=getattr(self.descriptor(grant),'policy',None)==ACTION_POLICY
+            names=(*EVIDENCE_FILES,AUTOMATION_FILE) if automatic else EVIDENCE_FILES
+            files={name:stack.enter_context(immutable_evidence(self.directory/name,max_bytes=65536)) for name in names}
             if evidence_digest(files)!=grant.evidence_hash:
                 raise DispatchDenied('cloud_evidence_changed')
             controls=json.loads(files['recovery-controls.json'])
-            if (controls.get('version')!=1 or controls.get('hold_cloud_uploads') is not True
-                    or controls.get('pause_paid_ai') is not True):
+            expected=False if automatic else True
+            if (controls.get('version')!=1 or controls.get('hold_cloud_uploads') is not expected
+                    or not automatic and controls.get('pause_paid_ai') is not True):
                 raise DispatchDenied('global_holds_required')
             # Settings are decrypted only after the separately approved cloud
             # descriptor and all pinned evidence have passed validation.
@@ -76,13 +81,28 @@ class ReviewedLocalEvidence:
             config=self.settings.read()
             deepseek=read_grant(files[FILENAME])
             document=SettingsDocument.model_validate(yaml.safe_load(files['wechat.yaml']))
+            if automatic:
+                active=stack.enter_context(activation(self.directory,permission='publish_tasks'))
+                self.automation_hash=active.digest
+                scope=self.descriptor(grant)
+                if (active.value['not_before']!=scope.not_before
+                        or set(active.value['sources'])!={s.chat_id for s in scope.sources}
+                        or any(active.value['sources'][s.chat_id]['after_seq']!=s.after_seq for s in scope.sources)):
+                    raise DispatchDenied('automation_scope_changed')
             yield deepseek,document,config
+
+    def build_preview(self,connection,deepseek,job_id,grant):
+        from ..wechat_collect.automation import POLICY as ACTION_POLICY
+        if getattr(self.descriptor(grant),'policy',None)==ACTION_POLICY:
+            from .automatic_actions import build_automatic_preview
+            return build_automatic_preview(connection,deepseek,job_id)
+        return build_deepseek_preview(connection,deepseek,job_id)
 
     @contextmanager
     def snapshot(self,grant):
         with self.files(grant) as (deepseek,document,config):
             def build(connection):
-                preview=build_deepseek_preview(connection,deepseek,grant.job_id)
+                preview=self.build_preview(connection,deepseek,grant.job_id,grant)
                 # Select the raw record explicitly; record order is not a scope.
                 source=next(r['payload']['source_id'] for r in preview['bundle']['records'] if r['kind']=='raw_item')
                 if not document.wechat.enabled or not any('wechat:'+chat.id==source and chat.enabled

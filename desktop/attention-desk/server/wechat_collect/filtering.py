@@ -25,6 +25,8 @@ def classify(message, *, aliases=(), trusted_senders=(), nearby_candidate=False,
         from .quality import waiting_text,confirmed,NOTICE,HELP,relay_progress,ordinary_reply
         if relay_progress(text): return FilterDecision('fast_reject','relay_participation_update')
         if ordinary_reply(text): return FilterDecision('fast_reject','ordinary_reply_without_notice')
+        if re.search(r'还有没有|有没有',text) and re.search(r'联系|提交|报名|填写',text) and TIME_HINT.search(text):
+            return FilterDecision('force_analyze','explicit_action_invitation')
         if HELP.search(text) and re.search(r'(?:怎么办|怎么做)[?？。!！]*$',text) and not confirmed(text):
             return FilterDecision('fast_reject','ordinary_help_question')
         if waiting_text(text):
