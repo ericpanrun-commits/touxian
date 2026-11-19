@@ -109,7 +109,7 @@ def test_http_status_is_available_without_changing_existing_error_codes(status, 
     assert failure.value.code == code and failure.value.http_status == status
 
 
-def test_cloud_store_keeps_partial_status_but_does_not_back_off_historical_only():
+def test_cloud_store_keeps_partial_status_without_source_backoff_for_history_and_batch_limits():
     class Cursor:
         def fetchone(self):
             return {'state': {'failure_count': 10}, 'config': {'polling_interval': 1800}}
@@ -132,6 +132,11 @@ def test_cloud_store_keeps_partial_status_but_does_not_back_off_historical_only(
     assert timedelta(minutes=59) < db.next_checks[-1] - datetime.now(timezone.utc) < timedelta(hours=2)
     PostgresOfficialStore(db).finish('fixture', counts, SourceFailure('http_error', 'current 404'))
     assert db.next_checks[-1] - datetime.now(timezone.utc) > timedelta(days=1)
+    budget_counts = {**counts, 'historical_unavailable': 0}
+    PostgresOfficialStore(db).finish('fixture', budget_counts, SourceFailure('batch_limit', 'cycle budget', status='partial'))
+    assert db.states[-1]['status'] == 'partial' and db.states[-1]['error'] == 'batch_limit'
+    assert db.states[-1]['failure_count'] == 10
+    assert timedelta(minutes=59) < db.next_checks[-1] - datetime.now(timezone.utc) < timedelta(hours=2)
 
 
 def test_existing_worker_does_not_prune_historical_run_journals(monkeypatch):

@@ -46,11 +46,17 @@ class PostgresOfficialStore:
         with self.database.connection() as db:
             row=db.execute('SELECT * FROM zqu_worker.sources WHERE id=%s FOR UPDATE',(source_id,)).fetchone()
             state,config=row['state'],row['config']
-            failures=state.get('failure_count',0)+1 if error else 0
             # Hourly Actions never increases school polling frequency.
-            interval=max(3600,config['polling_interval'])
+            delay = max(3600, config['polling_interval'])
+            failures = state.get('failure_count', 0)
             from ..official_sources import historical_only_failure
-            delay=max(interval,min(86400*4,1800*2**min(max(0,failures-1),7))) if error and not historical_only_failure(error,counts) else interval
+            if not error:
+                failures = 0
+            # A bounded cycle can end while the source is healthy.
+            elif error.code != 'batch_limit':
+                failures += 1
+                if not historical_only_failure(error, counts):
+                    delay = max(delay, min(86400 * 4, 1800 * 2 ** min(max(0, failures - 1), 7)))
             status='partial' if error and counts.get('saved',0) else error.status if error else 'ok'
             state.update(status=status,failure_count=failures,error=error.code if error else '',
                 last_new_count=counts['new'],last_changed_count=counts['changed'],
