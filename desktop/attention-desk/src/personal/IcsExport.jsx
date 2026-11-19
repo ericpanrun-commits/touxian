@@ -27,6 +27,6 @@ export default function IcsExport({ eventId, deadlineId, future = true, includeT
     finally { if (!controller.signal.aborted) { request.current = null; setBusy(false); } }
   };
   return <div className="planning-export"><button type="button" className="button button-quiet" disabled={busy} aria-busy={busy} onClick={download}>
-    {busy ? <LoaderCircle size={15} className="spin" /> : <Download size={15} />}导出 ICS
-  </button><span className="personal-meta" role="status">{notice}</span>{error ? <p role="alert" className="personal-field-error">{error} 可再次点击导出重试。</p> : null}</div>;
+    {busy ? <LoaderCircle size={15} className="spin" /> : <Download size={15} />}{eventId ? '导出本事项日期 ICS' : deadlineId ? '导出此日期 ICS' : '导出未来日期 ICS'}
+  </button><span className="personal-meta" role="status">{notice || (!eventId && !deadlineId ? '导出未来已确认日期，不限当前月份；沿用当前完成 / 取消筛选。' : '手动导出已确认日期。')}</span>{error ? <p role="alert" className="personal-field-error">{error} 可再次点击导出重试。</p> : null}</div>;
 }

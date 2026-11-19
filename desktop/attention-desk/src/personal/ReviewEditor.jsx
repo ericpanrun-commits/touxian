@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import CourseField from './CourseField';
+import { ActionDeadlineField, KeepAction } from './ActionFields';
 import { Field, SubmitButton } from './Forms';
 import { exactSpan, preventImeSubmit, quoteSpan, useDraft, validTime } from './formHelpers';
 import { emptyEvent, reviewDraft } from './reviewHelpers';
@@ -121,10 +122,10 @@ export default function ReviewEditor({ bundle, busy: mutating, onConfirm, onSave
           {value.actions.map((action, childIndex) => {
             const child = `${path}.actions.${childIndex}`;
             return <div className="personal-review-child" key={action.id}>
-              <label className="personal-checkbox-label"><input type="checkbox" checked={action.selected} onChange={event => childEdit(index, 'actions', childIndex, { selected: event.target.checked })} />保留行动：{action.title}</label>
+              <KeepAction action={action} onChange={selected => childEdit(index, 'actions', childIndex, { selected })} />
               <Field label="行动名称" name={`${child}.title`} error={draft.errors[`${child}.title`]}><input value={action.title} onChange={event => childEdit(index, 'actions', childIndex, { title: event.target.value })} /></Field>
               <div className="personal-form-grid"><Field label="行动来源" name={`${child}.kind`}><select value={action.kind} onChange={event => childEdit(index, 'actions', childIndex, { kind: event.target.value })}><option value="explicit">原文明确要求</option><option value="suggested">辅助建议</option><option value="manual">我自行添加</option></select></Field>
-                <Field label="关联截止时间" name={`${child}.deadline_id`} error={draft.errors[`${child}.deadline_id`]}><select value={action.deadline_id || ''} onChange={event => childEdit(index, 'actions', childIndex, { deadline_id: event.target.value || null })}><option value="">不关联</option>{value.deadlines.filter(deadline => deadline.selected).map(deadline => <option key={deadline.id} value={deadline.id}>{deadline.role}</option>)}</select></Field></div>
+                <ActionDeadlineField action={action} deadlines={value.deadlines} name={`${child}.deadline_id`} error={draft.errors[`${child}.deadline_id`]} onChange={deadline_id => childEdit(index, 'actions', childIndex, { deadline_id })} /></div>
               {renderWarnings(candidatePath + '.actions.' + action.id)}
               <EvidenceEditor value={action.evidence} original={original} blocks={blocks} name={`${child}.evidence`} errors={draft.errors} onChange={evidence => childEdit(index, 'actions', childIndex, { evidence })} onView={onView} disabled={busy} compact={Boolean(bundle.snapshot.wechat)} />
             </div>;

@@ -28,9 +28,9 @@ class PlanningQuery:
                 args.append(deadline_id)
             sql = """SELECT d.*,e.title AS event_title,e.status AS event_status,e.version AS event_version,
                 e.updated_at AS event_updated_at,e.raw_item_id,e.raw_snapshot_id,e.category,
-                s.name AS source_name,r.canonical_url AS source_url
+                s.name AS source_name,r.canonical_url AS source_url,e.course_id,co.name AS course_name
                 FROM deadline d JOIN event e ON e.id=d.event_id JOIN raw_item r ON r.id=e.raw_item_id
-                JOIN source s ON s.id=r.source_id"""
+                JOIN source s ON s.id=r.source_id LEFT JOIN course co ON co.id=e.course_id"""
             if clauses:
                 sql += ' WHERE ' + ' AND '.join(clauses)
             rows = [dict(row) for row in db.execute(sql,args)]
@@ -41,12 +41,14 @@ class PlanningQuery:
             for row in db.execute('SELECT id,event_id,field_path,raw_snapshot_id,page,section,source_type FROM evidence ORDER BY created_at,id'):
                 evidence[(row['event_id'],row['field_path'],row['raw_snapshot_id'])].append(dict(row))
         for item in rows:
+            item['course'] = {'id':item['course_id'],'name':item.pop('course_name')} if item['course_id'] else None
+            item.pop('course_name',None)
             fact = resolve(item)
             item.update(state(item,at=at,display_zone=tz))
             item['display_timezone'] = str(tz)
             item['precision_label'] = {'date':'日期','minute':'精确时间','range':'范围','unknown':'未知'}[item['precision']]
             related = [task for task in tasks[item['event_id']] if not task['deadline_id'] or task['deadline_id'] == item['id']]
-            item['tasks'] = [task for task in related if task['status'] != 'done']
+            item['tasks'] = [{**task,'course_id':item['course_id'],'course':item['course']} for task in related if task['status'] != 'done']
             item['remaining_task_count'] = sum(task['status'] != 'done' for task in tasks[item['event_id']])
             item['evidence'] = evidence[(item['event_id'],f"deadlines.{item['id']}.value",item['source_snapshot_id'] or item['raw_snapshot_id'])]
             if fact:
@@ -55,6 +57,35 @@ class PlanningQuery:
                 item['start_at'] = None if fact.all_day else fact.start.astimezone(tz).isoformat()
                 item['end_at'] = None if fact.all_day else fact.end.astimezone(tz).isoformat()
         return rows
+
+    def tasks(self, *, status='todo', limit=20, offset=0, at=None):
+        """One row per existing task, independent of the number of event dates."""
+        if status not in {'todo','done','all'}:
+            raise ValueError('Invalid task status')
+        at = aware(at or utc_now())
+        deadlines = {item['id']:item for item in self.deadlines(at=at)}
+        with self.store.connection() as db:
+            rows = [dict(row) for row in db.execute("""SELECT t.*,e.title AS event_title,
+                e.status AS event_status,e.version AS event_version,e.course_id,c.name AS course_name
+                FROM task t JOIN event e ON e.id=t.event_id LEFT JOIN course c ON c.id=e.course_id
+                WHERE e.status NOT IN ('done','cancelled')""")]
+        items = []
+        for item in rows:
+            if status != 'all' and item['status'] != status:
+                continue
+            item['course'] = {'id':item['course_id'],'name':item.pop('course_name')} if item['course_id'] else None
+            item.pop('course_name',None)
+            deadline = deadlines.get(item['deadline_id'])
+            item['deadline'] = {key:deadline.get(key) for key in (
+                'id','label','value','end_value','precision','range_precision','timezone','display_timezone',
+                'confirmed_by_user','uncertain','state','all_day','start_date','end_date','start_at','end_at','relative_label')
+            } if deadline and deadline['event_id'] == item['event_id'] else None
+            item['date_state'] = item['deadline']['state'] if item['deadline'] else 'undated'
+            items.append(item)
+        rank = {'overdue':0,'today':1,'upcoming':2,'needs_confirmation':3,'undated':4}
+        items.sort(key=lambda item:(rank[item['date_state']],
+            (item['deadline'] or {}).get('end_date') or '',(item['deadline'] or {}).get('end_at') or '',item['id']))
+        return {**self._result(items[offset:offset+limit],at),'total':len(items),'limit':limit,'offset':offset}
 
     def upcoming(self, days=7, *, include_terminal=False, at=None):
         if days not in {7,14,30}:

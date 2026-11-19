@@ -24,9 +24,23 @@ export function deadlineDisplay(item) {
   if (item.precision === 'unknown') return '日期待确认';
   if (item.all_day || item.precision === 'date' || item.range_precision === 'date') return item.value + (item.end_value ? ` — ${item.end_value}` : '');
   if (item.start_at) {
-    const format = new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium', timeStyle: 'short' });
+    const format = new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium', timeStyle: 'short', timeZone: item.display_timezone || item.timezone || undefined });
     return format.format(new Date(item.start_at)) + (item.end_at && item.end_at !== item.start_at ? ` — ${format.format(new Date(item.end_at))}` : '');
   }
   return item.value.replace('T', ' ') + (item.end_value ? ` — ${item.end_value.replace('T', ' ')}` : '');
 }
 export function displayInstant(value) { return value ? new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) : '尚未触发'; }
+
+export function taskDateText(task) {
+  const date = task.deadline;
+  if (!date) return '未设截止日期';
+  if (date.state === 'needs_confirmation' || !date.confirmed_by_user || date.uncertain || date.precision === 'unknown')
+    return `${date.label || '日期'} · 日期待确认${date.value ? ` · ${date.value.replace('T', ' ')}` : ''}`;
+  return `${date.label || '截止时间'} · ${deadlineDisplay(date)} · ${date.all_day || date.precision === 'date' || date.range_precision === 'date' ? '仅日期' : date.display_timezone || date.timezone || ''}${date.relative_label ? ` · ${date.relative_label}` : ''}`;
+}
+
+// Partition the homepage only; full Upcoming and Calendar membership is unchanged.
+export function recentDeadlines(upcoming = [], today = []) {
+  const seen = new Set(today.map(item => item.id));
+  return upcoming.filter(item => { if (seen.has(item.id)) return false; seen.add(item.id); return true; });
+}

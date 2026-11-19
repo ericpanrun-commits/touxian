@@ -1,5 +1,19 @@
 export const emptyEvent = (title = '') => ({ id: 'manual-' + crypto.randomUUID(), selected: true, course_id: null, title, summary: '', category: '其他', relevance: 'unclear', participation: 'later', notice_kind: 'new', audience: null, eligibility: [], deadlines: [], actions: [], materials: [], locations: [], uncertainties: [] });
 
+export function editReviewDate(event, id, fields) {
+  const deadlines = event.deadlines.map(date => date.id === id ? { ...date, ...fields } : date);
+  const selected = new Set(deadlines.filter(date => date.selected).map(date => date.id));
+  const affected = event.actions.filter(action => action.deadline_id && !selected.has(action.deadline_id));
+  return { event: { ...event, deadlines, actions: event.actions.map(action => affected.includes(action) ? { ...action, deadline_id: null } : action) }, affected };
+}
+
+export function confirmationSummary(event) {
+  const dates = event.deadlines.filter(date => date.selected).length;
+  const actions = event.actions.filter(action => action.selected).length;
+  const execute = event.participation === 'yes' && event.relevance !== 'no' && event.notice_kind !== 'cancellation';
+  return `将保存 1 个事项、${dates} 个日期；${execute ? `创建 ${actions} 个待办任务` : `不创建任务，保留 ${actions} 个行动方案`}。`;
+}
+
 export function reviewDraft(bundle, candidateId = null) {
   const active = bundle.wechat_candidates?.filter(item => item.status === 'needs_review');
   const focused = candidateId ? active?.find(item => item.id === candidateId) : null;
