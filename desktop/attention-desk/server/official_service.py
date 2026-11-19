@@ -28,7 +28,7 @@ class OfficialSourceMonitor:
         self.stop_event = threading.Event()
         self.lock = threading.Lock()
         self._run_lock = threading.Lock()
-        self._run = {'running': False, 'done': 0, 'total': 0, 'failed': 0, 'current': '', 'new_count': 0, 'changed_count': 0}
+        self._run = {'running': False, 'done': 0, 'total': 0, 'failed': 0, 'deferred': 0, 'current': '', 'new_count': 0, 'changed_count': 0}
         self.configuration_error = ''
         self.configured = set()
         self.worker = self.scheduler = None
@@ -98,7 +98,7 @@ class OfficialSourceMonitor:
         self.owner = owner
         ids = list(dict.fromkeys(ids))
         with self.lock:
-            self._run = {'running': True, 'done': 0, 'total': len(ids), 'failed': 0, 'current': '', 'new_count': 0, 'changed_count': 0}
+            self._run = {'running': True, 'done': 0, 'total': len(ids), 'failed': 0, 'deferred': 0, 'current': '', 'new_count': 0, 'changed_count': 0}
         return ids
 
     def start_scan(self, source_ids=None):
@@ -226,12 +226,16 @@ class OfficialSourceMonitor:
                 except Exception:
                     error = SourceFailure('collection_error', '该来源检查未完成，已有原文和事项保留。')
                 counts['requests'] = client.request_count if client else 0
-                if error and not counts['failed']: counts['failed']=1
+                deferred = error is not None and error.code == 'batch_limit'
+                failed = error is not None and not deferred
+                if failed and not counts['failed']:
+                    counts['failed'] = 1
                 self.store.finish(source_id, counts, error,run_id)
                 LOG.info('source_sync_finished instance=%s source_id=%s inserted=%s updated=%s failed=%s',self.runtime.instance_id,source_id,counts['new'],counts['changed'],counts['failed'])
                 with self.lock:
                     self._run['done'] += 1
-                    self._run['failed'] += int(error is not None)
+                    self._run['failed'] += int(failed)
+                    self._run['deferred'] += int(deferred)
                     self._run['new_count'] += counts['new']
                     self._run['changed_count'] += counts['changed']
         finally:

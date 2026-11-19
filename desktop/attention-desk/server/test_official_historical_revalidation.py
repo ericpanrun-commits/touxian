@@ -34,7 +34,7 @@ def captured(tmp_path):
     return personal, src, old, before
 
 
-def run_scan(tmp_path, captured, listed, statuses):
+def run_scan(tmp_path, captured, listed, statuses, **monitor_options):
     personal, src, _, _ = captured
     config = tmp_path / 'sources.json'
     config.write_text(json.dumps({'version': 1, 'sources': [src.model_dump()]}), encoding='utf-8')
@@ -51,13 +51,22 @@ def run_scan(tmp_path, captured, listed, statuses):
         return PublicHTMLClient(current, transport=httpx.MockTransport(response), resolver=lambda _: None, delay=0, retries=0, **options)
     notifications = type('Notifications', (), {'notify_windows': lambda *a: None})()
     monitor = OfficialSourceMonitor(personal, config_path=config, client_factory=factory,
-                                    start_scheduler=False, notifications=notifications)
+                                    start_scheduler=False, notifications=notifications, **monitor_options)
     result = monitor.run_once([src.id])
     monitor.close()
     with personal.connection() as c:
         state = dict(c.execute('SELECT * FROM official_source WHERE source_id=?', (src.id,)).fetchone())
         latest = dict(c.execute('SELECT * FROM official_run ORDER BY started_at DESC LIMIT 1').fetchone())
     return result, state, latest, calls
+
+
+def test_budget_cap_defers_source_without_incrementing_failures(tmp_path, captured):
+    listed = [(2, '第一条通知', TODAY), (3, '第二条通知', TODAY)]
+    result, state, latest, _ = run_scan(tmp_path, captured, listed, {}, article_limit=1)
+    assert (result['done'], result['failed'], result['deferred']) == (1, 0, 1)
+    assert latest['error_code'] == 'batch_limit' and latest['failed'] == 0
+    assert state['status'] == 'partial' and state['failure_count'] == 10
+    assert timedelta(0) < datetime.fromisoformat(state['next_check_at']) - datetime.now(timezone.utc) < timedelta(hours=2)
 
 
 @pytest.mark.parametrize('http_status', [404, 410])
@@ -139,7 +148,12 @@ def test_cloud_store_keeps_partial_status_without_source_backoff_for_history_and
     assert timedelta(minutes=59) < db.next_checks[-1] - datetime.now(timezone.utc) < timedelta(hours=2)
 
 
-def test_existing_worker_does_not_prune_historical_run_journals(monkeypatch):
+@pytest.mark.parametrize(('scan', 'expected'), [
+    (None, (0, 0, 0, 'ok')),
+    ({'done': 3, 'failed': 1, 'deferred': 1, 'new_count': 0, 'changed_count': 0}, (1, 1, 1, 'partial')),
+    ({'done': 1, 'failed': 0, 'deferred': 1, 'new_count': 0, 'changed_count': 0}, (0, 0, 1, 'partial')),
+])
+def test_existing_worker_does_not_prune_historical_run_journals(monkeypatch, scan, expected):
     class Database:
         def __init__(self): self.statements = []
         @contextmanager
@@ -150,12 +164,16 @@ def test_existing_worker_does_not_prune_historical_run_journals(monkeypatch):
         def meta(self): return {'schema_version': 1, 'database_id': 'fixture'}
         def acquire_lease(self, *args): return True
         def release_lease(self, *args): pass
-        def source_rows(self): return []
+        def source_rows(self):
+            return [{'id': 'fixture', 'enabled': True, 'next_check_at': None, 'priority': 'normal'}] if scan else []
     class Monitor:
         def __init__(self, *args, **kwargs):
             self.configuration_error = ''
-            self.configured = set()
+            self.configured = {'fixture'}
             self.stop_event = SimpleNamespace(set=lambda: None)
+        def run_once(self, ids):
+            assert ids == ['fixture']
+            return scan
         def close(self): pass
     class Timer:
         def __init__(self, *args): self.daemon = False
@@ -169,7 +187,8 @@ def test_existing_worker_does_not_prune_historical_run_journals(monkeypatch):
     runtime = ActionsRuntime(environment='production', auto_sync=True, execution_verified=True,
                              dry_run=True, expected_database_id='fixture')
     database = Database()
-    assert worker.run_once(runtime, database, bark_config=object())['status'] == 'ok'
+    result = worker.run_once(runtime, database, bark_config=object())
+    assert (result['succeeded'], result['failed'], result['deferred'], result['status']) == expected
     assert any('UPDATE zqu_worker.worker_runs' in sql for sql in database.statements)
     assert not any('DELETE FROM zqu_worker.crawl_runs' in sql or 'DELETE FROM zqu_worker.worker_runs' in sql for sql in database.statements)
 

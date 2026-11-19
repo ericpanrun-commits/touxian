@@ -19,7 +19,7 @@ from .notifications import PostgresNotificationStore
 from .runtime import ActionsRuntime
 from .store import OneShotRuntimeStore, PostgresOfficialStore
 
-LABELS={'sources_checked':'Sources checked','succeeded':'Succeeded','failed':'Failed',
+LABELS={'sources_checked':'Sources checked','succeeded':'Succeeded','failed':'Failed','deferred':'Deferred at cycle limit',
     'new_articles':'New articles','updated':'Updated','candidates':'Notification candidates',
     'sent':'Bark sent','suppressed':'Suppressed','would_send':'Would send',
     'duplicate_prevented':'Acceptance repeat prevented','low_relevance_suppressed':'Acceptance low relevance suppressed'}
@@ -86,12 +86,16 @@ def run_once(runtime, database, *, bark_config=None, client=None, client_factory
         due.sort(key=source_due_order)
         if due:
             scan=monitor.run_once([row['id'] for row in due])
-            summary.update(sources_checked=scan['done'],failed=scan['failed'],succeeded=scan['done']-scan['failed'],
+            summary.update(sources_checked=scan['done'],failed=scan['failed'],deferred=scan['deferred'],
+                           succeeded=scan['done']-scan['failed']-scan['deferred'],
                            new_articles=scan['new_count'],updated=scan['changed_count'])
         dispatcher.tick(limit=10)
         summary.update(repository.counters)
         healthy=not dispatcher.last_cycle_error and (not due or summary['succeeded']>0)
-        summary['status']='ok' if healthy and not summary['failed'] else 'partial' if healthy else 'failed'
+        if healthy:
+            summary['status'] = 'partial' if summary['failed'] or summary['deferred'] else 'ok'
+        elif summary['deferred'] and not summary['failed'] and not dispatcher.last_cycle_error:
+            summary['status'] = 'partial'
         summary['elapsed_seconds']=round(time.monotonic()-started,2)
         with database.connection() as db:
             # Retain source and worker journals for diagnosis and recovery.
